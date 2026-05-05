@@ -700,6 +700,14 @@ Passes the values to \`console.log()\` directly and returns \`undefined\`.`);
 
     // MARK: JSON based standard library!
     const standardLibrary = ["begin",
+        ["define", ["call/cc", "f"],
+            `["call/cc", <function>]
+["call-with-current-continuation", <function>]
+
+Calls the function with a *continuation*, which is a special callable object. When the continuation is called with one argument, it will not return normally, and instead jump back to the place where \`call/cc\` was created from and make the \`call/cc\` return the given value instead - *even if* the \`call/cc\` expression has already returned!
+Invoking a continuation will cause the \`enter\` and \`exit\` handlers of [[with]] blocks jumped across to be triggered with \`true\` to indicate it was due to a continuation.
+Continuations can be used for very complex control structures and can be incredibly confusing to debug, so use with care.`,
+            ["f", ["$", "return"]]],
         ["define", true, ["when", "test", "body", true],
             `["when", <condition>, <body...>]
 
@@ -746,6 +754,22 @@ If \`body\` exits cleanly with no error, the special \`"else"\` handler is calle
                                 false]],
                     }],
                     [UNQUOTE_NAME, ["$", "body"]]]]]],
+        ["define", true, ["with-baffle", "body", true],
+            `["with-baffle", <body...>]
+
+Prevents continuations from jumping in or out of \`body\`; only normal control flow or exceptions can be used to enter or exit.`,
+            [QUASIQUOTE_NAME, ["with", null, ["object",
+                {
+                    enter: ["lambda", ["k"],
+                        ["when", ["$", "k"],
+                            ["error", "state_error", "Continuation tried to jump into a 'with-baffle' block", {}]],
+                        null],
+                    exit: ["lambda", ["k", "_", true],
+                        ["when", ["$", "k"],
+                            ["error", "state_error", "Continuation tried to jump out of a 'with-baffle' block", {}]],
+                        false]
+                }],
+                [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]]
     ];
 
     vm.currentEnv = vm.globalEnv;

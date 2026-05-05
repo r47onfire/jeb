@@ -354,4 +354,20 @@ describe("self-defined macros", () => {
         ])).toBeTrue();
         expect(out).toEqual(["nothing to see here", "we didn't get an error"]);
     });
+    testTest("with-baffle 1", vm => {
+        expect(() => run(vm, ["begin",
+            ["define", "x", null],
+            ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]],
+            ["with-baffle",
+                ["x", null]]
+        ])).toThrow("tried to jump out of a 'with-baffle' block");
+    });
+    testTest("with-baffle 2", vm => {
+        expect(() => run(vm, ["begin",
+            ["define", "x", null],
+            ["with-baffle",
+                ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]],
+            ["x", null]
+        ])).toThrow("tried to jump into a 'with-baffle' block");
+    });
 });

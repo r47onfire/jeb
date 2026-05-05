@@ -13,6 +13,7 @@ export class HasDocstring {
     readonly doc: Doc;
     constructor(docstring: string) {
         const doc: Doc = this.doc = { headers: [], body: [] };
+        docstring = docstring.split("\n").map(s => s.trimEnd()).join("\n");
         if (!docstring) return;
         const [head, ...body] = docstring.split("\n\n");
         const paragraphs = body.flatMap(l => l.split("\n"));
