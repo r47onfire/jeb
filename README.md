@@ -1,45 +1,35 @@
-# bun-typescript-template
+# JEB
 
-Quick template to get started with a TypeScript project using [Bun](https://bun.com) and [pnpm](https://pnpm.io) with Jest-style unit tests, possibly an NPM package, and/or a Github Pages site.
+simple JSON evaluation virtual machine with first-class continuations
 
-* Source files go in `src/`
-* Test files go in `test/`
-* Build scripts and helpers go in `scripts/`
-* Build artifacts go in `dist/` - gitignore'd
-* Website build files go in `docs/` - gitignore'd
+## how?
 
-Getting started:
+JSON arrays are treated much the same way Lisp/Scheme cons lists are.
 
-1. update the `package.json` fields: name, version, description, repository, keywords, author, license (and update the LICENSE file if license is different)
-1. to build: `pnpm build`
-1. to test website: `pnpm dev` and open <http://localhost:8000/>
+however, Lisp/Scheme has symbols *and* strings, while JSON only has strings. so, two special things happen here:
 
-## NPM package
+1. if you need to look up a variable, you use `["$", varname]`
+2. you don't need to do the above if the string is in head/function position, "calling" a string looks it up and calls the value implicitly (this is literally how "$" is implemented there, it's just a builtin function defined in the global environment)
 
-If you want to publish as an NPM package:
+## continuations?
 
-1. make sure to remove `"private": true` from `package.json`
-1. make the first release manually as normal `npm publish`
-1. once it is on NPM, when you make a new version, bump the version in `package.json` and then manually trigger `.github/workflows/publish-package.yaml`
-1. if tests fail, it will not publish
+these are accomplished by compiling the JSON evaluation process into micro-operations for a lower-level stack machine on the fly as it's evaluated. a continuation simply stores a snapshot of what the data stack and instruction stack are when it was captured (among other things), and replaces them when invoked.
 
-If you don't want to publish as an NPM package:
+JEB also supports a Scheme-like `dynamic-wind` context manager syntax, so code can know when it's jumping in and out, and for what reason (normal, continuation, or exception).
 
-1. delete `.github/workflows/publish-package.yaml`
+## what's currently not yet implemented
 
-## website
+* more functional programming primitives (fold, map, flatMap, etc)
+* optional parameters in lambdas/macros
+* a more lisp-like syntax (this will be done with a Python lisp->json converter)
 
-If you have a website (docs, demo, etc):
+## naming
 
-1. put your html files in `website/`
-1. if there is more than just `index.html`, make sure to list them as entrypoints in `scripts/build-website.ts`
-1. there is a custom plugin that allows Markdown in elements that look like `<div markdown="block">markdown here</div>`
-1. uncomment the "push" event in `.github/workflows/website.yaml` if you want to automatically rebuild on every push (it is commented to prevent the workflow from instantly failing when you create the new repo from this template)
+canonically, JEB stands for "JSON Evaluation Backend". however, JEB can stand for many other things:
 
-If you don't have a website:
+* Judicious, Elegant, Brilliant - when it works
+* Janky Expression Builder - when other people see it
+* Just Enough Brackets - when you get sick of writing it
+* Javascript's Evil Brother - when it breaks
 
-1. delete the entire `website/` directory
-1. delete `.github/workflows/website.yaml`
-1. delete `scripts/build-website.ts`
-1. possibly merge the two build scripts
-1. delete the `build:website`, `clean-docs`, `dev`, `dev:watch`, and `dev:serve` scripts from `package.json`
+it does not have anything to do with Jens Bergenstein.

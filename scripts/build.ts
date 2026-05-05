@@ -1,6 +1,7 @@
-import { build } from "./build-common";
-
-await build({
+Bun.build({
+    sourcemap: true,
+    target: "browser",
+    format: "esm",
     splitting: true,
     outdir: "dist/",
     entrypoints: ["src/index.ts"],
@@ -9,6 +10,4 @@ await build({
         chunk: "[dir]/[hash].[ext]",
     },
     minify: process.argv.includes('--minify'),
-    target: "browser",
-});
-console.log("Build OK");
+}).then(() => console.log("Build OK"));

@@ -1,41 +1,29 @@
 {
-    "name": "edit_me",
+    "name": "@r47onfire/jeb",
     "private": true,
-    "version": "???",
-    "description": "",
+    "version": "0.1.0",
+    "description": "simple JSON evaluation virtual machine with first-class continuations",
     "main": "src/index.ts",
     "type": "module",
     "scripts": {
         "build": "pnpm bun run scripts/build.ts",
-        "build:website": "pnpm clean-dist && pnpm clean-docs && pnpm prepare && pnpm bun run scripts/build-website.ts",
-        "dev": "pnpm run \"/^dev:.*/\"",
-        "dev:serve": "python3 -m http.server -d docs",
-        "dev:watch": "pnpm nodemon -e js,json,ts,css,md,html -i docs -w src -w website -w scripts --exec \"pnpm build:website\"",
         "test": "pnpm bun test",
         "test:watch": "pnpm test --watch",
-        "prepare": "pnpm build --minify",
-        "clean-dist": "rm -rf dist/*",
-        "clean-docs": "rm -rf docs/*"
+        "prepare": "pnpm build --minify"
     },
     "repository": {
         "type": "git",
-        "url": "https://github.com/r47onfire/bun-typescript-template.git"
+        "url": "https://github.com/r47onfire/jeb.git"
     },
     "keywords": [],
-    "author": "",
+    "author": "dragoncoder047",
     "license": "AGPL-3.0-only",
     "packageManager": "pnpm@10.33.2",
     "devDependencies": {
         "@types/bun": "^1.3.13",
-        "@types/markdown-it": "^14.1.2",
-        "@types/markdown-it-attrs": "^4.1.3",
-        "@types/node": "^25.6.0",
-        "@types/prismjs": "^1.26.6",
-        "bun": "^1.3.13",
-        "markdown-it": "^14.1.1",
-        "markdown-it-attrs": "^4.3.1",
-        "node-html-parser": "^7.1.0",
-        "nodemon": "^3.1.14",
-        "prismjs": "^1.30.0"
+        "bun": "^1.3.13"
+    },
+    "dependencies": {
+        "lib0": "^0.2.117"
     }
 }

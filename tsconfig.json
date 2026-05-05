@@ -12,9 +12,7 @@
         "moduleResolution": "Bundler",
         "module": "ESNext",
         "types": [
-            "bun",
-            "node",
-            "prismjs",
+            "bun"
         ],
         "lib": [
             "esnext",
