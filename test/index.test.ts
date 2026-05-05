@@ -122,7 +122,7 @@ describe("with / dynamic-wind", () => {
 
     const makeWith = (begin: string, end: string, ...body: any[]) => {
         return ["with", null,
-            ["object", {
+            ["obj", {
                 enter: ["lambda", ["k"], "",
                     ["print", begin, ["$", "k"]]],
                 exit: ["lambda", ["k", "type", "value", "restarts"], "",
@@ -267,7 +267,7 @@ describe("recursion stress tests", () => {
     });
     const MEMOIZE_F = (f: (a: bigint) => bigint) => { const cache: Record<number, bigint> = {}; return (a: bigint) => (cache[a as any] ??= f(a)) }
     const MEMOIZE = ["define", ["memoize", "f"],
-        ["let", [["cache", ["object", {}]]],
+        ["let", [["cache", ["obj", {}]]],
             ["lambda", ["a"], "",
                 ["let", [["cached", ["get_prop", ["$", "cache"], ["$", "a"]]]],
                     ["if", ["nil?", ["$", "cached"]],
@@ -305,7 +305,7 @@ describe("recursion stress tests", () => {
         expect(out).toEqual([String(q(x))]);
     });
     testTest("A063510", (vm, out) => {
-        const x = 65536;
+        const x = 1e20;
         const A063510 = (a: number): number => a < 2 ? 1 : 1 + A063510(a ** 0.5 | 0);
         expect(run(vm, ["begin",
             ["define", ["A063510", "a"],

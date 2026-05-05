@@ -307,7 +307,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
     });
 
     // MARK: JS objects
-    defineBuiltin(vm, "object", 1, false, false, (args, vm) => {
+    defineBuiltin(vm, "obj", 1, false, false, (args, vm) => {
         const quoted = args[0] as Record<string, any>;
         // evaluate all the properties
         const target = {};
@@ -321,7 +321,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
             vm.pushCommand("eval");
         }
         return NOTHING;
-    }, `["object", <object>]
+    }, `["obj", <object>]
 
 Evaluates all the properties of the object, and returns a new object with the results of evaluation. The properties are evaluated in an unspecified order, but it's usually the order in which they were defined or added to the object.`);
     defineOpcode(vm, "set_prop", (vm, args) => {
@@ -726,14 +726,14 @@ Equivalent to \`["[[if]]", *condition*, null, ["[[begin]]", *body...*]]\`.`,
         ["define", true, ["try", "body", "handlers"],
             `["try", <body>, <handlers>]
 
-Catches and handles errors. The \`handlers\` is an object mapping error type to handler; it will be expanded using [[object]].
+Catches and handles errors. The \`handlers\` is an object mapping error type to handler; it will be expanded using [[obj]].
 During evaluation of the body, if an error is thrown, the error's \`type\` (as returned by [[with]]) will be checked to see if it's in the handlers, and if it is, the handler is called with the \`message\` and \`context\` of the error.
 If no handler directly matches, the special catch-all handler \`"\\*"\` is tried, and if it exists, it is called with \`type\`, \`message\` and \`context\`.
 In both cases if the handler exists, \`true\` is returned to [[with]] to stop propagation of the error. If the handler wants to propagate the error, it should re-throw it using [[error]].
 If \`body\` exits cleanly with no error, the special \`"else"\` handler is called with no arguments, if present.`,
             [QUASIQUOTE_NAME, ["let", [],
-                ["define", "handlers", ["object", [UNQUOTE_NAME, ["$", "handlers"]]]],
-                ["with", null, ["object",
+                ["define", "handlers", ["obj", [UNQUOTE_NAME, ["$", "handlers"]]]],
+                ["with", null, ["obj",
                     {
                         exit: ["lambda", ["k", "type", "value", "ctx"],
                             ["let",
@@ -758,7 +758,7 @@ If \`body\` exits cleanly with no error, the special \`"else"\` handler is calle
             `["with-baffle", <body...>]
 
 Prevents continuations from jumping in or out of \`body\`; only normal control flow or exceptions can be used to enter or exit.`,
-            [QUASIQUOTE_NAME, ["with", null, ["object",
+            [QUASIQUOTE_NAME, ["with", null, ["obj",
                 {
                     enter: ["lambda", ["k"],
                         ["when", ["$", "k"],
