@@ -16,9 +16,10 @@ export class BuiltinFunction extends HasDocstring {
 export class Lambda extends HasDocstring {
     constructor(
         public readonly isMacro: boolean,
-        public readonly lastIsSpread: boolean,
         public name: string | undefined,
-        public readonly params: string[],
+        public readonly args: string[],
+        public readonly optArgs: [string, any][],
+        public readonly restArg: string | null,
         public readonly body: any,
         public readonly closureEnv: Env,
         doc: string,

@@ -26,6 +26,49 @@ function rawTraceback(vm: JebVM): string[] {
     return res;
 }
 
+describe("basic", () => {
+    testTest("begin with no args returns null", vm => {
+        expect(run(vm, ["begin"])).toBeTrue();
+        expect(vm.peekData()).toBeNull();
+    });
+    describe("undefined", () => {
+        testTest("getting variable", vm => {
+            expect(() => run(vm, ["$", "nonexistent"])).toThrow("variable \"nonexistent\" not found");
+        });
+        testTest("setting variable", vm => {
+            expect(() => run(vm, ["set", "nonexistent", 1])).toThrow("variable \"nonexistent\" not found");
+        });
+        testTest("function", vm => {
+            expect(() => run(vm, ["nonexistent"])).toThrow("function \"nonexistent\" not found");
+        });
+    });
+    testTest("calling non-functions errors", vm => {
+        expect(() => run(vm, [1, 2, 3])).toThrow("can't call number");
+    });
+    testTest("math overload error", vm => {
+        expect(() => run(vm, ["+", "hi", 1])).toThrow("No overload of \"add\" found for types \"string\", \"number\"")
+    });
+    testTest("boolean short-circuiting", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["or", true, ["print", "a"]],
+            ["or", false, ["print", "b"]],
+            ["and", 0, ["print", "a"]],
+        ])).toBeTrue();
+        expect(vm.peekData()).toEqual(0);
+        expect(out).toEqual(["b"]);
+    });
+    testTest("json error 1", vm => {
+        expect(() => run(vm, ["parseJSON", "["])).toThrow();
+    });
+    testTest("json error 2", vm => {
+        expect(() => run(vm, ["begin",
+            ["let", [["x", ["list", null]]],
+                ["set_prop", ["$", "x"], 0, ["$", "x"]],
+                ["dumpJSON", ["$", "x"]]]
+        ])).toThrow();
+    });
+});
+
 describe("tail-call elimination", () => {
     testTest("command stack stays constant", vm => {
         expect(run(vm, ["begin",
@@ -159,7 +202,7 @@ describe("with / dynamic-wind", () => {
     testTest("continuation re-enters with", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", "k", null],
-            makeWith("enter 1", "exit 1",
+            makeWith("enter", "exit",
                 [["lambda", [], "", ["set", "k", ["$", "return"]]]],
                 ["print", "inside"]),
             ["print", "outside"],
@@ -168,13 +211,13 @@ describe("with / dynamic-wind", () => {
         ], 2000)).toBeFalse();
 
         const init = [
-            "enter 1 false",
+            "enter false",
         ];
         const repeated = [
             "inside",
-            "exit 1 false null null null",
+            "exit false null null null",
             "outside",
-            "enter 1 true",
+            "enter true",
         ];
         for (var i = 0; init.length < out.length; i = (i + 1) % repeated.length) {
             init.push(repeated[i]!);
@@ -194,7 +237,6 @@ describe("with / dynamic-wind", () => {
             ["print", "outside"]
         ]);
 
-        // b runs on entry, a runs on the non-local exit, body after esc never runs
         expect(out).toEqual(["enter false", "inside", "exit true null null null", "outside"]);
     });
 
@@ -208,9 +250,23 @@ describe("with / dynamic-wind", () => {
         } catch (e) { err = e; }
         expect(err.message).toContain("foo");
     });
+
+    testTest("with requires variable name or null", vm => {
+        expect(() => run(vm, ["with", { enter: null, exit: null }, false])).toThrow("expected variable name as first argument to 'with'")
+    });
+    testTest("with requires context object", vm => {
+        expect(() => run(vm, ["with", null, null, false])).toThrow("context manager should be an object")
+    });
 });
 
 describe("metaprogramming", () => {
+    testTest("eval", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", "x", ["'", ["print", ["$", "a"]]]],
+            ["let", [["a", "hello"]], ["eval", ["$", "x"]]],
+        ])).toBeTrue();
+        expect(out).toEqual(["hello"]);
+    });
     testTest("user-defined macros", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", true, ["twice", "x"], ["list", "+", ["$", "x"], ["$", "x"]]],
@@ -230,6 +286,7 @@ describe("metaprogramming", () => {
             ["print", ["dumpJSON", ["`", ["foo", "bar", "baz"]]]],
             ["print", ["dumpJSON", ["`", ["foo", "bar", ["baz"]]]]],
             ["print", ["dumpJSON", ["`", ["foo", "bar", [",", ["$", "a"]]]]]],
+            ["print", ["dumpJSON", ["'", ["foo", "bar", [",", ["$", "a"]]]]]],
             ["print", ["dumpJSON", ["`", ["foo", "bar", [",", ["$", "x"]]]]]],
             ["print", ["dumpJSON", ["`", ["foo", "bar", [",@", ["$", "x"]]]]]],
         ])).toBeTrue();
@@ -238,18 +295,64 @@ describe("metaprogramming", () => {
             stringify(["foo", "bar", "baz"]),
             stringify(["foo", "bar", ["baz"]]),
             stringify(["foo", "bar", 1]),
+            stringify(["foo", "bar", [",", ["$", "a"]]]),
             stringify(["foo", "bar", [4, 5, 6]]),
             stringify(["foo", "bar", 4, 5, 6]),
         ]);
     });
+    testTest("bad quasiquote 1", vm => {
+        expect(() => run(vm, ["`", [[",@", 1], 2]])).toThrow("not an array to concat");
+    });
+    testTest("bad quasiquote 2", vm => {
+        expect(() => run(vm, ["`", [","]])).toThrow("expected argument to unquote");
+    });
+    testTest("bad unquote", vm => {
+        expect(() => run(vm, [",", 1])).toThrow("unquote not valid outside of quasiquote");
+    });
+    testTest("bad unquoteSplicing", vm => {
+        expect(() => run(vm, [",@", 1])).toThrow("unquoteSplicing not valid outside of quasiquote");
+    });
 });
 
-testTest("spread arguments", (vm, out) => {
-    expect(run(vm, ["begin",
-        ["define", ["foo", "x", true], ["print", ["dumpJSON", ["$", "x"]]]],
-        ["foo", 1, 2, 3]
-    ])).toBeTrue();
-    expect(out).toEqual([stringify([1, 2, 3])]);
+describe("lambdas", () => {
+    testTest("lambda optional dynamic env", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", ["foo", ["a", ["$", "x"]]], ["print", ["$", "a"]]],
+            ["let", [["x", "hello"]], ["foo"], ["foo", "goodbye"]],
+        ])).toBeTrue();
+        expect(out).toEqual(["hello", "goodbye"]);
+    });
+    testTest("lambda validation", (vm, out) => {
+        expect(() => run(vm, ["begin",
+            ["define", ["foo", ["a", 1, 2, 3]], ["print", ["$", "a"]]],
+        ])).toThrow("invalid optional argument");
+    });
+    testTest("spread arguments", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", ["foo", "x", true], ["print", ["dumpJSON", ["$", "x"]]]],
+            ["foo", 1, 2, 3],
+            ["foo"]
+        ])).toBeTrue();
+        expect(out).toEqual(["[1,2,3]", "[]"]);
+    });
+    testTest("required must follow optional", vm => {
+        expect(() => run(vm, ["define", ["foo", ["x", 1], "y"], false])).toThrow("required parameter cannot follow optional parameter");
+    });
+    testTest("bad params", vm => {
+        expect(() => run(vm, ["define", ["foo", 1], false])).toThrow("invalid parameter to lambda");
+    });
+    testTest("let loop", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["let", "loop", [["x", 10]],
+                ["print", ["$", "x"]],
+                ["if", [">", ["$", "x"], 0],
+                    ["loop", ["-", ["$", "x"], 1]]]]
+        ])).toBeTrue();
+        expect(out).toEqual(["10", "9", "8", "7", "6", "5", "4", "3", "2", "1", "0"]);
+    });
+    testTest("bad define", vm =>{
+        expect(() => run(vm, ["define", 1])).toThrow("invalid define syntax")
+    });
 });
 
 describe("recursion stress tests", () => {
@@ -369,5 +472,11 @@ describe("self-defined macros", () => {
                 ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]],
             ["x", null]
         ])).toThrow("tried to jump into a 'with-baffle' block");
+    });
+    testTest("pipe", vm => {
+        expect(run(vm, ["begin",
+            ["|>", 1, ["*", ["$", "#"], 100], ["+", ["$", "#"], 23]]
+        ])).toBeTrue();
+        expect(vm.peekData()).toEqual(123);
     });
 });

@@ -76,11 +76,8 @@ export class JebVM {
         return x;
     }
     setVar(name: string, value: any) {
-        if (!this.currentEnv.set(name, value)) {
-            if (!this.globalEnv.set(name, value)) {
-                this.globalEnv.define(name, value);
-            }
-        }
+        if (this.currentEnv.set(name, value)) return true;
+        return this.globalEnv.set(name, value);
     }
     #popCommand() {
         if (llLength(this.commandStack) === 0) throw new Error("Opcode stack underflow");

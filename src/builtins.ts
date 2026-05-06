@@ -1,4 +1,4 @@
-import { isArray, last } from "lib0/array";
+import { isArray } from "lib0/array";
 import { undefinedToNull } from "lib0/conditions.js";
 import { id, isNumber, isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
@@ -174,7 +174,7 @@ Evaluate the argument in the current environment and return the result.`);
         const variable = vm.getVar(args[0]);
         const functionHint = args[1] ?? false;
         if (!variable.ok) {
-            vm.pushCommand("throw", "reference_error", `${functionHint ? "function" : "variable"} ${name} not found`, {
+            vm.pushCommand("throw", "reference_error", `${functionHint ? "function" : "variable"} ${stringify(name)} not found`, {
                 define: Continuation.fromVM(vm, ["store", name])
             });
             return;
@@ -191,9 +191,9 @@ Look up the variable with this name in the current environment, and return the v
     defineOpcode(vm, "store", (vm, args) => {
         const value = vm.peekData();
         const name: string = args[0];
-        const found = vm.currentEnv.set(name, value);
-        if (!found) {
-            vm.pushCommand("throw", "reference_error", `variable ${name} not found`, {
+        const didSet = vm.setVar(name, value);
+        if (!didSet) {
+            vm.pushCommand("throw", "reference_error", `variable ${stringify(name)} not found`, {
                 define: Continuation.fromVM(vm, ["store", name])
             });
             return;
@@ -275,7 +275,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
     defineOpcode(vm, "with.setup", (vm, args) => {
         // we just got the before and after handlers evaluated
         const context = vm.popData() as Windable;
-        const notObject = typeof context !== "object";
+        const notObject = typeof context !== "object" || context === null;
         if (notObject || !("enter" in context || "exit" in context)) {
             vm.pushCommand("throw", "type_error", notObject ? "context manager should be an object" : "context manager should have 'enter' and/or 'exit' handlers", {});
             return;
@@ -363,8 +363,13 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
         }
         getNameOf(lambda: Lambda) { return lambda.name ?? "[lambda]"; }
         getArity(lambda: Lambda) {
-            const l = lambda.params.length;
-            return lambda.lastIsSpread ? { min: l - 1, max: Infinity } : l;
+            const required = lambda.args.length;
+            const optional = lambda.optArgs.length;
+            const rest = !!lambda.restArg;
+            return required > 0 && optional === 0 && !rest ? required : {
+                min: required,
+                max: rest ? Infinity : required + optional,
+            };
         }
         getIsMacro(lambda: Lambda) { return lambda.isMacro; }
     });
@@ -374,35 +379,69 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
     defineOpcode(vm, "exec.lambda", (vm, args) => {
         const lambda = args[0] as Lambda;
         const argc = args[1] as number;
+        const required = lambda.args, nRequired = required.length;
+        const optional = lambda.optArgs, nOpt = optional.length;
+        const rest = lambda.restArg;
+        if ((nRequired + nOpt) > argc) {
+            // Need to evaluate defaults.
+            const dynamicEnv = new Env({}, [lambda.closureEnv, vm.currentEnv]);
+            vm.pushCommand("exec.lambda", lambda, nRequired + nOpt);
+            argsHelper(vm, optional.slice(argc - nRequired).map(o => o[1]), true);
+            vm.currentEnv = dynamicEnv;
+            return NOTHING;
+        }
         const callEnv = new Env({}, [lambda.closureEnv]);
-        if (lambda.lastIsSpread) {
-            for (var i = 0; i < lambda.params.length - 1; i++) {
-                callEnv.define(lambda.params[i]!, vm.popData());
-            }
-            callEnv.define(last(lambda.params), vm.popNData(argc - i).reverse());
+        const argv = vm.popNData(argc).reverse();
+        for (var n = 0; n < nRequired; n++) {
+            callEnv.define(required[n]!, argv[n]);
         }
-        else for (var i = 0; i < argc; i++) {
-            callEnv.define(lambda.params[i]!, vm.popData());
+        for (var n = 0; n < nOpt; n++) {
+            callEnv.define(optional[n]![0], argv[nRequired + n]);
         }
-        // Rather than an explicit call/cc, we make "return" be the return continuation in every lambda.
-        callEnv.define("return", Continuation.fromVM(vm));
+        if (rest) {
+            callEnv.define(rest, argv.slice(nRequired + nOpt));
+        } callEnv.define("return", Continuation.fromVM(vm));
         vm.currentEnv = callEnv;
         implicitBegin(vm, lambda.body);
         return NOTHING;
     });
     function lambdaHelper(name: string, isMacro: boolean, kind: string, extra: string) {
         defineBuiltin(vm, name, { min: 2, max: Infinity }, true, false, (args, vm) => {
-            const params = args[0] as string[];
+            const params = args[0] as (string | [string, any] | true)[];
             const body = args.slice(1);
             const docstring = isString(body[0]) && body.length > 1 ? body.shift() : "";
-            const lastIsSpread = typeof last(params) === "boolean" ? (params.pop(), true) : false;
-            return new Lambda(isMacro, lastIsSpread, undefined, params, body, vm.currentEnv, docstring);
+            const required: string[] = [], optional: [string, any][] = [];
+            var rest: string | null = null;
+            for (var i = 0; i < params.length; i++) {
+                const p = params[i];
+                if (isString(p)) {
+                    if (i + 2 === params.length && params[i + 1] === true) {
+                        rest = p;
+                        break;
+                    }
+                    if (optional.length > 0) {
+                        vm.pushCommand("throw", "syntax_error", "required parameter cannot follow optional parameter", {});
+                        return NOTHING;
+                    }
+                    required.push(p);
+                } else if (isArray(p)) {
+                    if (p.length !== 2) {
+                        vm.pushCommand("throw", "syntax_error", "invalid optional argument");
+                        return;
+                    }
+                    optional.push(p);
+                } else {
+                    vm.pushCommand("throw", "syntax_error", "invalid parameter to lambda", {})
+                }
+            }
+            return new Lambda(isMacro, undefined, required, optional, rest, body, vm.currentEnv, docstring);
         }, `["${name}", [<parameters...>], <body...>]
 ["${name}", [<parameters...>, true], <body...>]
 ["${name}", [<parameters...>], <docstring>, <body...>]
 
 Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}
 If the last element of the argument list is the Boolean \`true\` the last named argument before it becomes a rest argument, that will be an array at runtime filled with all the arguments given after it.
+If the \`param\` in the parameters list is a 2-tuple \`[*name*, *default*]\`, then the parameter is optional, and if it is not provided then the value of \`default\` is evaluated in a dynamic environment of both the environment in which the ${name} was defined, as well as the environment from which it was called.
 If the first element of \`body\` is a string and there is something additional after it (so that it would otherwise be a no-op), the string is used as the documentation string.`);
     }
     lambdaHelper("lambda", false, "function", "");
@@ -591,7 +630,7 @@ Comparison`);
         if (a == b) return ok(!!(c & 4));
         if (a < b) return ok(!!(c & 2));
         if (a > b) return ok(!!(c & 1));
-        return err("unreachable");
+        throw "unreachable";
     });
 
     // MARK: booleans
@@ -604,7 +643,7 @@ Boolean inverse`);
                 return !shortCircuitOn;
             }
             const sym = vm.currentEnv.gensym();
-            const rest = args.length > 1 ? [name, ...args.slice(1)] : !shortCircuitOn;
+            const rest = [name, ...args.slice(1)];
             const getsym = ["$", sym];
             vm.pushData([["lambda", [sym],
                 shortCircuitOn ?
@@ -666,13 +705,13 @@ Prevents its argument from being evaluated.`);
 Prevents its argument from being evaluated, but walks the elements and replaces [[${UNQUOTE_NAME}]] and [[${UNQUOTE_SPLICING_NAME}]] with the results of evaluating their arguments. The argument to [[${UNQUOTE_SPLICING_NAME}]] must be a list.`);
     alias(vm, QUASIQUOTE_NAME, "`");
 
-    defineBuiltin(vm, UNQUOTE_NAME, 1, false, false, (_, vm) => (vm.pushCommand("throw", "value_error", UNQUOTE_NAME + " outside of a quasiquote", {
+    defineBuiltin(vm, UNQUOTE_NAME, 1, false, false, (_, vm) => (vm.pushCommand("throw", "value_error", UNQUOTE_NAME + " not valid outside of quasiquote", {
         return: Continuation.fromVM(vm)
     }), NOTHING), `["${UNQUOTE_NAME}", <value>]
 [",", <value>]
 
 Marks a value to be interpolated inside a [[${QUASIQUOTE_NAME}]]. This is not valid outside of a [[${QUASIQUOTE_NAME}]] and will throw an error if called as a normal function.`);
-    defineBuiltin(vm, UNQUOTE_SPLICING_NAME, 1, false, false, (_, vm) => (vm.pushCommand("throw", "value_error", UNQUOTE_SPLICING_NAME + " outside of a quasiquote", {
+    defineBuiltin(vm, UNQUOTE_SPLICING_NAME, 1, false, false, (_, vm) => (vm.pushCommand("throw", "value_error", UNQUOTE_SPLICING_NAME + " not valid outside of quasiquote", {
         return: Continuation.fromVM(vm)
     }), NOTHING), `["${UNQUOTE_SPLICING_NAME}", <value>]
 [",@", <value>]
@@ -681,7 +720,14 @@ Marks a list to be interpolated via splicing inside a [[${QUASIQUOTE_NAME}]]. Th
     alias(vm, UNQUOTE_NAME, ",");
     alias(vm, UNQUOTE_SPLICING_NAME, ",@");
 
-    defineBuiltin(vm, "parseJSON", 1, false, false, args => parse(args[0]), `["parseJSON", <string>]
+    defineBuiltin(vm, "parseJSON", 1, false, false, (args, vm) => {
+        try {
+            return parse(args[0]);
+        } catch (e) {
+            vm.pushCommand("throw", "value_error", String(e), {});
+            return NOTHING;
+        }
+    }, `["parseJSON", <string>]
 
 Parses the string using \`JSON.parse()\`, and returns the result.`);
     defineBuiltin(vm, "dumpJSON", 1, false, false, (args, vm) => {
@@ -769,7 +815,24 @@ Prevents continuations from jumping in or out of \`body\`; only normal control f
                             ["error", "state_error", "Continuation tried to jump out of a 'with-baffle' block", {}]],
                         false]
                 }],
-                [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]]
+                [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]],
+        ["define", ["length", "x"], `["length", <value>]
+
+Returns the length of the value (list or string)`, ["get_prop", ["$", "x"], "length"]],
+        ["define", ["zero?", "x"], `["length", <value>]
+
+Returns true if the value is zero.`, ["=", ["$", "x"], 0]],
+        ["define", true, ["|>", "value", "items", true],
+            `["|>", <value>, <expressions...>]
+
+Pipes the \`value\` as the variable \`#\` into the next expression, and then the result of it becomes the next \`#\`, etc. until all expressions have been evaluated.
+This is analogous to Javascript's proposed pipe operator.`,
+            ["if", ["zero?", ["length", ["$", "items"]]],
+                ["$", "value"],
+                [QUASIQUOTE_NAME,
+                    [["lambda", ["#"],
+                        ["|>", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]],
+                    [UNQUOTE_NAME, ["$", "value"]]]]]]
     ];
 
     vm.currentEnv = vm.globalEnv;
@@ -796,6 +859,7 @@ function processQuasiquote(vm: JebVM, form: any, depth: number): Result<any> {
 
     // ,x
     if (same(h, UNQUOTE_NAME)) {
+        if (form.length !== 2) return err("expected argument to " + UNQUOTE_NAME);
         return ok(depth === 1 ? t[0] : ["list", UNQUOTE_NAME, processQuasiquote(vm, t[0], depth - 1)]);
     }
     // ,@x
@@ -805,6 +869,7 @@ function processQuasiquote(vm: JebVM, form: any, depth: number): Result<any> {
     }
     // nested `
     if (same(h, QUASIQUOTE_NAME)) {
+        if (form.length !== 2) return err("expected argument to " + QUASIQUOTE_NAME);
         return ok(["list", QUASIQUOTE_NAME, processQuasiquote(vm, t[0], depth + 1)]);
     }
 
@@ -832,12 +897,6 @@ function processQuasiquote(vm: JebVM, form: any, depth: number): Result<any> {
     for (var el of form) {
         if (!isArray(el) || depth !== 1) {
             buffer.push(el);
-        }
-        else if (same(el[0], UNQUOTE_NAME)) {
-            if (el.length !== 2) return err("expected argument to " + UNQUOTE_NAME);
-            flush();
-            if (flushFail) return flushFail;
-            parts.push(["list", el[1]]); // ,x → insert value directly (wrap so concat doesn't expand it)
         }
         else if (same(el[0], UNQUOTE_SPLICING_NAME)) {
             if (el.length !== 2) return err("expected argument to " + UNQUOTE_SPLICING_NAME);

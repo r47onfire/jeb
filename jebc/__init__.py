@@ -15,8 +15,8 @@ comment = ";" + rest_of_line
 expr = Forward()
 
 # atoms
-string = (QuotedString('"', esc_char='\\', unquote_results=True) |
-          QuotedString("'", esc_char='\\', unquote_results=True))
+string = (QuotedString('"', '\\', unquote_results=True, multiline=True, convert_whitespace_escapes=True) |
+          QuotedString("'", '\\', unquote_results=True, multiline=True, convert_whitespace_escapes=True))
 number = pyparsing_common.number()
 boolean = ((Keyword("#t") | Keyword("true")).set_parse_action(lambda: True) |
            (Keyword("#f") | Keyword("false")).set_parse_action(lambda: False))
