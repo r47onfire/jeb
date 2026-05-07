@@ -283,12 +283,12 @@ describe("metaprogramming", () => {
             ["define", "c", 3],
             ["define", "x", ["list", 4, 5, 6]],
             ["print", ["dumpJSON", ["'", ["foo", "bar", "baz"]]]],
-            ["print", ["dumpJSON", ["`", ["foo", "bar", "baz"]]]],
-            ["print", ["dumpJSON", ["`", ["foo", "bar", ["baz"]]]]],
-            ["print", ["dumpJSON", ["`", ["foo", "bar", [",", ["$", "a"]]]]]],
+            ["print", ["dumpJSON", ["~", ["foo", "bar", "baz"]]]],
+            ["print", ["dumpJSON", ["~", ["foo", "bar", ["baz"]]]]],
+            ["print", ["dumpJSON", ["~", ["foo", "bar", [",", ["$", "a"]]]]]],
             ["print", ["dumpJSON", ["'", ["foo", "bar", [",", ["$", "a"]]]]]],
-            ["print", ["dumpJSON", ["`", ["foo", "bar", [",", ["$", "x"]]]]]],
-            ["print", ["dumpJSON", ["`", ["foo", "bar", [",@", ["$", "x"]]]]]],
+            ["print", ["dumpJSON", ["~", ["foo", "bar", [",", ["$", "x"]]]]]],
+            ["print", ["dumpJSON", ["~", ["foo", "bar", [",@", ["$", "x"]]]]]],
         ])).toBeTrue();
         expect(out).toEqual([
             stringify(["foo", "bar", "baz"]),
@@ -301,10 +301,10 @@ describe("metaprogramming", () => {
         ]);
     });
     testTest("bad quasiquote 1", vm => {
-        expect(() => run(vm, ["`", [[",@", 1], 2]])).toThrow("not an array to concat");
+        expect(() => run(vm, ["~", [[",@", 1], 2]])).toThrow("not an array to concat");
     });
     testTest("bad quasiquote 2", vm => {
-        expect(() => run(vm, ["`", [","]])).toThrow("expected argument to unquote");
+        expect(() => run(vm, ["~", [","]])).toThrow("expected argument to unquote");
     });
     testTest("bad unquote", vm => {
         expect(() => run(vm, [",", 1])).toThrow("unquote not valid outside of quasiquote");

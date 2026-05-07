@@ -700,10 +700,10 @@ Prevents its argument from being evaluated.`);
             return: Continuation.fromVM(vm)
         });
     }, `["quasiquote", <value>]
-["\`", <value>]
+["~", <value>]
 
 Prevents its argument from being evaluated, but walks the elements and replaces [[${UNQUOTE_NAME}]] and [[${UNQUOTE_SPLICING_NAME}]] with the results of evaluating their arguments. The argument to [[${UNQUOTE_SPLICING_NAME}]] must be a list.`);
-    alias(vm, QUASIQUOTE_NAME, "`");
+    alias(vm, QUASIQUOTE_NAME, "~");
 
     defineBuiltin(vm, UNQUOTE_NAME, 1, false, false, (_, vm) => (vm.pushCommand("throw", "value_error", UNQUOTE_NAME + " not valid outside of quasiquote", {
         return: Continuation.fromVM(vm)

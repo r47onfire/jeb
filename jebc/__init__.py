@@ -16,7 +16,8 @@ expr = Forward()
 
 # atoms
 string = (QuotedString('"', '\\', unquote_results=True, multiline=True, convert_whitespace_escapes=True) |
-          QuotedString("'", '\\', unquote_results=True, multiline=True, convert_whitespace_escapes=True))
+          QuotedString("'", '\\', unquote_results=True, multiline=True, convert_whitespace_escapes=True) |
+          QuotedString("`", "\\", multiline=True, unquote_results=True, convert_whitespace_escapes=True))
 number = pyparsing_common.number()
 boolean = ((Keyword("#t") | Keyword("true")).set_parse_action(lambda: True) |
            (Keyword("#f") | Keyword("false")).set_parse_action(lambda: False))
