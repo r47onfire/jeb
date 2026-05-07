@@ -419,6 +419,14 @@ describe("recursion stress tests", () => {
         ])).toBeTrue();
         expect(out).toEqual([String(A063510(x))]);
     });
+    testTest("map and reduce", vm => {
+        const x = 2000, n = 3;
+        expect(run(vm, ["begin",
+            ["define", "x", ["list", ...new Array(x).fill(0).map((_, i) => i)]],
+            ["map", ["$", "x"], ["lambda", ["x"], ["*", n, ["$", "x"]]]]
+        ])).toBeTrue();
+        expect(vm.peekData()).toEqual(new Array(x).fill(0).map((_, i) => i * n));
+    });
 });
 
 describe("self-defined macros", () => {

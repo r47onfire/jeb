@@ -19,7 +19,6 @@ JEB also supports a Scheme-like `dynamic-wind` context manager syntax, so code c
 
 ## what's currently not yet implemented
 
-* more functional programming primitives (fold, map, flatMap, etc)
 * structural editor & pretty-printer (based off of <http://forum.ulisp.com/t/extensible-t-deck-lisp-editor/1322>)
 
 ## naming

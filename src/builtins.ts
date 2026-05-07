@@ -832,7 +832,28 @@ This is analogous to Javascript's proposed pipe operator.`,
                 [QUASIQUOTE_NAME,
                     [["lambda", ["#"],
                         ["|>", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]],
-                    [UNQUOTE_NAME, ["$", "value"]]]]]]
+                    [UNQUOTE_NAME, ["$", "value"]]]]]],
+        ["define", ["reduce", "list", "f", "value"],
+            `["reduce", <list>, <function>, <value>]
+
+Repeatedly call the function with 2 arguments; the first one is the current \`value\` and the second is each element of \`list\` in turn. The return value will be the new \`value\` for the next element.`,
+            // must be recursive because continuations
+            // TODO: make this more tail-recursive? it seems to blow the stack for long lists
+            ["if", ["zero?", ["length", ["$", "list"]]],
+                ["$", "value"],
+                ["reduce",
+                    ["tail", ["$", "list"]],
+                    ["$", "f"],
+                    ["f", ["$", "value"], ["head", ["$", "list"]]]]]],
+        ["define", ["map", "list_", "f"],
+            `["map", <list>, <function>]
+
+Return a new list with the result of applying the function to each element of the list in order.`,
+            ["reduce",
+                ["$", "list_"],
+                ["lambda", ["acc", "cur"],
+                    ["concat", ["$", "acc"], ["list", ["f", ["$", "cur"]]]]],
+                ["list"]]],
     ];
 
     vm.currentEnv = vm.globalEnv;
