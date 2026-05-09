@@ -9,10 +9,10 @@ type Path = (string | number | boolean)[];
 export type Format =
     | string
     | {
-        line1keep?: number;
+        l1keep?: number;
         indent?: number;
-        childrenForce?: (Format | null)[];
-        atomFlag?: string;
+        children?: (Format | null)[];
+        flag?: string;
     };
 
 export class Formatter {
@@ -75,7 +75,7 @@ export class Formatter {
                     false);
             }
 
-            var { line1keep, indent, childrenForce = [] } = fmt ?? {};
+            var { l1keep: line1keep, indent, children: childrenForce = [] } = fmt ?? {};
             indent ||= this.baseIndent;
 
             const rendered = node.map((c, i) => {
@@ -132,7 +132,7 @@ export class Formatter {
             return wrap(str2, false);
         }
 
-        const flag = isString(currentFormat) ? null : currentFormat?.atomFlag;
+        const flag = isString(currentFormat) ? null : currentFormat?.flag;
         return wrap(this.handleAtom(node, pathMatches(path), flag!, parent, parentIndex, availableWidth), true);
     }
     #getFormat(form: any[]): Format | null {
@@ -145,7 +145,7 @@ export class Formatter {
         var breakage: Format | null = null;
         for (var headerForm of headerForms) {
             if (headerForm.matches(form)) {
-                const b = headerForm.breakage;
+                const b = headerForm.breakage(form);
                 // Sigil form takes priority
                 if (isString(b)) return b;
                 else breakage ??= b;

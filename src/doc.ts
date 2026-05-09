@@ -90,9 +90,10 @@ export function parseInline(s: string): DocNode[] {
 }
 
 class HeaderForm {
-    readonly breakage: Format | null;
     #spec: any[];
     #placeholders: Map<string, string>;
+    #actions: Map<string, string>;
+    #flags: Map<string, string>;
     constructor(
         spec: any[],
         placeholders: Map<string, string>,
@@ -101,53 +102,8 @@ class HeaderForm {
     ) {
         this.#spec = spec;
         this.#placeholders = placeholders;
-        if (spec.length === 2 && /^[\p{P}\p{S}\p{Z}]+$/u.test(spec[0])) this.breakage = spec[0];
-        // Calculate breakage
-        else {
-            const recur = (form: any[]) => {
-                var line1keep, indent = 0, childrenForce: Format[] = [];
-                const end = last(form);
-                const p = placeholders.get(end);
-                if (p) {
-                    const action = placeholderToActionMap.get(p);
-                    if (p.endsWith("...")) {
-                        line1keep = form.length - 1;
-                    }
-                    if (action === "sameline") {
-                        line1keep = Infinity;
-                    }
-                    else if (action === "eachline") {
-                        line1keep = indent = 1;
-                    }
-                }
-                for (var i = 1; i < form.length; i++) {
-                    const f = form[i]!;
-                    const p = placeholders.get(f);
-                    if (!p) continue;
-                    const action = placeholderToActionMap.get(p);
-                    if (action === "newline") {
-                        if (line1keep !== 1 && line1keep !== Infinity) {
-                            line1keep = i;
-                        }
-                        break;
-                    }
-                }
-                for (var i = 0; i < form.length; i++) {
-                    const p = form[i]!;
-                    if (isString(p)) {
-                        const p2 = placeholders.get(p);
-                        if (!p2) continue;
-                        const flag = placeholderToFlagMap.get(p2);
-                        if (flag) childrenForce[i] = { atomFlag: flag };
-                    }
-                    else if (isArray(p)) childrenForce[i] = recur(p);
-                }
-                return { line1keep, indent, childrenForce }
-            };
-            const b = recur(spec);
-            console.log({ spec, breakage: b, placeholderToActionMap, placeholderToFlagMap });
-            this.breakage = b;
-        }
+        this.#actions = placeholderToActionMap
+        this.#flags = placeholderToFlagMap;
     }
     matches(data: any): boolean {
         const recur = (form: any, spec: any): boolean => {
@@ -163,6 +119,68 @@ class HeaderForm {
             return true;
         };
         return recur(data, this.#spec);
+    }
+    breakage(form: any): Format | null {
+        const spec = this.#spec;
+        const placeholders = this.#placeholders;
+        const placeholderToActionMap = this.#actions;
+        const placeholderToFlagMap = this.#flags;
+        if (spec.length === 2 && /^[\p{P}\p{S}\p{Z}]+$/u.test(spec[0])) return spec[0];
+        // Calculate breakage
+        const recur = (spec: any[], form: any[]): Format => {
+            var l1keep, indent = 0, children: Format[] = [];
+            const end = last(spec);
+            const p = placeholders.get(end);
+            if (p) {
+                const action = placeholderToActionMap.get(p);
+                if (p.endsWith("...")) {
+                    l1keep = spec.length - 1;
+                }
+                if (action === "sameline") {
+                    l1keep = Infinity;
+                }
+                else if (action === "eachline") {
+                    l1keep = indent = 1;
+                }
+            }
+            for (var i = 1; i < spec.length; i++) {
+                const f = spec[i]!;
+                const p = placeholders.get(f);
+                if (!p) continue;
+                const action = placeholderToActionMap.get(p);
+                if (action === "newline") {
+                    if (l1keep !== 1 && l1keep !== Infinity) {
+                        l1keep = i;
+                    }
+                    break;
+                }
+            }
+            for (var i = 0; i < spec.length; i++) {
+                const p = spec[i]!;
+                if (isString(p)) {
+                    const p2 = placeholders.get(p);
+                    if (!p2) continue;
+                    const flag = placeholderToFlagMap.get(p2);
+                    if (flag) {
+                        // Kludge... hmmm.
+                        if (flag === "let") {
+                            for (var j = i; j < form.length; j++) {
+                                children[j] = { l1keep: 2, children: [{ flag: "defvar" }] };
+                            }
+                        }
+                        else if (flag === "lambda") {
+                            for (var j = i; j < form.length; j++) {
+                                children[j] = { flag: "defvar" };
+                            }
+                        }
+                        else children[i] = { flag: flag };
+                    }
+                }
+                else if (isArray(p)) children[i] = recur(p, form?.[i]);
+            }
+            return { l1keep, indent, children }
+        };
+        return recur(spec, form);
     }
 }
 
