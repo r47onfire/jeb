@@ -1,4 +1,4 @@
-import { isArray } from "lib0/array";
+import { isArray, last } from "lib0/array";
 import { undefinedToNull } from "lib0/conditions.js";
 import { id, isNumber, isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
@@ -140,7 +140,8 @@ Evaluate the argument in the current environment and return the result.`);
             // String is a special case because normally strings evaluate to themselves
             // (not to a callable function), but if it's in head position, we implicitly look it up.
             vm.pushCommand("apply", args, alreadyEvaluated, tailcallHint);
-            vm.pushCommand("lookup", func, true);
+            vm.pushCommand("lookup", true);
+            vm.pushData(func);
         }
         getNameOf() { return undefined; }
         getArity() { return null; }
@@ -170,9 +171,9 @@ Evaluate the argument in the current environment and return the result.`);
 
     // MARK: variables
     defineOpcode(vm, "lookup", (vm, args) => {
-        const name = args[0] as string;
-        const variable = vm.getVar(args[0]);
-        const functionHint = args[1] ?? false;
+        const name = vm.popData();
+        const variable = vm.getVar(name);
+        const functionHint = args[0] ?? false;
         if (!variable.ok) {
             vm.pushCommand("throw", "reference_error", `${functionHint ? "function" : "variable"} ${stringify(name)} not found`, {
                 define: Continuation.fromVM(vm, ["store", name])
@@ -181,13 +182,46 @@ Evaluate the argument in the current environment and return the result.`);
         }
         vm.pushData(variable.value);
     });
-    defineBuiltin(vm, "$", 1, false, false, (args, vm) => {
-        const name = args[0] as string;
-        vm.pushCommand("lookup", name);
+    defineOpcode(vm, "get_prop", (vm, args) => {
+        const name = vm.popData();
+        const obj = vm.popData();
+        if (undefinedToNull(obj) === null) {
+            const propHint = args[0] as string ?? "unknown expression";
+            vm.pushCommand("throw", "type_error", `can't get property ${stringify(name)} of ${obj} (evaluating ${propHint})`, {});
+            return;
+        }
+        vm.pushData(obj[name]);
+    });
+    defineBuiltin(vm, "$", 1, true, false, (args, vm) => {
+        const name = args[0] as string | any[];
+        if (!isArray(name)) {
+            vm.pushData(name);
+        } else {
+            if (name.length < 2) {
+                vm.pushCommand("throw", "value_error", "array form of $ must have 2 or more elements", {});
+                return;
+            }
+            // On each iteration, the stack looks like:
+            //     value nameA nameB nameC
+            // So we swap, eval nameA, then index it and it becomes
+            //     value nameB nameC
+            // rinse and repeat.
+            for (var i = name.length - 1; i > 0; i--) {
+                vm.pushData(name[i]);
+                vm.pushCommand("get_prop", name.slice(0, i + 1).map((j, i) => i > 0 ? j : stringify([j])).join(""));
+                vm.pushCommand("eval");
+                vm.pushCommand("shuffle", 2, [1, 0]);
+            }
+            vm.pushData(name[0]);
+        }
+        vm.pushCommand("lookup");
+        vm.pushCommand("eval");
         return NOTHING;
-    }, `["$", <string>]
+    }, `["$", <name>]
+["$", [<name>, <properties...:sameline>]]
 
-Look up the variable with this name in the current environment, and return the value, or throw a \`reference_error\` if it is not defined anywhere.`);
+Look up the variable with this name in the current environment, and return the value, or throw a \`reference_error\` if it is not defined anywhere.
+If \`properties\` are given, they index the variable like Javascript square brackets.`);
     defineOpcode(vm, "store", (vm, args) => {
         const value = vm.peekData();
         const name: string = args[0];
@@ -206,13 +240,62 @@ Look up the variable with this name in the current environment, and return the v
         vm.currentEnv.define(name, value);
         if (value instanceof Lambda && value.name === undefined) value.name = name;
     });
-    defineBuiltin(vm, "set", 2, false, false, (args, vm) => {
-        vm.pushCommand("store", args[0] as string);
-        vm.pushData(args[1]);
+    defineOpcode(vm, "set_prop", (vm, args) => {
+        const name = vm.popData();
+        const obj = vm.popData();
+        if (undefinedToNull(obj) === null) {
+            const propHint = args[0] as string ?? "unknown expression";
+            vm.pushCommand("throw", "type_error", `can't set property ${stringify(name)} on ${obj} (evaluating ${propHint})`, {});
+            return;
+        }
+        try {
+            obj[name] = vm.peekData();
+        } catch (e) {
+            vm.pushCommand("throw", "type_error", String(e), {});
+        }
+    });
+    defineBuiltin(vm, "set", 2, true, false, (args, vm) => {
+        const name = args[0] as string | any[];
+        if (!isArray(name)) {
+            vm.pushCommand("store", name);
+            vm.pushCommand("eval");
+            vm.pushData(args[1]);
+        } else {
+            if (name.length < 2) {
+                vm.pushCommand("throw", "value_error", "array form of set must have 2 or more elements", {});
+                return;
+            }
+            // On the last iteration, stack looks like:
+            //     obj name value
+            // so we rot value to the top:
+            //     value obj name
+            // eval value, then rot name to the top and swap obj and value:
+            //     name obj value
+            // eval name, and then set.
+            vm.pushData(args[1]);
+            vm.pushCommand("set_prop", name.map((j, i) => i > 0 ? j : stringify([j])).join(""));
+            vm.pushCommand("eval");
+            vm.pushCommand("shuffle", 3, [2, 1, 0]);
+            vm.pushCommand("eval");
+            vm.pushCommand("shuffle", 3, [1, 2, 0]);
+            vm.pushData(last(name));
+            // On each prior iteration, it's the same as in $
+            for (var i = name.length - 2; i > 0; i--) {
+                vm.pushData(name[i]);
+                vm.pushCommand("get_prop", name.slice(0, i + 1).map((j, i) => i > 0 ? j : stringify([j])).join(""));
+                vm.pushCommand("eval");
+                vm.pushCommand("shuffle", 2, [1, 0]);
+            }
+            vm.pushCommand(isString(name[0]) ? "lookup" : "eval");
+            vm.pushData(name[0]);
+        }
         return NOTHING;
     }, `["set", <name>, <value>]
+["set", [<name>, <properties...:sameline>], <value>]
+["set", [<object>, <properties...:sameline>], <value>]
 
-Set the value of the variable in the environment in which it is defined. If it wasn't defined anywhere, throw a \`reference_error\`.`);
+Set the value of the variable in the environment in which it is defined. If it wasn't defined anywhere, throw a \`reference_error\`.
+If \`properties\` are given, the \`name\` will be looked up instead, and the properties will be used to index the object, and the last one will be used to set the property.`);
 
     // MARK: error handling
     defineOpcode(vm, "throw", (vm, args) => {
@@ -313,40 +396,18 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         const target = {};
         vm.pushData(target);
         for (var key of keys(quoted)) {
+            vm.pushData(key);
             vm.pushData(target);
             vm.pushData(quoted[key]);
             vm.pushCommand("shuffle", 1, []);
-            vm.pushCommand("set_prop", key);
-            vm.pushCommand("shuffle", 2, [1, 0]);
+            vm.pushCommand("set_prop", "", true);
+            vm.pushCommand("shuffle", 3, [2, 1, 0]);
             vm.pushCommand("eval");
         }
         return NOTHING;
     }, `["obj", <object>]
 
 Evaluates all the properties of the object, and returns a new object with the results of evaluation. The properties are evaluated in an unspecified order, but it's usually the order in which they were defined or added to the object.`);
-    defineOpcode(vm, "set_prop", (vm, args) => {
-        const obj = vm.popData();
-        obj[args[0] as string] = vm.peekData();
-    });
-    defineOpcode(vm, "get_prop", (vm, args) => {
-        const obj = vm.popData();
-        vm.pushData(obj[args[0] as string]);
-    });
-    defineBuiltin(vm, "set_prop", 3, false, false, (args, vm) => {
-        vm.pushCommand("set_prop", args[1] as string);
-        vm.pushData(args[2]);
-        vm.pushData(args[0]);
-        return NOTHING;
-    }, `["set_prop", <object>, <name>, <value>]
-
-Set the named property on the object to the given value, and return the value.`);
-    defineBuiltin(vm, "get_prop", 2, false, false, (args, vm) => {
-        vm.pushCommand("get_prop", args[1] as string);
-        vm.pushData(args[0]);
-        return NOTHING;
-    }, `["get_prop", <object>, <name>]
-
-Returns the value of \`object[name]\`. Will be \`undefined\` if the property doesn't exist on the object.`);
 
     defineBuiltin(vm, "nil?", 1, false, false, args => undefinedToNull(args[0]) === null, `["nil?", <value>]
 
@@ -435,9 +496,9 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
                 }
             }
             return new Lambda(isMacro, undefined, required, optional, rest, body, vm.currentEnv, docstring);
-        }, `["${name}", [<parameters...>], <body...>]
-["${name}", [<parameters...>, true], <body...>]
-["${name}", [<parameters...>], <docstring>, <body...>]
+        }, `["${name}", [<parameters...:sameline>], <body...>]
+["${name}", [<parameters...:sameline>, true], <body...>]
+["${name}", [<parameters...:sameline>], <docstring>, <body...>]
 
 Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}
 If the last element of the argument list is the Boolean \`true\` the last named argument before it becomes a rest argument, that will be an array at runtime filled with all the arguments given after it.
@@ -513,10 +574,10 @@ Runs each of the body statements in order, and returns the result from the last 
         }
         vm.pushCommand("eval");
         return NOTHING;
-    }, `["let", [<pairs...>], <body...>]
-["let", <loopname>, [<pairs...>], <body...>]
+    }, `["let", [<pairs...:eachline>], <body...>]
+["let", <loopname>, [<pairs...:eachline>], <body...>]
 
-Each one of the \`pairs\` is a 2-tuple \`[*varname*, *expression*]\`. Each of the expressions will be evaluated in order in the parent environment and the result bound to the *varname* in the new environment; after all values are bound, the body is evaluated in the new environment.
+Each one of the \`pairs\` is a 2-tuple \`[*name*, *expression*]\`. Each of the expressions will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.
 The second form, where the first argument is a string, allows the lambda body to recursively call itself with new values for each of the variables.
 This actually is a macro that expands to an immediately-invoked lambda, so "[lambda]" may show up in the traceback when using \`let\`.`);
 
@@ -552,8 +613,8 @@ This actually is a macro that expands to an immediately-invoked lambda, so "[lam
         }
         return NOTHING;
     }, `["define", <varname>, <value>]
-["define", [<name>, <params...>], <body...>]
-["define", true, [<name>, <params...>], <body...>]
+["define", [<name>, <params...:sameline>], <body...>]
+["define", true, [<name>, <params...:sameline>], <body...>]
 
 Defines a new variable in the current scope.
 The first form is a straight \`name=value\`.
@@ -652,7 +713,7 @@ Boolean inverse`);
             ], args[0]]);
             vm.pushCommand("eval", true);
             return NOTHING;
-        }, `["${name}", <values...>]
+        }, `["${name}", <values...:sameline>]
 
 Boolean ${name.toUpperCase()} (short-circuits)`);
     }
@@ -777,16 +838,15 @@ During evaluation of the body, if an error is thrown, the error's \`type\` (as r
 If no handler directly matches, the special catch-all handler \`"\\*"\` is tried, and if it exists, it is called with \`type\`, \`message\` and \`context\`.
 In both cases if the handler exists, \`true\` is returned to [[with]] to stop propagation of the error. If the handler wants to propagate the error, it should re-throw it using [[error]].
 If \`body\` exits cleanly with no error, the special \`"else"\` handler is called with no arguments, if present.`,
-            [QUASIQUOTE_NAME, ["let", [],
-                ["define", "handlers", ["obj", [UNQUOTE_NAME, ["$", "handlers"]]]],
+            [QUASIQUOTE_NAME, ["let", [["handlers", ["obj", [UNQUOTE_NAME, ["$", "handlers"]]]]],
                 ["with", null, ["obj",
                     {
                         exit: ["lambda", ["k", "type", "value", "ctx"],
                             ["let",
                                 [
-                                    ["handler", ["get_prop", ["$", "handlers"], ["$", "type"]]],
-                                    ["starHandler", ["get_prop", ["$", "handlers"], "*"]],
-                                    ["elseHandler", ["get_prop", ["$", "handlers"], "else"]],
+                                    ["handler", ["$", ["handlers", ["$", "type"]]]],
+                                    ["starHandler", ["$", ["handlers", "*"]]],
+                                    ["elseHandler", ["$", ["handlers", "else"]]]
                                 ],
                                 ["unless", ["$", "type"],
                                     ["when", ["$", "elseHandler"], ["elseHandler"]],
@@ -818,7 +878,7 @@ Prevents continuations from jumping in or out of \`body\`; only normal control f
                 [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]],
         ["define", ["length", "x"], `["length", <value>]
 
-Returns the length of the value (list or string)`, ["get_prop", ["$", "x"], "length"]],
+Returns the length of the value (list or string)`, ["$", ["x", "length"]]],
         ["define", ["zero?", "x"], `["length", <value>]
 
 Returns true if the value is zero.`, ["=", ["$", "x"], 0]],

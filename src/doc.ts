@@ -1,10 +1,12 @@
 import { isArray, last } from "lib0/array";
 import { isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
+import { Format } from "./superprint";
 
 type DocNode = string | [string, ...any[]];
 
 export interface Doc {
+    headerData: HeaderForm[];
     headers: DocNode[];
     body: DocNode[][];
 }
@@ -12,7 +14,7 @@ export interface Doc {
 export class HasDocstring {
     readonly doc: Doc;
     constructor(docstring: string) {
-        const doc: Doc = this.doc = { headers: [], body: [] };
+        const doc = this.doc = { headerData: [], headers: [], body: [] } as Doc;
         docstring = docstring.split("\n").map(s => s.trimEnd()).join("\n");
         if (!docstring) return;
         const [head, ...body] = docstring.split("\n\n");
@@ -20,9 +22,10 @@ export class HasDocstring {
         const headlines = head!.split("\n");
         var i = 0;
         headlines.forEach(h => {
-            const [header, rest] = parseHeader(h);
+            const [header, jsonHeader, rest] = parseHeader(h);
             if (rest) paragraphs.splice(i++, 0, rest);
             if (header) doc.headers.push(header);
+            if (jsonHeader) doc.headerData.push(jsonHeader);
         });
         doc.body = paragraphs.map(parseInline);
     }
@@ -86,14 +89,75 @@ export function parseInline(s: string): DocNode[] {
     return root.slice(1) as DocNode[];
 }
 
-function parseHeader(header: string): [DocNode | undefined, string | undefined] {
+class HeaderForm {
+    #sigil: string | undefined;
+    #spec: any[];
+    #placeholders: Map<string, string>;
+    #actions: Map<string, string>;
+    constructor(
+        data: any[],
+        placeholders: Map<string, string>,
+        placeholderToActionMap: Map<string, string>,
+    ) {
+        this.#spec = data;
+        this.#placeholders = placeholders;
+        this.#actions = placeholderToActionMap;
+        if (data.length === 2 && /^[\p{P}\p{S}\p{Z}]+$/u.test(data[0])) this.#sigil = data[0];
+    }
+    matches(data: any): boolean {
+        const recur = (form: any, spec: any): boolean => {
+            if (!isArray(spec)) return this.#placeholders.has(spec) || form === spec;
+            if (!isArray(form)) return false;
+            if (form.length < spec.length) return false;
+            const bodyThing = last(spec);
+            if (!(this.#placeholders.get(bodyThing)?.endsWith("...")) && form.length > spec.length) return false;
+            var i = 0;
+            for (; i < form.length; i++) {
+                if (!recur(form[i], spec[i] ?? bodyThing)) return false;
+            }
+            return true;
+        };
+        return recur(data, this.#spec);
+    }
+    breakage(data: any[]): Format | null {
+        if (this.#sigil) return this.#sigil;
+        const recur = (form: any[]) => {
+            var line1keep, indent = 0, childrenForce: Format[] = [];
+            const end = last(form);
+            const p = this.#placeholders.get(end);
+            if (p) {
+                const action = this.#actions.get(p);
+                if (p.endsWith("...")) {
+                    line1keep = form.length - 1;
+                }
+                if (action === "sameline") {
+                    line1keep = Infinity;
+                }
+                else if (action === "eachline") {
+                    line1keep = indent = 1;
+                }
+            }
+            for (var i = 0; i < form.length; i++) {
+                if (isArray(form[i])) childrenForce[i] = recur(form[i]);
+            }
+            return { line1keep, indent, childrenForce }
+        };
+        const b = recur(this.#spec);
+        console.log({ spec: this.#spec, breakage: b });
+        return b;
+    }
+}
+
+function parseHeader(header: string): [DocNode | undefined, HeaderForm | undefined, string | undefined] {
     const wildcardMap = new Map<string, string>();
-    var header2 = header.replaceAll(/<([^<>]+?)>/g, (_, wildcard) => {
-        const gensym = `__$__$${Math.random()}_${wildcard}`;
+    const actionMap = new Map<string, string>();
+    var header2 = header.replaceAll(/<([^<>]+?)(:[^<>]+)?>/g, (_, wildcard, action) => {
+        const gensym = `__${wildcard}_${Math.random().toString(36).slice(2, 18)}`;
         wildcardMap.set(gensym, wildcard);
+        if (action) actionMap.set(wildcard, action.slice(1));
         return stringify(gensym);
     });
-    try { header2 = parse(header2); } catch { return [, header]; }
+    try { header2 = parse(header2); } catch { return [, , header]; }
     const walk = (item: any): any => {
         if (isArray(item)) {
             return ["code", "[", ...item.flatMap((x, i) => i > 0 ? [", ", walk(x)] : [walk(x)]), "]"];
@@ -105,5 +169,5 @@ function parseHeader(header: string): [DocNode | undefined, string | undefined] 
             return String(item);
         }
     }
-    return [walk(header2), ,];
+    return [walk(header2), new HeaderForm(header2 as any, wildcardMap, actionMap), ,];
 }

@@ -7,8 +7,14 @@
     "type": "module",
     "scripts": {
         "build": "pnpm bun run scripts/build.ts",
+        "build:website": "pnpm clean-dist && pnpm clean-docs && pnpm prepare && pnpm bun run scripts/build-website.ts",
+        "dev": "pnpm run \"/^dev:.*/\"",
+        "dev:serve": "python3 -m http.server -d docs",
+        "dev:watch": "pnpm nodemon -e js,json,ts,css,md,html -i docs -w src -w website -w scripts --exec \"pnpm build:website\"",
         "test": "pnpm bun test",
         "test:watch": "pnpm test --watch",
+        "clean-dist": "rm -rf dist/*",
+        "clean-docs": "rm -rf docs/*",
         "prepare": "pnpm build --minify"
     },
     "repository": {
@@ -21,7 +27,10 @@
     "packageManager": "pnpm@10.33.2",
     "devDependencies": {
         "@types/bun": "^1.3.13",
-        "bun": "^1.3.13"
+        "@types/wicg-file-system-access": "^2023.10.7",
+        "bun": "^1.3.13",
+        "kaplay": "4000.0.0-alpha.27",
+        "nodemon": "^3.1.14"
     },
     "dependencies": {
         "lib0": "^0.2.117"

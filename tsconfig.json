@@ -12,12 +12,13 @@
         "moduleResolution": "Bundler",
         "module": "ESNext",
         "types": [
-            "bun"
+            "bun",
+            "wicg-file-system-access"
         ],
         "lib": [
             "esnext",
             "dom"
-        ],
+        ]
     },
     "include": [
         "./**/*.ts"

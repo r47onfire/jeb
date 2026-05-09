@@ -63,9 +63,24 @@ describe("basic", () => {
     testTest("json error 2", vm => {
         expect(() => run(vm, ["begin",
             ["let", [["x", ["list", null]]],
-                ["set_prop", ["$", "x"], 0, ["$", "x"]],
+                ["set", ["x", 0], ["$", "x"]],
                 ["dumpJSON", ["$", "x"]]]
         ])).toThrow();
+    });
+    testTest("property chain get", vm => {
+        expect(run(vm, ["begin",
+            ["define", "x", { a: { b: { foo: 123 } } }],
+            ["$", ["x", "a", "b", "foo"]]
+        ])).toBeTrue();
+        expect(vm.popData()).toEqual(123);
+    });
+    testTest("property chain set", vm => {
+        expect(run(vm, ["begin",
+            ["define", "x", { a: { b: { foo: 123 } } }],
+            ["set", ["x", "a", "b", "foo"], ["+", 123, 333]],
+            ["$", "x"]
+        ])).toBeTrue();
+        expect(vm.popData()).toEqual({ a: { b: { foo: 456 } } });
     });
 });
 
@@ -350,7 +365,7 @@ describe("lambdas", () => {
         ])).toBeTrue();
         expect(out).toEqual(["10", "9", "8", "7", "6", "5", "4", "3", "2", "1", "0"]);
     });
-    testTest("bad define", vm =>{
+    testTest("bad define", vm => {
         expect(() => run(vm, ["define", 1])).toThrow("invalid define syntax")
     });
 });
@@ -372,9 +387,9 @@ describe("recursion stress tests", () => {
     const MEMOIZE = ["define", ["memoize", "f"],
         ["let", [["cache", ["obj", {}]]],
             ["lambda", ["a"], "",
-                ["let", [["cached", ["get_prop", ["$", "cache"], ["$", "a"]]]],
+                ["let", [["cached", ["$", ["cache", ["$", "a"]]]]],
                     ["if", ["nil?", ["$", "cached"]],
-                        ["set_prop", ["$", "cache"], ["$", "a"], ["f", ["$", "a"]]],
+                        ["set", ["cache", ["$", "a"]], ["f", ["$", "a"]]],
                         ["$", "cached"]]]]]
     ];
     testTest("A000045 (Fibonacci sequence)", (vm, out) => {
@@ -425,7 +440,7 @@ describe("recursion stress tests", () => {
             ["define", "x", ["list", ...new Array(x).fill(0).map((_, i) => i)]],
             ["map", ["$", "x"], ["lambda", ["x"], ["*", n, ["$", "x"]]]]
         ])).toBeTrue();
-        expect(vm.peekData()).toEqual(new Array(x).fill(0).map((_, i) => i * n));
+        expect(vm.popData()).toEqual(new Array(x).fill(0).map((_, i) => i * n));
     });
 });
 
@@ -485,6 +500,6 @@ describe("self-defined macros", () => {
         expect(run(vm, ["begin",
             ["|>", 1, ["*", ["$", "#"], 100], ["+", ["$", "#"], 23]]
         ])).toBeTrue();
-        expect(vm.peekData()).toEqual(123);
+        expect(vm.popData()).toEqual(123);
     });
 });
