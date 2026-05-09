@@ -405,7 +405,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
             vm.pushCommand("eval");
         }
         return NOTHING;
-    }, `["obj", <object>]
+    }, `["obj", <object:sameline>]
 
 Evaluates all the properties of the object, and returns a new object with the results of evaluation. The properties are evaluated in an unspecified order, but it's usually the order in which they were defined or added to the object.`);
 
@@ -498,7 +498,7 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
             return new Lambda(isMacro, undefined, required, optional, rest, body, vm.currentEnv, docstring);
         }, `["${name}", [<parameters...:sameline>], <body...>]
 ["${name}", [<parameters...:sameline>, true], <body...>]
-["${name}", [<parameters...:sameline>], <docstring>, <body...>]
+["${name}", [<parameters...:sameline>], <docstring+docstring>, <body...>]
 
 Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}
 If the last element of the argument list is the Boolean \`true\` the last named argument before it becomes a rest argument, that will be an array at runtime filled with all the arguments given after it.
@@ -575,7 +575,7 @@ Runs each of the body statements in order, and returns the result from the last 
         vm.pushCommand("eval");
         return NOTHING;
     }, `["let", [<pairs...:eachline>], <body...>]
-["let", <loopname>, [<pairs...:eachline>], <body...>]
+["let", <loopname+define>, [<pairs...:eachline>], <body...>]
 
 Each one of the \`pairs\` is a 2-tuple \`[*name*, *expression*]\`. Each of the expressions will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.
 The second form, where the first argument is a string, allows the lambda body to recursively call itself with new values for each of the variables.
@@ -612,9 +612,11 @@ This actually is a macro that expands to an immediately-invoked lambda, so "[lam
             vm.pushCommand("throw", "syntax_error", "invalid define syntax", {});
         }
         return NOTHING;
-    }, `["define", <varname>, <value>]
-["define", [<name>, <params...:sameline>], <body...>]
-["define", true, [<name>, <params...:sameline>], <body...>]
+    }, `["define", <varname+define>, <value>]
+["define", [<name+define>, <params...:sameline>], <docstring:newline+docstring>, <body...>]
+["define", [<name+define>, <params...:sameline>], <body...>]
+["define", true, [<name+define>, <params...:sameline>], <docstring:newline+docstring>, <body...>]
+["define", true, [<name+define>, <params...:sameline>], <body...>]
 
 Defines a new variable in the current scope.
 The first form is a straight \`name=value\`.

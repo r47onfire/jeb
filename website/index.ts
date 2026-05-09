@@ -1,10 +1,9 @@
-import kaplay from "kaplay";
+import kaplay, { DrawTextOpt } from "kaplay";
 import "kaplay/global";
-import { isString } from "lib0/function";
 import { parse } from "lib0/json";
 import { min } from "lib0/math";
-import { HasDocstring, JebVM } from "../src";
-import { type Format, superprint } from "../src/superprint";
+import { JebVM } from "../src";
+import { Formatter } from "../src/format";
 
 kaplay({
     pixelDensity: min(devicePixelRatio, 2),
@@ -80,10 +79,17 @@ onMousePress(() => {
             excludeAcceptAllOption: true,
             multiple: false,
         }).then(async files => {
-            const file = await files[0].getFile();
+            const file = await files[0]!.getFile();
             openFile(file.name, await file.text());
         });
     }
+});
+
+onResize(() => {
+    if (docEditing) refreshEditor(); else centerText();
+});
+onLoad(() => {
+    centerText();
 });
 
 function openFile(name: string, text: string) {
@@ -92,6 +98,7 @@ function openFile(name: string, text: string) {
         loadDocumentAndStartEditing(parse(text));
     } catch (e: any) {
         mainText.text = `${name} is not valid JSON :(\n${e.stack ?? String(e)}`;
+        centerText();
     }
 }
 
@@ -101,48 +108,37 @@ function loadDocumentAndStartEditing(json: any) {
     refreshEditor();
 }
 
-const VM = new JebVM;
-
-function meta(form: any[]): Format | null {
-    const name = form[0];
-    if (!name) return null;
-    const { value, ok } = VM.globalEnv.get(name);
-    if (!ok) return null;
-    if (!(value instanceof HasDocstring)) return null;
-    const headerForms = value.doc.headerData;
-    var breakage: Format | null = null;
-    for (var headerForm of headerForms) {
-        if (headerForm.matches(form)) {
-            const b = headerForm.breakage(form);
-            if (isString(b)) {
-                return b;
-            }
-            else if (!breakage) {
-                breakage = b;
-            }
-        }
+const VM = new JebVM, FORMATTER = new class extends Formatter {
+    escape(text: string) {
+        return [...text].map(e => /[[\]\\]/.test(e) ? "\\" + e : e).join("");
     }
-    return breakage;
-}
+    highlight(s: string) {
+        return `[h]${s}[/h]`
+    }
+    handleAtom(atom: any, selected: boolean, flag: string | null, parent: any, parentIndex: number, availableWidth: number) {
+        const name = super.handleAtom(atom, selected, flag, parent, parentIndex, availableWidth);
+        return flag === "define" ? this.#colorWrap(name, "red") : flag === "docstring" ? this.#colorWrap(name, "lime") : name;
+    }
+    #colorWrap(x: string, color: string) {
+        return `[c=${color}]${x}[/c]`;
+    }
+}(VM);
 
-onUpdate(() => {
+function refreshEditor() {
+    for (var i = 0; i < 2; i++) {
+        const textOpts = centerText();
+        FORMATTER.maxWidth = 0;
+        while (formatText({ ...textOpts, text: "a".repeat(FORMATTER.maxWidth) }).width < AREA_WIDTH()) FORMATTER.maxWidth++;
+        mainText.text = FORMATTER.format(docEditing, currentPath);
+    }
+}
+function centerText() {
     mainText.pos = center();
-    mainText.width = min(AREA_WIDTH(), formatText({
-        text: mainText.text,
+    const textOpts: Omit<DrawTextOpt, "text"> = {
         size: mainText.textSize,
         styles: mainText.textStyles,
         transform: mainText.textTransform
-    }).width)
-});
-
-function refreshEditor() {
-    mainText.text = superprint(docEditing, highlight, currentPath, escapeBrackets, meta, 2, 100);
-}
-
-function escapeBrackets(text: string) {
-    return text.replace(/(\\)?(.)/gm, (match, slash, value) => slash ? (/["nfrtvxuU\\]/.test(value) ? "\\" + match : match) : match.replace(/([[\]\\])/g, "\\$1")); // cSpell:ignore nfrtvxu
-}
-
-function highlight(s: string) {
-    return `[h]${s}[/h]`
+    }
+    mainText.width = min(AREA_WIDTH(), formatText({ ...textOpts, text: mainText.text }).width);
+    return textOpts;
 }

@@ -4,6 +4,7 @@ export { Continuation, DynamicWind, type Windable } from "./continuation";
 export { HasDocstring, type Doc } from "./doc";
 export { Env } from "./env";
 export { jsError, resultToError, tracebackPop, tracebackPush } from "./errors";
+export { Formatter, type Format } from "./format";
 export { numberOp } from "./math";
 export { add, Arithmetic, typeMatches, type Operation, type Operations } from "./overload";
 export { err, ok, type Result } from "./result";

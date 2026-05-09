@@ -1,7 +1,7 @@
 import { isArray, last } from "lib0/array";
 import { isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
-import { Format } from "./superprint";
+import { Format } from "./format";
 
 type DocNode = string | [string, ...any[]];
 
@@ -90,19 +90,64 @@ export function parseInline(s: string): DocNode[] {
 }
 
 class HeaderForm {
-    #sigil: string | undefined;
+    readonly breakage: Format | null;
     #spec: any[];
     #placeholders: Map<string, string>;
-    #actions: Map<string, string>;
     constructor(
-        data: any[],
+        spec: any[],
         placeholders: Map<string, string>,
         placeholderToActionMap: Map<string, string>,
+        placeholderToFlagMap: Map<string, string>,
     ) {
-        this.#spec = data;
+        this.#spec = spec;
         this.#placeholders = placeholders;
-        this.#actions = placeholderToActionMap;
-        if (data.length === 2 && /^[\p{P}\p{S}\p{Z}]+$/u.test(data[0])) this.#sigil = data[0];
+        if (spec.length === 2 && /^[\p{P}\p{S}\p{Z}]+$/u.test(spec[0])) this.breakage = spec[0];
+        // Calculate breakage
+        else {
+            const recur = (form: any[]) => {
+                var line1keep, indent = 0, childrenForce: Format[] = [];
+                const end = last(form);
+                const p = placeholders.get(end);
+                if (p) {
+                    const action = placeholderToActionMap.get(p);
+                    if (p.endsWith("...")) {
+                        line1keep = form.length - 1;
+                    }
+                    if (action === "sameline") {
+                        line1keep = Infinity;
+                    }
+                    else if (action === "eachline") {
+                        line1keep = indent = 1;
+                    }
+                }
+                for (var i = 1; i < form.length; i++) {
+                    const f = form[i]!;
+                    const p = placeholders.get(f);
+                    if (!p) continue;
+                    const action = placeholderToActionMap.get(p);
+                    if (action === "newline") {
+                        if (line1keep !== 1 && line1keep !== Infinity) {
+                            line1keep = i;
+                        }
+                        break;
+                    }
+                }
+                for (var i = 0; i < form.length; i++) {
+                    const p = form[i]!;
+                    if (isString(p)) {
+                        const p2 = placeholders.get(p);
+                        if (!p2) continue;
+                        const flag = placeholderToFlagMap.get(p2);
+                        if (flag) childrenForce[i] = { atomFlag: flag };
+                    }
+                    else if (isArray(p)) childrenForce[i] = recur(p);
+                }
+                return { line1keep, indent, childrenForce }
+            };
+            const b = recur(spec);
+            console.log({ spec, breakage: b, placeholderToActionMap, placeholderToFlagMap });
+            this.breakage = b;
+        }
     }
     matches(data: any): boolean {
         const recur = (form: any, spec: any): boolean => {
@@ -119,42 +164,17 @@ class HeaderForm {
         };
         return recur(data, this.#spec);
     }
-    breakage(data: any[]): Format | null {
-        if (this.#sigil) return this.#sigil;
-        const recur = (form: any[]) => {
-            var line1keep, indent = 0, childrenForce: Format[] = [];
-            const end = last(form);
-            const p = this.#placeholders.get(end);
-            if (p) {
-                const action = this.#actions.get(p);
-                if (p.endsWith("...")) {
-                    line1keep = form.length - 1;
-                }
-                if (action === "sameline") {
-                    line1keep = Infinity;
-                }
-                else if (action === "eachline") {
-                    line1keep = indent = 1;
-                }
-            }
-            for (var i = 0; i < form.length; i++) {
-                if (isArray(form[i])) childrenForce[i] = recur(form[i]);
-            }
-            return { line1keep, indent, childrenForce }
-        };
-        const b = recur(this.#spec);
-        console.log({ spec: this.#spec, breakage: b });
-        return b;
-    }
 }
 
 function parseHeader(header: string): [DocNode | undefined, HeaderForm | undefined, string | undefined] {
     const wildcardMap = new Map<string, string>();
     const actionMap = new Map<string, string>();
-    var header2 = header.replaceAll(/<([^<>]+?)(:[^<>]+)?>/g, (_, wildcard, action) => {
+    const flagMap = new Map<string, string>();
+    var header2 = header.replaceAll(/<([^<>]+?)(:[^<>]+?)?(\+[^<>]+?)?>/g, (_, wildcard, action, flag) => {
         const gensym = `__${wildcard}_${Math.random().toString(36).slice(2, 18)}`;
         wildcardMap.set(gensym, wildcard);
         if (action) actionMap.set(wildcard, action.slice(1));
+        if (flag) flagMap.set(wildcard, flag.slice(1));
         return stringify(gensym);
     });
     try { header2 = parse(header2); } catch { return [, , header]; }
@@ -169,5 +189,5 @@ function parseHeader(header: string): [DocNode | undefined, HeaderForm | undefin
             return String(item);
         }
     }
-    return [walk(header2), new HeaderForm(header2 as any, wildcardMap, actionMap), ,];
+    return [walk(header2), new HeaderForm(header2 as any, wildcardMap, actionMap, flagMap), ,];
 }
