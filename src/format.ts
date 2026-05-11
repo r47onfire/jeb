@@ -1,5 +1,5 @@
 import { isArray } from "lib0/array";
-import { isString } from "lib0/function";
+import { undefinedToNull } from "lib0/conditions";
 import { stringify } from "lib0/json";
 import { max } from "lib0/math";
 import { getBreakage, HasDocstring } from "./doc";
@@ -28,7 +28,10 @@ export class Formatter {
     getIndent(width: number) {
         return " ".repeat(width);
     }
-    highlight(string: string, isAtom: boolean): string {
+    highlight(string: string): string {
+        return string;
+    }
+    wrapNode(string: string, flag: string | null): string {
         return string;
     }
     escape(string: string): string {
@@ -54,14 +57,14 @@ export class Formatter {
     ): string {
         const indentForm = (width: number) => this.getIndent(width);
         const pathMatches = (a: Path) => a.length === sel.length && a.every((v, i) => v === sel[i]);
-        const hlWrapper = (s: string, isAtom: boolean) => pathMatches(path) ? this.highlight(s, isAtom) : s;
+        const hlWrapper = (s: string, flag: string | null) => this.wrapNode(pathMatches(path) ? this.highlight(s) : s, flag);
         const recur = (n: any, i: number, p: Path, childFmt?: Format | null, width: number = availableWidth) =>
             this.#superprint(n, node, i, sel, width, p, childFmt);
 
         if (isArray(node)) {
-            if (node.length === 0) return hlWrapper("()", true);
-
             const fmt = currentFormat ?? this.#getFormat(node);
+            const curFlag = undefinedToNull(fmt?.flag);
+            if (node.length === 0) return hlWrapper("()", curFlag);
 
             // sigil like $x 'x `x ,x ,@x
             if (fmt?.sig && this.prettySyntax) {
@@ -69,7 +72,11 @@ export class Formatter {
                 const childFmt = fmt.children?.[1];
                 const sigFmt = this.handleAtom(fmt.sig, sigMatch, childFmt?.flag ?? null, node, 0, availableWidth);
                 return indentText(
-                    hlWrapper(sigMatch ? this.highlight(sigFmt, true) : sigFmt + recur(node[1]!, 1, [...path, 1], childFmt, availableWidth - this.unFormat(sigFmt).length), false),
+                    hlWrapper(sigMatch
+                        ? this.highlight(sigFmt)
+                        : sigFmt + recur(node[1]!, 1, [...path, 1],
+                            childFmt, availableWidth - this.unFormat(sigFmt).length - 1),
+                        curFlag),
                     indentForm,
                     fmt.sig.length,
                     false);
@@ -93,7 +100,7 @@ export class Formatter {
                         inline += nextChunk;
                     }
                     inline += ")";
-                    if (this.unFormat(inline).length <= availableWidth) return hlWrapper(inline, false);
+                    if (this.unFormat(inline).length <= availableWidth) return hlWrapper(inline, curFlag);
                 }
             }
 
@@ -115,16 +122,17 @@ export class Formatter {
                 }
             }
             inline += ")";
-            return hlWrapper(indentText(inline, indentForm, indent, false), false);
+            return hlWrapper(indentText(inline, indentForm, indent, false), curFlag);
         }
 
         if (node && typeof node === "object") {
+            const { flag: curFlag = null, children = [] } = currentFormat ?? {};
             const parts = Object.entries(node).map(([k, v], i) => {
                 const keyPath: Path = [...path, k, true];
                 const keyStr = this.#escapeString(k);
-                const renderedKey = pathMatches(keyPath) ? this.highlight(keyStr, true) : keyStr;
+                const renderedKey = this.handleAtom(keyStr, pathMatches(keyPath), curFlag, node, i, availableWidth - 1);
                 const valueCol = this.unFormat(renderedKey).length + 2;
-                const val = recur(v, i, [...path, k], null, availableWidth - valueCol);
+                const val = recur(v, i, [...path, k], children[i] ?? children[k as any], availableWidth - valueCol);
                 return `${renderedKey}: ${indentText(val, indentForm, valueCol, false)}`;
             });
 
@@ -140,12 +148,12 @@ export class Formatter {
             }
             strLong += "}";
             strSameline += "}";
-            if (this.unFormat(strSameline).length > availableWidth || /\n/.test(strSameline)) return hlWrapper(strLong, false);
-            return hlWrapper(strSameline, false);
+            if (this.unFormat(strSameline).length > availableWidth || /\n/.test(strSameline)) return hlWrapper(strLong, curFlag);
+            return hlWrapper(strSameline, curFlag);
         }
 
-        const flag = isString(currentFormat) ? null : currentFormat?.flag;
-        return hlWrapper(this.handleAtom(node, pathMatches(path), flag!, parent, parentIndex, availableWidth), true);
+        const flag = undefinedToNull(currentFormat?.flag);
+        return hlWrapper(this.handleAtom(node, pathMatches(path), flag, parent, parentIndex, availableWidth), flag);
     }
     #getFormat(form: any[]): Format | null {
         const name = form[0];

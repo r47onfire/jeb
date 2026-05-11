@@ -36,7 +36,13 @@ export interface Theme {
 
 }
 
+type Box = readonly [string, string, string, string, string, string, string, string];
+const BOX_HEAVY: Box = ["━", "┃", "┏", "┓", "┣", "┫", "┗", "┛"];
+const BOX_LIGHT: Box = ["─", "│", "┌", "┐", "├", "┤", "└", "┘"];
+
 export class KAPLAYFormatter extends Formatter {
+    isEditing = false;
+    cursorPosition = 0;
     constructor(vm: JebVM, public theme: Theme) {
         super(vm);
     }
@@ -45,6 +51,9 @@ export class KAPLAYFormatter extends Formatter {
     }
     highlight(s: string) {
         return this.#style(s.split("\n").map((l, i) => (i === 0 ? "" : this.#style("\n", this.theme.noHighlight)) + l).join(""), this.theme.highlight);
+    }
+    wrapNode(string: string, flag: string | null): string {
+        return flag === "quote" ? this.#style(string, this.theme.quoted) : string;
     }
     unFormat(string: string) {
         return compileStyledText(string).text;
@@ -59,9 +68,9 @@ export class KAPLAYFormatter extends Formatter {
         if (typeof atom === "boolean") {
             return this.#style(null, atom ? this.theme.true : this.theme.false);
         }
-        if (isString(atom) && this.prettySyntax) {
-            if (flag === "docstring") return this.#richTextDoc(atom, availableWidth);
-            if (flag === "comment" && parentIndex > 0) return this.#richTextComment(atom, availableWidth);
+        if (isString(atom) && this.prettySyntax && !this.isEditing) {
+            if (flag === "docstring") return this.#richTextDoc(atom, availableWidth, BOX_LIGHT);
+            if (flag === "comment" && parentIndex > 0) return this.#richTextComment(atom, availableWidth, BOX_LIGHT);
         }
         const name = super.handleAtom(atom, selected, flag, parent, parentIndex, availableWidth);
         if (parentIndex === 0 && !flag) {
@@ -126,19 +135,19 @@ export class KAPLAYFormatter extends Formatter {
         process(string);
         return lines;
     }
-    #borders(bodyWidth: number) {
-        const line = "━".repeat(bodyWidth);
-        const top = "┏" + line + "┓";
-        const bottom = "┗" + line + "┛";
-        const middle = "┣" + line + "┫";
+    #borders(bodyWidth: number, box: Box) {
+        const line = box[0].repeat(bodyWidth);
+        const top = box[2] + line + box[3];
+        const bottom = box[6] + line + box[7];
+        const middle = box[4] + line + box[5];
         return [top, middle, bottom].map(l => this.#style(l, this.theme.border));
     }
-    #block2(a: [string, number][], b: [string, number][] = []) {
+    #block2(box: Box, a: [string, number][], b: [string, number][] = []) {
         const ml = (a: any, [_, w]: [string, number]) => max(a, w);
-        const s = this.#style("┃", this.theme.border);
+        const s = this.#style(box[1], this.theme.border);
         const p = ([line, width]: [string, number]) => s + line + " ".repeat(realWidth - width) + s;
         const realWidth = max(a.reduce(ml, 0), b.reduce(ml, 0));
-        const [top, middle, bottom] = this.#borders(realWidth);
+        const [top, middle, bottom] = this.#borders(realWidth, box);
         return [
             top,
             ...a.map(p),
@@ -147,14 +156,14 @@ export class KAPLAYFormatter extends Formatter {
             bottom,
         ].join("\n");
     }
-    #richTextDoc(doc: string, maxWidth: number) {
+    #richTextDoc(doc: string, maxWidth: number, box: Box) {
         const parsed = parseDoc(doc);
         const headerLines = parsed.headers.flatMap(line => this.#wordWrap(line, maxWidth - 2));
         const lines = parsed.body.flatMap(para => this.#wordWrap(["" as DocNodeType, ...para], maxWidth - 2).concat([["", 0]]))
         lines.pop();
-        return this.#block2(headerLines, lines);
+        return this.#block2(box, headerLines, lines);
     }
-    #richTextComment(str: string, maxWidth: number) {
-        return this.#block2(this.#wordWrap(str, maxWidth - 2));
+    #richTextComment(str: string, maxWidth: number, box: Box) {
+        return this.#block2(box, this.#wordWrap(str, maxWidth - 2));
     }
 }

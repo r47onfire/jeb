@@ -112,7 +112,7 @@ class HeaderForm {
             if (!(this.placeholders.get(bodyThing)?.endsWith("...")) && form.length > spec.length) return false;
             var i = 0;
             for (; i < form.length; i++) {
-                if (i === 0 && !shouldCareAboutFirst) continue;
+                if (i < 1 && !shouldCareAboutFirst) continue;
                 if (!recur(form[i], spec[i] ?? bodyThing, true)) return false;
             }
             return true;
@@ -162,6 +162,8 @@ export function getBreakage(header: HeaderForm, form: any): Format | null {
                 const flag = flags.get(p2);
                 if (flag) {
                     // Kludge... hmmm.
+                    // TODO: more control codes in the docstring to control this
+                    // TODO: 'quote' code that goes recursively
                     if (flag === "let") {
                         for (var j = i; j < form.length; j++) {
                             children[j] = { l1keep: 2, children: [{ flag: "defvar" }] };

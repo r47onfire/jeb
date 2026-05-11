@@ -13,7 +13,7 @@ function testTest(name: string, testBody: (vm: JebVM, out: string[]) => void) {
 function run(vm: JebVM, code: any, steps = Infinity, recursionLimit = 10000) {
     vm.start(code);
     for (var i = 0; i < steps; i++) {
-        if (!vm.step(false)) return true;
+        if (!vm.step()) return true;
         vm.checkRecursion(recursionLimit);
     }
     return false;
