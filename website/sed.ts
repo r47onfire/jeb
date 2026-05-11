@@ -1,6 +1,0 @@
-/*
-
-structural editor
-
-
-*/
