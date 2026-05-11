@@ -406,10 +406,10 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         }
         return NOTHING;
     }, `["obj", <object:sameline>]
-["@", <object:sameline>]
+["%", <object:sameline>]
 
 Evaluates all the properties of the object, and returns a new object with the results of evaluation. The properties are evaluated in an unspecified order, but it's usually the order in which they were defined or added to the object.`);
-    alias(vm, "obj", "@");
+    alias(vm, "obj", "%");
 
     defineBuiltin(vm, "nil?", 1, false, false, args => undefinedToNull(args[0]) === null, `["nil?", <value>]
 

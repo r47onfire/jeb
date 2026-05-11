@@ -90,7 +90,7 @@ canvas.addEventListener("drop", async e => {
 
 var isEditing = false;
 var docEditing: any = null;
-var currentPath: any[] = [4, 1, 2, 2];
+var currentPath: any[] = [-1];
 
 onMousePress(() => {
     if (!isEditing) {
@@ -110,6 +110,13 @@ onMousePress(() => {
     }
 });
 
+onKeyPress("space", () => {
+    if (isEditing) {
+        FORMATTER.prettySyntax = !FORMATTER.prettySyntax;
+        refreshEditor();
+    }
+});
+
 onResize(() => {
     if (docEditing) refreshEditor(); else centerText();
 });
@@ -118,7 +125,6 @@ onLoad(() => {
 });
 
 function openFile(name: string, text: string) {
-    console.log({ name, text });
     try {
         loadDocumentAndStartEditing(parse(text));
     } catch (e: any) {

@@ -1,6 +1,6 @@
 import { isArray, last } from "lib0/array";
 import { isNumber, isString } from "lib0/function";
-import { max, min } from "lib0/math";
+import { max } from "lib0/math";
 import { BuiltinFunction, Lambda } from "./callable";
 import { DocNode, DocNodeType, parseDoc } from "./doc";
 import { Formatter } from "./format";
@@ -59,7 +59,7 @@ export class KAPLAYFormatter extends Formatter {
         if (typeof atom === "boolean") {
             return this.#style(null, atom ? this.theme.true : this.theme.false);
         }
-        if (isString(atom)) {
+        if (isString(atom) && this.prettySyntax) {
             if (flag === "docstring") return this.#richTextDoc(atom, availableWidth);
             if (flag === "comment" && parentIndex > 0) return this.#richTextComment(atom, availableWidth);
         }

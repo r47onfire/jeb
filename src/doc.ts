@@ -104,7 +104,7 @@ class HeaderForm {
         public readonly flags: Map<string, string>,
     ) { }
     matches(data: any): boolean {
-        const recur = (form: any, spec: any): boolean => {
+        const recur = (form: any, spec: any, shouldCareAboutFirst: boolean): boolean => {
             if (!isArray(spec)) return this.placeholders.has(spec) || form === spec;
             if (!isArray(form)) return false;
             if (form.length < spec.length) return false;
@@ -112,11 +112,12 @@ class HeaderForm {
             if (!(this.placeholders.get(bodyThing)?.endsWith("...")) && form.length > spec.length) return false;
             var i = 0;
             for (; i < form.length; i++) {
-                if (!recur(form[i], spec[i] ?? bodyThing)) return false;
+                if (i === 0 && !shouldCareAboutFirst) continue;
+                if (!recur(form[i], spec[i] ?? bodyThing, true)) return false;
             }
             return true;
         };
-        return recur(data, this.spec);
+        return recur(data, this.spec, false);
     }
 }
 
@@ -179,10 +180,7 @@ export function getBreakage(header: HeaderForm, form: any): Format | null {
         return { l1keep, indent, children }
     };
     const res = recur(spec, form);
-    if (sig) {
-        console.log(sig);
-        res.sig = sig;
-    }
+    if (sig) res.sig = sig;
     return res;
 }
 

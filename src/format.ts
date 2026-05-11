@@ -15,6 +15,7 @@ export interface Format {
 };
 
 export class Formatter {
+    prettySyntax = true;
 
     constructor(
         public vm: JebVM,
@@ -34,7 +35,7 @@ export class Formatter {
         return string;
     }
     #escapeString(string: string): string {
-        return this.escape(/^[\p{L}\p{N}\p{P}\p{S}\p{C}\p{Z}]*$/u.test(string) ? string : stringify(string).replace(/(?<!\\)\\n/g, "\n"));
+        return this.escape(/^((?!\s)[\p{L}\p{N}\p{P}\p{S}\p{C}\p{Z}])*$/u.test(string) ? string : stringify(string).replace(/(?<!\\)\\n/g, "\n"));
     }
     handleAtom(atom: any, isSelected: boolean, flag: string | null, parent: any, parentIndex: number, availableWidth: number) {
         return this.#escapeString(String(atom));
@@ -63,7 +64,7 @@ export class Formatter {
             const fmt = currentFormat ?? this.#getFormat(node);
 
             // sigil like $x 'x `x ,x ,@x
-            if (fmt?.sig) {
+            if (fmt?.sig && this.prettySyntax) {
                 const sigMatch = pathMatches([...path, 0]);
                 const childFmt = fmt.children?.[1];
                 const sigFmt = this.handleAtom(fmt.sig, sigMatch, childFmt?.flag ?? null, node, 0, availableWidth);
@@ -106,45 +107,41 @@ export class Formatter {
                 const render = () => recur(node[i]!, i, [...path, i], children[i],
                     availableWidth - (i >= l1keep! ? indent! : curLineWidth));
                 var rendered = render();
-                if (/\n/.test(rendered) && l1keep > 0) {
-                    l1keep = 0;
-                    rendered = render();
-                }
                 inline += i >= l1keep
                     ? rendered
                     : indentText(rendered, indentForm, curLineWidth, false);
+                if (/\n/.test(rendered) && l1keep > 0) {
+                    l1keep = 0;
+                }
             }
             inline += ")";
             return hlWrapper(indentText(inline, indentForm, indent, false), false);
         }
 
         if (node && typeof node === "object") {
-            const entries = Object.entries(node);
-            if (entries.length === 0) return hlWrapper("{}", false);
-
-            const parts = entries.map(([k, v], i) => {
+            const parts = Object.entries(node).map(([k, v], i) => {
                 const keyPath: Path = [...path, k, true];
                 const keyStr = this.#escapeString(k);
                 const renderedKey = pathMatches(keyPath) ? this.highlight(keyStr, true) : keyStr;
                 const valueCol = this.unFormat(renderedKey).length + 2;
-                const val = recur(v, i, [...path, k], null, availableWidth - valueCol - 1);
+                const val = recur(v, i, [...path, k], null, availableWidth - valueCol);
                 return `${renderedKey}: ${indentText(val, indentForm, valueCol, false)}`;
             });
 
-            var str1 = "{", str2 = str1;
+            var strLong = "{", strSameline = strLong;
             for (var i = 0; i < parts.length; i++) {
                 if (i > 0) {
-                    str1 += ",\n";
-                    str2 += ", ";
+                    strLong += ",\n";
+                    strSameline += ", ";
                 }
                 const s = parts[i]!;
-                str1 += indentText(s, indentForm, 1, i > 0);
-                str2 += s;
+                strLong += indentText(s, indentForm, 1, i > 0);
+                strSameline += s;
             }
-            str1 += "}";
-            str2 += "}";
-            if (this.unFormat(str2).length > availableWidth || /\n/.test(str2)) return hlWrapper(str1, false);
-            return hlWrapper(str2, false);
+            strLong += "}";
+            strSameline += "}";
+            if (this.unFormat(strSameline).length > availableWidth || /\n/.test(strSameline)) return hlWrapper(strLong, false);
+            return hlWrapper(strSameline, false);
         }
 
         const flag = isString(currentFormat) ? null : currentFormat?.flag;

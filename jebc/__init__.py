@@ -33,12 +33,17 @@ object_key = string | js_identifier
 variable = (Suppress("$") + symbol).set_parse_action(lambda t: [["$", t[0]]])
 
 # quotes
-quoted = (Suppress("'") + expr).set_parse_action(lambda t: [["'", t[0]]])
-quasiquoted = (Suppress("`") +
-               expr).set_parse_action(lambda t: [["`", t[0]]])
-unquote_splice = (
-    Suppress(",@") + expr).set_parse_action(lambda t: [",@", t[0]])
-unquoted = (Suppress(",") + expr).set_parse_action(lambda t: [[",", t[0]]])
+
+
+def quote_helper(s):
+    return (Suppress(s) + expr).set_parse_action(lambda t: [[s, t[0]]])
+
+
+quoted = quote_helper("'")
+quasiquoted = quote_helper("~")
+object_quoted = quote_helper("%")
+unquote_splice = quote_helper(",@")
+unquoted = quote_helper(",")
 
 # (list)
 list_expr = LPAR + ZeroOrMore(expr) + RPAR
@@ -53,7 +58,7 @@ object_expr.set_parse_action(lambda t: [{k: v for k, v in t.as_list()}])
 # object_expr.ignore(comment)
 
 atom = variable | number | string | boolean | nil | symbol
-expr <<= quoted | quasiquoted | unquote_splice | unquoted | list_expr | object_expr | atom
+expr <<= quoted | quasiquoted | object_quoted | unquote_splice | unquoted | list_expr | object_expr | atom
 expr.ignore(comment)
 toplevel = ZeroOrMore(expr)
 toplevel.ignore(comment)

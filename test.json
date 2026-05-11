@@ -8,7 +8,7 @@
     ],
     "[\"try\", <body>, <handlers>]\n\nCatches and handles errors. The `handlers` is an object mapping error type to handler; it will be expanded using [[obj]].\nDuring evaluation of the body, if an error is thrown, the error's `type` (as returned by [[with]]) will be checked to see if it's in the handlers, and if it is, the handler is called with the `message` and `context` of the error.\nIf no handler directly matches, the special catch-all handler `\"\\*\"` is tried, and if it exists, it is called with `type`, `message` and `context`.\nIn both cases if the handler exists, `true` is returned to [[with]] to stop propagation of the error. If the handler wants to propagate the error, it should re-throw it using [[error]].\nIf `body` exits cleanly with no error, the special `\"else\"` handler is called with no arguments, if present.",
     [
-        "~",
+        "quasiquote",
         [
             "let",
             [
@@ -17,7 +17,7 @@
                     [
                         "obj",
                         [
-                            ",",
+                            "unquote",
                             [
                                 "$",
                                 "handlers"
@@ -94,7 +94,7 @@
                                         ]
                                     ],
                                     [
-                                        ";",
+                                        "comment",
                                         "only returning true to prevent further execution, the return value is ignored in this context."
                                     ],
                                     [
@@ -156,7 +156,7 @@
                     }
                 ],
                 [
-                    ",",
+                    "unquote",
                     [
                         "$",
                         "body"

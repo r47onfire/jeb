@@ -85,16 +85,10 @@ export class JebVM {
         this.commandStack = rest;
         return value;
     }
-    step(debug: boolean = false) {
+    step() {
         if (this.paused) return false;
         if (llLength(this.commandStack) === 0) return false;
         const command = this.#popCommand();
-        if (debug) console.log("Executing opcode:", command, {
-            commandStack: llToArray(this.commandStack),
-            dataStack: llToArray(this.dataStack),
-            tracebackStack: llToArray(this.tracebackStack),
-            curDynamicWind: this.curDynamicWind
-        });
         const opcodeFunction = this.opcodeTable[command[0]];
         if (!opcodeFunction) throw new Error(`Unknown opcode: ${command[0]}`);
         opcodeFunction(this, command.slice(1));
