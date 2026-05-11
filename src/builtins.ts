@@ -217,8 +217,8 @@ Evaluate the argument in the current environment and return the result.`);
         vm.pushCommand("lookup");
         vm.pushCommand("eval");
         return NOTHING;
-    }, `["$", <name>]
-["$", [<name>, <properties...:sameline>]]
+    }, `["$", [<name+defvar>, <properties...:sameline>]]
+["$", <name+defvar>]
 
 Look up the variable with this name in the current environment, and return the value, or throw a \`reference_error\` if it is not defined anywhere.
 If \`properties\` are given, they index the variable like Javascript square brackets.`);
@@ -406,8 +406,10 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         }
         return NOTHING;
     }, `["obj", <object:sameline>]
+["@", <object:sameline>]
 
 Evaluates all the properties of the object, and returns a new object with the results of evaluation. The properties are evaluated in an unspecified order, but it's usually the order in which they were defined or added to the object.`);
+    alias(vm, "obj", "@");
 
     defineBuiltin(vm, "nil?", 1, false, false, args => undefinedToNull(args[0]) === null, `["nil?", <value>]
 
@@ -750,7 +752,7 @@ Concatenates the lists, and returns a new list`)
 
     // MARK: metaprogramming
     defineBuiltin(vm, "quote", 1, true, false, a => a[0], `["quote", <value>]
-["'", <value>]
+["'", <value+quoted>]
 
 Prevents its argument from being evaluated.`);
     alias(vm, "quote", "'");
@@ -809,6 +811,20 @@ Passes the values to \`console.log()\` directly and returns \`undefined\`.`);
 
     // MARK: JSON based standard library!
     const standardLibrary = ["begin",
+        ["define", true, ["comment", "items", true],
+            `["comment", <items...+comment>]
+[";", <items...+comment>]
+
+Skips evaluating the items.`,
+            null],
+        ["define", ";", ["$", "comment"]],
+        ["define", true, ["uncomment", "items", true],
+            `["uncomment", <items...:newline>]
+["!;", <items...:newline>]
+
+Evaluates the items as with [[begin]].`,
+        ["define", "!;", ["$", "uncomment"]],
+            [QUASIQUOTE_NAME, ["begin", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]]],
         ["define", ["call/cc", "f"],
             `["call/cc", <function>]
 ["call-with-current-continuation", <function>]

@@ -2,9 +2,7 @@ import kaplay, { DrawTextOpt } from "kaplay";
 import "kaplay/global";
 import { parse } from "lib0/json";
 import { min } from "lib0/math";
-import { JebVM } from "../src";
-import { Formatter } from "../src/format";
-import { isNumber } from "lib0/function";
+import { JebVM, KAPLAYFormatter } from "../src";
 
 kaplay({
     pixelDensity: min(devicePixelRatio, 2),
@@ -16,11 +14,10 @@ loadShader("crispy", null, "vec4 frag(vec2 p,vec2 u,vec4 c,sampler2D t){return v
 
 const AREA_WIDTH = () => width() * 0.8;
 
-const warnedColors = new Set<string>();
 const mainText = add([
     pos(),
     anchor("center"),
-    color(CYAN),
+    color(WHITE.darken(70)),
     text("drop [h].json[/h] file to edit\nor [h]click[/h] to choose a file", {
         size: 16,
         lineSpacing: 4,
@@ -31,20 +28,32 @@ const mainText = add([
             h: {
                 shader: "invert",
             },
-            c: (i, c, p) => {
-                try {
-                    const color = rgb(p);
-                    return {
-                        color,
-                        override: true,
-                    };
-                } catch (e) {
-                    if (!warnedColors.has(p)) {
-                        warnedColors.add(p);
-                        console.log("invalid color", p);
-                    }
-                    return {};
-                }
+            nh: {
+                shader: "crispy",
+            },
+            i: {
+                skew: 20,
+            },
+            b: {
+                opacity: 1.5,
+            },
+            ref: {
+                color: rgb("orange"),
+                override: true,
+            },
+            code: {
+                color: WHITE,
+                override: true,
+            },
+            p: {
+                color: rgb("gray"),
+                override: true,
+            },
+            c(_i, _c, p) {
+                return {
+                    color: rgb(p),
+                    override: true,
+                };
             }
         }
     }),
@@ -81,7 +90,7 @@ canvas.addEventListener("drop", async e => {
 
 var isEditing = false;
 var docEditing: any = null;
-var currentPath: any[] = [-1];
+var currentPath: any[] = [4, 1, 2, 2];
 
 onMousePress(() => {
     if (!isEditing) {
@@ -124,45 +133,33 @@ function loadDocumentAndStartEditing(json: any) {
     refreshEditor();
 }
 
-const VM = new JebVM, FORMATTER = new class extends Formatter {
-    escape(text: string) {
-        return [...text].map(e => /[\[\]\\]/.test(e) ? "\\" + e : e).join("");
-    }
-    highlight(s: string) {
-        return `[h]${s}[/h]`
-    }
-    handleAtom(atom: any, selected: boolean, flag: string | null, parent: any, parentIndex: number, availableWidth: number) {
-        if (atom === null) {
-            return this.#colorWrap("nil", "blue");
-        }
-        if (isNumber(atom)) {
-            return this.#colorWrap(atom.toString(), "blue");
-        }
-        if (typeof atom === "boolean") {
-            return this.#colorWrap(atom ? "#t" : "#f", "blue");
-        }
-        const name = super.handleAtom(atom, selected, flag, parent, parentIndex, availableWidth);
-        const colorForFlag = (<Record<string, string>>{
-            docstring: "green",
-            defun: "purple",
-            defvar: "orange",
-            defmacro: "fuchsia",
-        })[flag as string];
-        return colorForFlag ? this.#colorWrap(name, colorForFlag) : name;
-    }
-    #colorWrap(x: string, color: string) {
-        const text = `[c=${color}]${x}[/c]`;
-        return text;
-    }
-}(VM);
+const VM = new JebVM, FORMATTER = new KAPLAYFormatter(VM, {
+    highlight: { style: "h" },
+    noHighlight: { style: "nh" },
+    nil: { text: "nil", style: "c", param: "#5522ff" },
+    number: { style: "c", param: "#ff55aa" },
+    string: { style: "c", param: "#00aa44" },
+    true: { text: "#t", style: "c", param: "#00ff00" },
+    false: { text: "#f", style: "c", param: "#ff0000" },
+    quoted: { style: "c", param: "#555555" },
+    defmacro: { style: "c", param: "#5588ff" },
+    defun: { style: "c", param: "#2255ff" },
+    defvar: { style: "c", param: "#ffbb00" },
+    border: { style: "p" },
+    italic: { style: "i" },
+    bold: { style: "b" },
+    param: { style: "i" },
+    reference: { style: "ref" },
+    code: { style: "code" },
+});
 
 function refreshEditor() {
     for (var i = 0; i < 2; i++) {
         const textOpts = centerText();
         FORMATTER.maxWidth = 0;
         while (formatText({ ...textOpts, text: "a".repeat(FORMATTER.maxWidth) }).width < AREA_WIDTH()) FORMATTER.maxWidth++;
+        FORMATTER.maxWidth--;
         mainText.text = FORMATTER.format(docEditing, currentPath);
-        console.log({ styled: compileStyledText(mainText.text) });
     }
 }
 function centerText() {

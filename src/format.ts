@@ -2,27 +2,24 @@ import { isArray } from "lib0/array";
 import { isString } from "lib0/function";
 import { stringify } from "lib0/json";
 import { max } from "lib0/math";
-import { HasDocstring } from "./doc";
+import { getBreakage, HasDocstring } from "./doc";
 import { JebVM } from "./vm";
 
 type Path = (string | number | boolean)[];
-export type Format =
-    | string
-    | {
-        l1keep?: number;
-        indent?: number;
-        children?: (Format | null)[];
-        flag?: string;
-    };
+export interface Format {
+    sig?: string,
+    l1keep?: number;
+    indent?: number;
+    children?: (Format | null)[];
+    flag?: string;
+};
 
 export class Formatter {
-    #vm: JebVM;
 
     constructor(
-        vm: JebVM,
+        public vm: JebVM,
         public baseIndent = 2,
         public maxWidth = 100) {
-        this.#vm = vm;
     }
     format(node: any, selector: Path) {
         return this.#superprint(node, null, 0, selector, this.maxWidth, [], null);
@@ -37,12 +34,13 @@ export class Formatter {
         return string;
     }
     #escapeString(string: string): string {
-        return this.escape(/^[\p{L}_$][\p{L}\p{N}_$+*@%^&/-]*$/u.test(string) ? string : stringify(string).replace(/(?<!\\)\\n/g, "\n"));
+        return this.escape(/^[\p{L}\p{N}\p{P}\p{S}\p{C}\p{Z}]*$/u.test(string) ? string : stringify(string).replace(/(?<!\\)\\n/g, "\n"));
     }
     handleAtom(atom: any, isSelected: boolean, flag: string | null, parent: any, parentIndex: number, availableWidth: number) {
-        return isString(atom)
-            ? this.#escapeString(atom)
-            : String(atom);
+        return this.#escapeString(String(atom));
+    }
+    unFormat(string: string) {
+        return string;
     }
     #superprint(
         node: any,
@@ -55,63 +53,80 @@ export class Formatter {
     ): string {
         const indentForm = (width: number) => this.getIndent(width);
         const pathMatches = (a: Path) => a.length === sel.length && a.every((v, i) => v === sel[i]);
-        const wrap = (s: string, isAtom: boolean) => pathMatches(path) ? this.highlight(s, isAtom) : s;
+        const hlWrapper = (s: string, isAtom: boolean) => pathMatches(path) ? this.highlight(s, isAtom) : s;
         const recur = (n: any, i: number, p: Path, childFmt?: Format | null, width: number = availableWidth) =>
             this.#superprint(n, node, i, sel, width, p, childFmt);
 
         if (isArray(node)) {
-            if (node.length === 0) return wrap("()", true);
+            if (node.length === 0) return hlWrapper("()", true);
 
             const fmt = currentFormat ?? this.#getFormat(node);
 
-            // sigil like $x 'x `x ,x ,@x 
-            if (isString(fmt)) {
+            // sigil like $x 'x `x ,x ,@x
+            if (fmt?.sig) {
+                const sigMatch = pathMatches([...path, 0]);
+                const childFmt = fmt.children?.[1];
+                const sigFmt = this.handleAtom(fmt.sig, sigMatch, childFmt?.flag ?? null, node, 0, availableWidth);
                 return indentText(
-                    wrap(
-                        (pathMatches([...path, 0]) ? this.highlight(fmt, true) : fmt)
-                        + recur(node[1]!, 1, [...path, 1], null, availableWidth - fmt.length), false),
+                    hlWrapper(sigMatch ? this.highlight(sigFmt, true) : sigFmt + recur(node[1]!, 1, [...path, 1], childFmt, availableWidth - this.unFormat(sigFmt).length), false),
                     indentForm,
-                    fmt.length,
+                    fmt.sig.length,
                     false);
             }
 
-            var { l1keep: line1keep, indent, children: childrenForce = [] } = fmt ?? {};
+            var { l1keep, indent, children = [] } = fmt ?? {};
             indent ||= this.baseIndent;
 
-            const rendered = node.map((c, i) => {
-                const width = i >= line1keep! ? availableWidth - indent! : availableWidth;
-                return recur(c, i, [...path, i], childrenForce[i], width);
-            });
-
-            if (!line1keep) {
-                const inline = `(${rendered.join(" ")})`;
-                if ((!isString(node[0]) && typeof node[0] !== "object") || (inline.length <= availableWidth)) return wrap(inline, false);
+            foo: {
+                if (!l1keep) {
+                    var inline = "(";
+                    for (var i = 0; i < node.length; i++) {
+                        if (i > 0) inline += " ";
+                        const strippedStr = this.unFormat(inline);
+                        const nextChunk = indentText(
+                            recur(node[i], i, [...path, i], children[i], availableWidth - strippedStr.length),
+                            indentForm,
+                            strippedStr.length,
+                            false);
+                        if (/\n/.test(nextChunk)) break foo;
+                        inline += nextChunk;
+                    }
+                    inline += ")";
+                    if (this.unFormat(inline).length <= availableWidth) return hlWrapper(inline, false);
+                }
             }
 
-            line1keep ||= 1;
-            var str = "(";
+            l1keep ||= 1;
+            var inline = "(";
             for (var i = 0; i < node.length; i++) {
-                if (i >= line1keep) str += "\n";
-                else if (i > 0) str += " ";
-                str += i >= line1keep
-                    ? rendered[i]!
-                    : indentText(rendered[i]!, indentForm,
-                        max(0, str.length - str.lastIndexOf("\n") - indent - 1),
-                        false);
+                if (i >= l1keep) inline += "\n";
+                else if (i > 0) inline += " ";
+                const strippedStr = this.unFormat(inline);
+                const curLineWidth = strippedStr.length - max(strippedStr.lastIndexOf("\n"), 0) - indent;
+                const render = () => recur(node[i]!, i, [...path, i], children[i],
+                    availableWidth - (i >= l1keep! ? indent! : curLineWidth));
+                var rendered = render();
+                if (/\n/.test(rendered) && l1keep > 0) {
+                    l1keep = 0;
+                    rendered = render();
+                }
+                inline += i >= l1keep
+                    ? rendered
+                    : indentText(rendered, indentForm, curLineWidth, false);
             }
-            str += ")";
-            return wrap(indentText(str, indentForm, indent, false), false);
+            inline += ")";
+            return hlWrapper(indentText(inline, indentForm, indent, false), false);
         }
 
         if (node && typeof node === "object") {
             const entries = Object.entries(node);
-            if (entries.length === 0) return wrap("{}", false);
+            if (entries.length === 0) return hlWrapper("{}", false);
 
             const parts = entries.map(([k, v], i) => {
                 const keyPath: Path = [...path, k, true];
                 const keyStr = this.#escapeString(k);
                 const renderedKey = pathMatches(keyPath) ? this.highlight(keyStr, true) : keyStr;
-                const valueCol = renderedKey.length + 2;
+                const valueCol = this.unFormat(renderedKey).length + 2;
                 const val = recur(v, i, [...path, k], null, availableWidth - valueCol - 1);
                 return `${renderedKey}: ${indentText(val, indentForm, valueCol, false)}`;
             });
@@ -128,26 +143,25 @@ export class Formatter {
             }
             str1 += "}";
             str2 += "}";
-            if (str2.length > availableWidth || /\n/.test(str2)) return wrap(str1, false);
-            return wrap(str2, false);
+            if (this.unFormat(str2).length > availableWidth || /\n/.test(str2)) return hlWrapper(str1, false);
+            return hlWrapper(str2, false);
         }
 
         const flag = isString(currentFormat) ? null : currentFormat?.flag;
-        return wrap(this.handleAtom(node, pathMatches(path), flag!, parent, parentIndex, availableWidth), true);
+        return hlWrapper(this.handleAtom(node, pathMatches(path), flag!, parent, parentIndex, availableWidth), true);
     }
     #getFormat(form: any[]): Format | null {
         const name = form[0];
         if (!name) return null;
-        const { value, ok } = this.#vm.globalEnv.get(name);
-        if (!ok) return null;
+        const { value } = this.vm.globalEnv.get(name);
         if (!(value instanceof HasDocstring)) return null;
         const headerForms = value.doc.headerData;
         var breakage: Format | null = null;
         for (var headerForm of headerForms) {
             if (headerForm.matches(form)) {
-                const b = headerForm.breakage(form);
+                const b = getBreakage(headerForm, form);
                 // Sigil form takes priority
-                if (isString(b)) return b;
+                if (b?.sig) return b;
                 else breakage ??= b;
             }
         }

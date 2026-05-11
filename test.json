@@ -94,6 +94,10 @@
                                         ]
                                     ],
                                     [
+                                        ";",
+                                        "only returning true to prevent further execution, the return value is ignored in this context."
+                                    ],
+                                    [
                                         "return",
                                         true
                                     ]
