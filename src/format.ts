@@ -4,8 +4,10 @@ import { stringify } from "lib0/json";
 import { max } from "lib0/math";
 import { getBreakage, HasDocstring } from "./doc";
 import { JebVM } from "./vm";
+import { id } from "lib0/function";
 
-type Path = (string | number | boolean)[];
+export type NonterminalPath = (string | number)[];
+export type Path = NonterminalPath | [...NonterminalPath, true];
 export interface Format {
     sig?: string,
     l1keep?: number;
@@ -55,9 +57,9 @@ export class Formatter {
         path: Path = [],
         currentFormat: Format | null = null
     ): string {
-        const indentForm = (width: number) => this.getIndent(width);
+        const indentForm = (width: number) => this.getIndent(max(0, width));
         const pathMatches = (a: Path) => a.length === sel.length && a.every((v, i) => v === sel[i]);
-        const hlWrapper = (s: string, flag: string | null) => this.wrapNode(pathMatches(path) ? this.highlight(s) : s, flag);
+        const hlWrapper = (s: string, flag: string | null, path2 = path) => this.wrapNode(pathMatches(path2) ? this.highlight(s) : s, flag);
         const recur = (n: any, i: number, p: Path, childFmt?: Format | null, width: number = availableWidth) =>
             this.#superprint(n, node, i, sel, width, p, childFmt);
 
@@ -68,13 +70,13 @@ export class Formatter {
 
             // sigil like $x 'x `x ,x ,@x
             if (fmt?.sig && this.prettySyntax) {
-                const sigMatch = pathMatches([...path, 0]);
+                const sigPath = [...path as NonterminalPath, 0];
                 const childFmt = fmt.children?.[1];
-                const sigFmt = this.handleAtom(fmt.sig, sigMatch, childFmt?.flag ?? null, node, 0, availableWidth);
+                const sigFmt = this.handleAtom(fmt.sig, pathMatches(sigPath), childFmt?.flag ?? null, node, 0, availableWidth);
                 return indentText(
-                    hlWrapper(sigMatch
-                        ? this.highlight(sigFmt)
-                        : sigFmt + recur(node[1]!, 1, [...path, 1],
+                    hlWrapper(
+                        hlWrapper(sigFmt, null, sigPath)
+                        + recur(node[1]!, 1, [...path as NonterminalPath, 1],
                             childFmt, availableWidth - this.unFormat(sigFmt).length - 1),
                         curFlag),
                     indentForm,
@@ -92,7 +94,7 @@ export class Formatter {
                         if (i > 0) inline += " ";
                         const strippedStr = this.unFormat(inline);
                         const nextChunk = indentText(
-                            recur(node[i], i, [...path, i], children[i], availableWidth - strippedStr.length),
+                            recur(node[i], i, [...path as NonterminalPath, i], children[i], availableWidth - strippedStr.length),
                             indentForm,
                             strippedStr.length,
                             false);
@@ -111,7 +113,7 @@ export class Formatter {
                 else if (i > 0) inline += " ";
                 const strippedStr = this.unFormat(inline);
                 const curLineWidth = strippedStr.length - max(strippedStr.lastIndexOf("\n"), 0) - indent;
-                const render = () => recur(node[i]!, i, [...path, i], children[i],
+                const render = () => recur(node[i]!, i, [...path as NonterminalPath, i], children[i],
                     availableWidth - (i >= l1keep! ? indent! : curLineWidth));
                 var rendered = render();
                 inline += i >= l1keep
@@ -128,11 +130,12 @@ export class Formatter {
         if (node && typeof node === "object") {
             const { flag: curFlag = null, children = [] } = currentFormat ?? {};
             const parts = Object.entries(node).map(([k, v], i) => {
-                const keyPath: Path = [...path, k, true];
+                const keyPath: Path = [...path as NonterminalPath, k, true];
                 const keyStr = this.#escapeString(k);
-                const renderedKey = this.handleAtom(keyStr, pathMatches(keyPath), curFlag, node, i, availableWidth - 1);
+                const keyMatched = pathMatches(keyPath);
+                const renderedKey = (keyMatched ? (s: string) => this.highlight(s) : id)(this.handleAtom(keyStr, keyMatched, curFlag, node, i, availableWidth - 1));
                 const valueCol = this.unFormat(renderedKey).length + 2;
-                const val = recur(v, i, [...path, k], children[i] ?? children[k as any], availableWidth - valueCol);
+                const val = recur(v, i, [...path as NonterminalPath, k], children[i] ?? children[k as any], availableWidth - valueCol);
                 return `${renderedKey}: ${indentText(val, indentForm, valueCol, false)}`;
             });
 

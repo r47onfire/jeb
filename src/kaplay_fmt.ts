@@ -73,7 +73,7 @@ export class KAPLAYFormatter extends Formatter {
             if (flag === "comment" && parentIndex > 0) return this.#richTextComment(atom, availableWidth, BOX_LIGHT);
         }
         const name = super.handleAtom(atom, selected, flag, parent, parentIndex, availableWidth);
-        if (parentIndex === 0 && !flag) {
+        if (parentIndex === 0 && isArray(parent) && !flag) {
             const { value } = this.vm.globalEnv.get(atom);
             if (value instanceof Lambda) {
                 flag = value.isMacro ? "defmacro" : "defun";

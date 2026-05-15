@@ -545,7 +545,7 @@ If the first element of \`body\` is a string and there is something additional a
         vm.pushCommand("eval");
         vm.pushData(condition);
         return NOTHING;
-    }, `["if", <condition>, <code if true>, <code if false>]
+    }, `["if", <condition>, <code if true:newline>, <code if false>]
 
 Evaluates \`condition\`, and then chooses one of the two branches depending on whether the condition was truthy or falsy. The false branch can be omitted; if there is no false branch and the condition is falsy, the return value is \`null\`.`);
 

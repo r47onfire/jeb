@@ -33,6 +33,8 @@
         "nodemon": "^3.1.14"
     },
     "dependencies": {
-        "lib0": "^0.2.117"
+        "lib0": "^0.2.117",
+        "mutative": "^1.3.0",
+        "travels": "^1.2.0"
     }
 }

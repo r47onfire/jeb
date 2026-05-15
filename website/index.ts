@@ -2,11 +2,25 @@ import kaplay, { DrawTextOpt } from "kaplay";
 import "kaplay/global";
 import { parse } from "lib0/json";
 import { min } from "lib0/math";
-import { JebVM, KAPLAYFormatter } from "../src";
+import { JEBEditor, JebVM, KAPLAYFormatter, Result } from "../src";
 
 kaplay({
     pixelDensity: min(devicePixelRatio, 2),
     background: "black",
+    buttons: {
+        menu_open_close: {},
+        menu_next_tab: {},
+        menu_prev_tab: {},
+        menu_up: {},
+        menu_down: {},
+        menu_select: {},
+
+        nav_up_level: { keyboard: "up" },
+        nav_down_level: { keyboard: "down" },
+        nav_next_el: { keyboard: "right" },
+        nav_prev_el: { keyboard: "left" },
+        nav_toggle_pretty: { keyboard: "space" },
+    }
 });
 
 loadShader("invert", null, "vec4 frag(vec2 p,vec2 u,vec4 c,sampler2D t){return vec4(c.rgb,def_frag().a>.5?0.:1.);}");
@@ -86,14 +100,12 @@ canvas.addEventListener("drop", async e => {
     }
 });
 
-// MARK: editor state variables
+// MARK: editor state
 
-var isEditing = false;
-var docEditing: any = null;
-var currentPath: any[] = [-1];
+var EDITOR: JEBEditor | null = null;
 
 onMousePress(() => {
-    if (!isEditing) {
+    if (!EDITOR) {
         showOpenFilePicker({
             types: [{
                 description: "JSON code",
@@ -110,15 +122,8 @@ onMousePress(() => {
     }
 });
 
-onKeyPress("space", () => {
-    if (isEditing) {
-        FORMATTER.prettySyntax = !FORMATTER.prettySyntax;
-        refreshEditor();
-    }
-});
-
 onResize(() => {
-    if (docEditing) refreshEditor(); else centerText();
+    if (EDITOR) refreshEditor(); else centerText();
 });
 onLoad(() => {
     centerText();
@@ -130,12 +135,13 @@ function openFile(name: string, text: string) {
     } catch (e: any) {
         mainText.text = `${name} is not valid JSON :(\n${e.stack ?? String(e)}`;
         centerText();
+        console.error(e);
     }
 }
 
 function loadDocumentAndStartEditing(json: any) {
-    docEditing = json;
-    isEditing = true;
+    console.log("Loading JSON:", json);
+    EDITOR = new JEBEditor(json, FORMATTER);
     refreshEditor();
 }
 
@@ -165,7 +171,7 @@ function refreshEditor() {
         FORMATTER.maxWidth = 0;
         while (formatText({ ...textOpts, text: "a".repeat(FORMATTER.maxWidth) }).width < AREA_WIDTH()) FORMATTER.maxWidth++;
         FORMATTER.maxWidth--;
-        mainText.text = FORMATTER.format(docEditing, currentPath);
+        mainText.text = EDITOR!.render();
     }
 }
 function centerText() {
@@ -178,3 +184,16 @@ function centerText() {
     mainText.width = min(AREA_WIDTH(), formatText({ ...textOpts, text: mainText.text }).width);
     return textOpts;
 }
+
+function refreshed(cb: () => Result<any>) {
+    return () => {
+        if (!EDITOR) return;
+        const res = cb();
+        if (res.ok) refreshEditor();
+        else debug.error(res.value);
+    }
+}
+onButtonPress("nav_up_level", refreshed(() => EDITOR!.goOut()));
+onButtonPress("nav_down_level", refreshed(() => EDITOR!.goIn()));
+onButtonPress("nav_next_el", refreshed(() => EDITOR!.goPrevNext(1, true)));
+onButtonPress("nav_prev_el", refreshed(() => EDITOR!.goPrevNext(-1, true)));
