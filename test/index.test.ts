@@ -180,7 +180,7 @@ describe("with / dynamic-wind", () => {
 
     const makeWith = (begin: string, end: string, ...body: any[]) => {
         return ["with", null,
-            ["obj", {
+            {
                 enter: ["lambda", ["k"], "",
                     ["print", begin, ["$", "k"]]],
                 exit: ["lambda", ["k", "type", "value", "restarts"], "",
@@ -190,7 +190,7 @@ describe("with / dynamic-wind", () => {
                         ["$", "type"],
                         ["$", "value"],
                         ["$", "restarts"]]]
-            }],
+            },
             ...body
         ];
     }
@@ -267,7 +267,7 @@ describe("with / dynamic-wind", () => {
     });
 
     testTest("with requires variable name or null", vm => {
-        expect(() => run(vm, ["with", { enter: null, exit: null }, false])).toThrow("expected variable name as first argument to 'with'")
+        expect(() => run(vm, ["with", { enter: null, exit: null }, false])).toThrow("expected variable name or null as first argument to 'with'")
     });
     testTest("with requires context object", vm => {
         expect(() => run(vm, ["with", null, null, false])).toThrow("context manager should be an object")
@@ -385,7 +385,7 @@ describe("recursion stress tests", () => {
     });
     const MEMOIZE_F = (f: (a: bigint) => bigint) => { const cache: Record<number, bigint> = {}; return (a: bigint) => (cache[a as any] ??= f(a)) }
     const MEMOIZE = ["define", ["memoize", "f"],
-        ["let", [["cache", ["obj", {}]]],
+        ["let", [["cache", {}]],
             ["lambda", ["a"], "",
                 ["let", [["cached", ["$", ["cache", ["$", "a"]]]]],
                     ["if", ["nil?", ["$", "cached"]],

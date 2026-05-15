@@ -86,9 +86,22 @@ export function loadBuiltins(vm: JebVM) {
             vm.pushCommand("apply", code.slice(1), false, tailcallHint);
             vm.pushCommand("eval");
             vm.pushData(code[0]);
-        } else {
+        } else if (typeof code !== "object" || code === null) {
             // just use the value directly
             vm.pushData(code);
+        } else {
+            // evaluate all the properties
+            const target = {};
+            vm.pushData(target);
+            for (var key of keys(code)) {
+                vm.pushData(key);
+                vm.pushData(target);
+                vm.pushData(code[key]);
+                vm.pushCommand("shuffle", 1, []);
+                vm.pushCommand("set_prop", "", true);
+                vm.pushCommand("shuffle", 3, [2, 1, 0]);
+                vm.pushCommand("eval");
+            }
         }
     });
     defineBuiltin(vm, "eval", 1, false, false, (args, vm) => {
@@ -332,8 +345,8 @@ Throw an error with the specified type, message, and context value. If we're ins
     // MARK: with
     defineBuiltin(vm, "with", { min: 2, max: Infinity }, true, false, (args, vm) => {
         const binding = args[0];
-        if (typeof binding === "object" && binding !== null) {
-            vm.pushCommand("throw", "type_error", "expected variable name as first argument to 'with'", {});
+        if (!isString(binding) && binding !== null) {
+            vm.pushCommand("throw", "type_error", "expected variable name or null as first argument to 'with'", {});
             return;
         }
         const context = args[1];
@@ -390,27 +403,6 @@ Some errors also include a *restart* as part of their \`context\` - this will be
     });
 
     // MARK: JS objects
-    defineBuiltin(vm, "obj", 1, false, false, (args, vm) => {
-        const quoted = args[0] as Record<string, any>;
-        // evaluate all the properties
-        const target = {};
-        vm.pushData(target);
-        for (var key of keys(quoted)) {
-            vm.pushData(key);
-            vm.pushData(target);
-            vm.pushData(quoted[key]);
-            vm.pushCommand("shuffle", 1, []);
-            vm.pushCommand("set_prop", "", true);
-            vm.pushCommand("shuffle", 3, [2, 1, 0]);
-            vm.pushCommand("eval");
-        }
-        return NOTHING;
-    }, `["obj", <object:sameline>]
-["%", <object:sameline>]
-
-Evaluates all the properties of the object, and returns a new object with the results of evaluation. The properties are evaluated in an unspecified order, but it's usually the order in which they were defined or added to the object.`);
-    alias(vm, "obj", "%");
-
     defineBuiltin(vm, "nil?", 1, false, false, args => undefinedToNull(args[0]) === null, `["nil?", <value>]
 
 Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any other value (including \`false\`, \`""\`, or \`[]\`) is considered not-null, even though it might be falsy.`);
@@ -823,7 +815,7 @@ Skips evaluating the items.`,
 ["!;", <items...:newline>]
 
 Evaluates the items as with [[begin]].`,
-        ["define", "!;", ["$", "uncomment"]],
+            ["define", "!;", ["$", "uncomment"]],
             [QUASIQUOTE_NAME, ["begin", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]]],
         ["define", ["call/cc", "f"],
             `["call/cc", <function>]
@@ -856,43 +848,41 @@ During evaluation of the body, if an error is thrown, the error's \`type\` (as r
 If no handler directly matches, the special catch-all handler \`"\\*"\` is tried, and if it exists, it is called with \`type\`, \`message\` and \`context\`.
 In both cases if the handler exists, \`true\` is returned to [[with]] to stop propagation of the error. If the handler wants to propagate the error, it should re-throw it using [[error]].
 If \`body\` exits cleanly with no error, the special \`"else"\` handler is called with no arguments, if present.`,
-            [QUASIQUOTE_NAME, ["let", [["handlers", ["obj", [UNQUOTE_NAME, ["$", "handlers"]]]]],
-                ["with", null, ["obj",
-                    {
-                        exit: ["lambda", ["k", "type", "value", "ctx"],
-                            ["let",
-                                [
-                                    ["handler", ["$", ["handlers", ["$", "type"]]]],
-                                    ["starHandler", ["$", ["handlers", "*"]]],
-                                    ["elseHandler", ["$", ["handlers", "else"]]]
-                                ],
-                                ["unless", ["$", "type"],
-                                    ["when", ["$", "elseHandler"], ["elseHandler"]],
-                                    ["return", true]],
-                                ["when", ["$", "handler"],
-                                    ["handler", ["$", "value"], ["$", "ctx"]],
-                                    ["return", true]],
-                                ["when", ["$", "starHandler"],
-                                    ["starHandler", ["$", "type"], ["$", "value"], ["$", "ctx"]],
-                                    ["return", true]],
-                                false]],
-                    }],
+            [QUASIQUOTE_NAME, ["let", [["handlers", [UNQUOTE_NAME, ["$", "handlers"]]]],
+                ["with", null, {
+                    exit: ["lambda", ["k", "type", "value", "ctx"],
+                        ["let",
+                            [
+                                ["handler", ["$", ["handlers", ["$", "type"]]]],
+                                ["starHandler", ["$", ["handlers", "*"]]],
+                                ["elseHandler", ["$", ["handlers", "else"]]]
+                            ],
+                            ["unless", ["$", "type"],
+                                ["when", ["$", "elseHandler"], ["elseHandler"]],
+                                ["return", true]],
+                            ["when", ["$", "handler"],
+                                ["handler", ["$", "value"], ["$", "ctx"]],
+                                ["return", true]],
+                            ["when", ["$", "starHandler"],
+                                ["starHandler", ["$", "type"], ["$", "value"], ["$", "ctx"]],
+                                ["return", true]],
+                            false]],
+                },
                     [UNQUOTE_NAME, ["$", "body"]]]]]],
         ["define", true, ["with-baffle", "body", true],
             `["with-baffle", <body...>]
 
 Prevents continuations from jumping in or out of \`body\`; only normal control flow or exceptions can be used to enter or exit.`,
-            [QUASIQUOTE_NAME, ["with", null, ["obj",
-                {
-                    enter: ["lambda", ["k"],
-                        ["when", ["$", "k"],
-                            ["error", "state_error", "Continuation tried to jump into a 'with-baffle' block", {}]],
-                        null],
-                    exit: ["lambda", ["k", "_", true],
-                        ["when", ["$", "k"],
-                            ["error", "state_error", "Continuation tried to jump out of a 'with-baffle' block", {}]],
-                        false]
-                }],
+            [QUASIQUOTE_NAME, ["with", null, {
+                enter: ["lambda", ["k"],
+                    ["when", ["$", "k"],
+                        ["error", "state_error", "Continuation tried to jump into a 'with-baffle' block", {}]],
+                    null],
+                exit: ["lambda", ["k", "_", true],
+                    ["when", ["$", "k"],
+                        ["error", "state_error", "Continuation tried to jump out of a 'with-baffle' block", {}]],
+                    false]
+            },
                 [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]],
         ["define", ["length", "x"], `["length", <value>]
 
@@ -949,27 +939,39 @@ const UNQUOTE_SPLICING_NAME = "unquoteSplicing";
 // MARK: processQuasiquote
 function processQuasiquote(vm: JebVM, form: any, depth: number): Result<any> {
     // atoms
-    if (!isArray(form)) return ok(form);
+    if (!isArray(form)) {
+        if (typeof form !== "object" || form === null) {
+            return ok(form);
+        } else {
+            const newObj: Record<string, any> = {};
+            for (var [key, value] of Object.entries(form)) {
+                const processedValue = processQuasiquote(vm, value, depth);
+                if (!processedValue.ok) return processedValue;
+                newObj[key] = processedValue.value;
+            }
+            return ok(newObj);
+        }
+    }
     if (form.length === 0) return ok(["quote", []]);
 
-    const h = form[0], t = form.slice(1);
+    const head = form[0], tail = form.slice(1);
 
     const same = (x: string, y: string) => vm.getVar(x).value === vm.getVar(y).value;
 
     // ,x
-    if (same(h, UNQUOTE_NAME)) {
+    if (same(head, UNQUOTE_NAME)) {
         if (form.length !== 2) return err("expected argument to " + UNQUOTE_NAME);
-        return ok(depth === 1 ? t[0] : ["list", UNQUOTE_NAME, processQuasiquote(vm, t[0], depth - 1)]);
+        return ok(depth === 1 ? tail[0] : ["list", UNQUOTE_NAME, processQuasiquote(vm, tail[0], depth - 1)]);
     }
     // ,@x
-    if (same(h, UNQUOTE_SPLICING_NAME)) {
-        if (depth !== 1) return ok(["list", UNQUOTE_SPLICING_NAME, processQuasiquote(vm, t[0], depth - 1)]);
+    if (same(head, UNQUOTE_SPLICING_NAME)) {
+        if (depth !== 1) return ok(["list", UNQUOTE_SPLICING_NAME, processQuasiquote(vm, tail[0], depth - 1)]);
         return err(UNQUOTE_SPLICING_NAME + " outside of list");
     }
     // nested `
-    if (same(h, QUASIQUOTE_NAME)) {
+    if (same(head, QUASIQUOTE_NAME)) {
         if (form.length !== 2) return err("expected argument to " + QUASIQUOTE_NAME);
-        return ok(["list", QUASIQUOTE_NAME, processQuasiquote(vm, t[0], depth + 1)]);
+        return ok(["list", QUASIQUOTE_NAME, processQuasiquote(vm, tail[0], depth + 1)]);
     }
 
     // list – collect chunks, splice where needed

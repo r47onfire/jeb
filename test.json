@@ -29,132 +29,129 @@
             [
                 "with",
                 null,
-                [
-                    "obj",
-                    {
-                        "exit": [
-                            "lambda",
+                {
+                    "exit": [
+                        "lambda",
+                        [
+                            "k",
+                            "type",
+                            "value",
+                            "ctx"
+                        ],
+                        [
+                            "let",
                             [
-                                "k",
-                                "type",
-                                "value",
-                                "ctx"
-                            ],
-                            [
-                                "let",
                                 [
+                                    "handler",
                                     [
-                                        "handler",
+                                        "$",
                                         [
-                                            "$",
+                                            "handlers",
                                             [
-                                                "handlers",
-                                                [
-                                                    "$",
-                                                    "type"
-                                                ]
-                                            ]
-                                        ]
-                                    ],
-                                    [
-                                        "starHandler",
-                                        [
-                                            "$",
-                                            [
-                                                "handlers",
-                                                "*"
-                                            ]
-                                        ]
-                                    ],
-                                    [
-                                        "elseHandler",
-                                        [
-                                            "$",
-                                            [
-                                                "handlers",
-                                                "else"
+                                                "$",
+                                                "type"
                                             ]
                                         ]
                                     ]
                                 ],
                                 [
-                                    "unless",
+                                    "starHandler",
+                                    [
+                                        "$",
+                                        [
+                                            "handlers",
+                                            "*"
+                                        ]
+                                    ]
+                                ],
+                                [
+                                    "elseHandler",
+                                    [
+                                        "$",
+                                        [
+                                            "handlers",
+                                            "else"
+                                        ]
+                                    ]
+                                ]
+                            ],
+                            [
+                                "unless",
+                                [
+                                    "$",
+                                    "type"
+                                ],
+                                [
+                                    "when",
+                                    [
+                                        "$",
+                                        "elseHandler"
+                                    ],
+                                    [
+                                        "elseHandler"
+                                    ]
+                                ],
+                                [
+                                    "comment",
+                                    "only returning true to prevent further execution, the return value is ignored in this context."
+                                ],
+                                [
+                                    "return",
+                                    true
+                                ]
+                            ],
+                            [
+                                "when",
+                                [
+                                    "$",
+                                    "handler"
+                                ],
+                                [
+                                    "handler",
+                                    [
+                                        "$",
+                                        "value"
+                                    ],
+                                    [
+                                        "$",
+                                        "ctx"
+                                    ]
+                                ],
+                                [
+                                    "return",
+                                    true
+                                ]
+                            ],
+                            [
+                                "when",
+                                [
+                                    "$",
+                                    "starHandler"
+                                ],
+                                [
+                                    "starHandler",
                                     [
                                         "$",
                                         "type"
                                     ],
                                     [
-                                        "when",
-                                        [
-                                            "$",
-                                            "elseHandler"
-                                        ],
-                                        [
-                                            "elseHandler"
-                                        ]
+                                        "$",
+                                        "value"
                                     ],
                                     [
-                                        "comment",
-                                        "only returning true to prevent further execution, the return value is ignored in this context."
-                                    ],
-                                    [
-                                        "return",
-                                        true
+                                        "$",
+                                        "ctx"
                                     ]
                                 ],
                                 [
-                                    "when",
-                                    [
-                                        "$",
-                                        "handler"
-                                    ],
-                                    [
-                                        "handler",
-                                        [
-                                            "$",
-                                            "value"
-                                        ],
-                                        [
-                                            "$",
-                                            "ctx"
-                                        ]
-                                    ],
-                                    [
-                                        "return",
-                                        true
-                                    ]
-                                ],
-                                [
-                                    "when",
-                                    [
-                                        "$",
-                                        "starHandler"
-                                    ],
-                                    [
-                                        "starHandler",
-                                        [
-                                            "$",
-                                            "type"
-                                        ],
-                                        [
-                                            "$",
-                                            "value"
-                                        ],
-                                        [
-                                            "$",
-                                            "ctx"
-                                        ]
-                                    ],
-                                    [
-                                        "return",
-                                        true
-                                    ]
-                                ],
-                                false
-                            ]
+                                    "return",
+                                    true
+                                ]
+                            ],
+                            false
                         ]
-                    }
-                ],
+                    ]
+                },
                 [
                     "unquote",
                     [
