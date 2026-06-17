@@ -71,8 +71,8 @@ export class DynamicWind {
             i = parentsOfTo.indexOf(fp);
             if (i !== -1) break;
             if (fp.handler?.exit) {
-                intOps.push(["apply", [true, null, null, null], true]);
-                intOps.push(["shuffle", 1, []]);
+                intOps.push(["jeb:apply", [true, null, null, null], true]);
+                intOps.push(["jeb:shuffle", 1, []]);
                 intData.push(fp.handler.exit);
             }
             fp = fp.parent;
@@ -80,8 +80,8 @@ export class DynamicWind {
         for (var j = i + 1; j < parentsOfTo.length; j++) {
             const tp = parentsOfTo[j]!;
             if (tp.handler?.enter) {
-                intOps.push(["apply", [true], true]);
-                intOps.push(["shuffle", 1, []]);
+                intOps.push(["jeb:apply", [true], true]);
+                intOps.push(["jeb:shuffle", 1, []]);
                 intData.push(tp.handler.enter);
             }
         }

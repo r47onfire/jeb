@@ -35,8 +35,8 @@ const argsHelper = (vm: JebVM, args: any[], shouldEval: boolean) => {
         if (shouldEval) {
             // rotate the argument we just evaluated around and bring up the next one
             // optimize if len == 1 then don't bother shuffling!
-            if (len > 1) vm.pushCommand("shuffle", len, new Array(len).fill(0).map((_, j) => (j + 1) % len));
-            vm.pushCommand("eval");
+            if (len > 1) vm.pushCommand("jeb:shuffle", len, new Array(len).fill(0).map((_, j) => (j + 1) % len));
+            vm.pushCommand("jeb:eval");
         }
     }
 }
@@ -49,10 +49,10 @@ export const implicitBegin = (vm: JebVM, args: any) => {
     // Evaluate all in order (reverse because stack)
     for (var i = len - 1, last = true; i >= 0; i--, last = false) {
         // Drop all but the last one
-        if (!last) vm.pushCommand("shuffle", 1, []);
+        if (!last) vm.pushCommand("jeb:shuffle", 1, []);
         vm.pushData(args[i]);
         // Do a tail call on the last item
-        vm.pushCommand("eval", last);
+        vm.pushCommand("jeb:eval", last);
     }
 }
 
@@ -64,12 +64,12 @@ export const loadBuiltins = (vm: JebVM) => {
 
 
     // MARK: op: traceback push/pop
-    defineOpcode(vm, "return", tracebackPop);
-    defineOpcode(vm, "call", tracebackPush);
+    defineOpcode(vm, "jeb:tb_pop", tracebackPop);
+    defineOpcode(vm, "jeb:tb_push", tracebackPush);
 
     // MARK: op: stack shuffle
     // N/[0, 1, 2, 3, ..., N-1] = identity, 2/[1, 0] = swap, 1/[] = drop, 1/[0, 0] = dup, N/[1, 2, 3, 4, ..., N-1, 0] = N-tuck, etc.
-    defineOpcode(vm, "shuffle", (vm, args) => {
+    defineOpcode(vm, "jeb:shuffle", (vm, args) => {
         const n = args[0] as number;
         const indices = args[1] as number[];
         const items = vm.popNData(n);
@@ -79,12 +79,12 @@ export const loadBuiltins = (vm: JebVM) => {
     });
 
     // MARK: eval
-    defineOpcode(vm, "eval", (vm, args) => {
+    defineOpcode(vm, "jeb:eval", (vm, args) => {
         const code = vm.popData();
         const tailcallHint = args[0] || false;
         if (isArray(code)) {
-            vm.pushCommand("apply", code.slice(1), false, tailcallHint);
-            vm.pushCommand("eval");
+            vm.pushCommand("jeb:apply", code.slice(1), false, tailcallHint);
+            vm.pushCommand("jeb:eval");
             vm.pushData(code[0]);
         } else if (typeof code !== "object" || code === null) {
             // just use the value directly
@@ -97,15 +97,15 @@ export const loadBuiltins = (vm: JebVM) => {
                 vm.pushData(key);
                 vm.pushData(target);
                 vm.pushData(code[key]);
-                vm.pushCommand("shuffle", 1, []);
-                vm.pushCommand("set_prop", "", true);
-                vm.pushCommand("shuffle", 3, [2, 1, 0]);
-                vm.pushCommand("eval");
+                vm.pushCommand("jeb:shuffle", 1, []);
+                vm.pushCommand("jeb:set_prop", "", true);
+                vm.pushCommand("jeb:shuffle", 3, [2, 1, 0]);
+                vm.pushCommand("jeb:eval");
             }
         }
     });
     defineBuiltin(vm, "eval", 1, false, false, (args, vm) => {
-        vm.pushCommand("eval");
+        vm.pushCommand("jeb:eval");
         vm.pushData(args[0]);
         return NOTHING;
     }, `["eval", <argument>]
@@ -113,7 +113,7 @@ export const loadBuiltins = (vm: JebVM) => {
 Evaluate the argument in the current environment and return the result.`);
 
     // MARK: apply
-    defineOpcode(vm, "apply", (vm, args) => {
+    defineOpcode(vm, "jeb:apply", (vm, args) => {
         const func = vm.popData();
         const values = args[0];
         const argc = values.length;
@@ -122,15 +122,15 @@ Evaluate the argument in the current environment and return the result.`);
         const applier = vm.applyTable.find(a => typeMatches(func, a.type));
         if (!applier) {
             const typename = func === null ? "null" : isArray(func) ? "array" : typeof func;
-            vm.pushCommand("throw", "jeb:type_error", `can't call ${typename === "object" ? (func.constructor.name ?? "object") : typename}`, {
+            vm.pushCommand("jeb:throw", "jeb:type_error", `can't call ${typename === "object" ? (func.constructor.name ?? "object") : typename}`, {
                 return: Continuation.fromVM(vm),
             });
             return;
         }
-        if (applier.getIsMacro(func)) vm.pushCommand("eval");
+        if (applier.getIsMacro(func)) vm.pushCommand("jeb:eval");
         const name = applier.getNameOf(func);
         if (name) {
-            if (!tailcallHint) vm.pushCommand("return");
+            if (!tailcallHint) vm.pushCommand("jeb:tb_pop");
         }
         // check arg counts
         const arity = applier.getArity(func);
@@ -141,7 +141,7 @@ Evaluate the argument in the current environment and return the result.`);
             ok = argc >= arity.min && argc <= arity.max;
         }
         if (!ok) {
-            vm.pushCommand("throw", "jeb:value_error", `expected ${isNumber(arity) ? arity : `${arity!.min} to ${arity!.max}`} args, got ${argc}`, {});
+            vm.pushCommand("jeb:throw", "jeb:value_error", `expected ${isNumber(arity) ? arity : `${arity!.min} to ${arity!.max}`} args, got ${argc}`, {});
             return;
         }
         applier.apply(func, alreadyEvaluated, tailcallHint, values, vm);
@@ -152,8 +152,8 @@ Evaluate the argument in the current environment and return the result.`);
         apply(func: string, alreadyEvaluated: boolean, tailcallHint: boolean, args: any[], vm: JebVM) {
             // String is a special case because normally strings evaluate to themselves
             // (not to a callable function), but if it's in head position, we implicitly look it up.
-            vm.pushCommand("apply", args, alreadyEvaluated, tailcallHint);
-            vm.pushCommand("lookup", true);
+            vm.pushCommand("jeb:apply", args, alreadyEvaluated, tailcallHint);
+            vm.pushCommand("jeb:lookup", true);
             vm.pushData(func);
         }
         getNameOf() { return undefined; }
@@ -164,15 +164,15 @@ Evaluate the argument in the current environment and return the result.`);
     defineApplier(vm, new class extends Applier<BuiltinFunction> {
         constructor() { super(BuiltinFunction); }
         apply(func: BuiltinFunction, alreadyEvaluated: boolean, tailcallHint: boolean, args: any[], vm: JebVM) {
-            vm.pushCommand("exec.builtin", func, args.length);
-            vm.pushCommand("call", this.getNameOf(func), tailcallHint);
+            vm.pushCommand("jeb:exec/builtin", func, args.length);
+            vm.pushCommand("jeb:tb_push", this.getNameOf(func), tailcallHint);
             argsHelper(vm, args, !func.isSpecial && !alreadyEvaluated);
         }
         getNameOf(func: BuiltinFunction) { return func.name; }
         getArity(func: BuiltinFunction) { return func.arity; }
         getIsMacro(func: BuiltinFunction) { return func.resultIsMacro; }
     });
-    defineOpcode(vm, "exec.builtin", (vm, args) => {
+    defineOpcode(vm, "jeb:exec/builtin", (vm, args) => {
         const func = args[0] as BuiltinFunction;
         const argc = args[1] as number;
         const argv = vm.popNData(argc).reverse();
@@ -183,24 +183,24 @@ Evaluate the argument in the current environment and return the result.`);
     });
 
     // MARK: variables
-    defineOpcode(vm, "lookup", (vm, args) => {
+    defineOpcode(vm, "jeb:lookup", (vm, args) => {
         const name = vm.popData();
         const variable = vm.getVar(name);
         const functionHint = args[0] ?? false;
         if (!variable.ok) {
-            vm.pushCommand("throw", "jeb:reference_error", `${functionHint ? "function" : "variable"} ${stringify(name)} not found`, {
+            vm.pushCommand("jeb:throw", "jeb:reference_error", `${functionHint ? "function" : "variable"} ${stringify(name)} not found`, {
                 define: Continuation.fromVM(vm, ["store", name])
             });
             return;
         }
         vm.pushData(variable.value);
     });
-    defineOpcode(vm, "get_prop", (vm, args) => {
+    defineOpcode(vm, "jeb:get_prop", (vm, args) => {
         const name = vm.popData();
         const obj = vm.popData();
         if ((obj ?? null) === null) {
             const propHint = args[0] as string ?? "unknown expression";
-            vm.pushCommand("throw", "jeb:type_error", `can't get property ${stringify(name)} of ${obj} (evaluating ${propHint})`, {});
+            vm.pushCommand("jeb:throw", "jeb:type_error", `can't get property ${stringify(name)} of ${obj} (evaluating ${propHint})`, {});
             return;
         }
         vm.pushData(obj[name]);
@@ -211,7 +211,7 @@ Evaluate the argument in the current environment and return the result.`);
             vm.pushData(name);
         } else {
             if (name.length < 2) {
-                vm.pushCommand("throw", "jeb:value_error", "array form of $ must have 2 or more elements", {});
+                vm.pushCommand("jeb:throw", "jeb:value_error", "array form of $ must have 2 or more elements", {});
                 return;
             }
             // On each iteration, the stack looks like:
@@ -221,61 +221,61 @@ Evaluate the argument in the current environment and return the result.`);
             // rinse and repeat.
             for (var i = name.length - 1; i > 0; i--) {
                 vm.pushData(name[i]);
-                vm.pushCommand("get_prop", name.slice(0, i + 1).map((j, i) => i > 0 ? j : stringify([j])).join(""));
-                vm.pushCommand("eval");
-                vm.pushCommand("shuffle", 2, [1, 0]);
+                vm.pushCommand("jeb:get_prop", name.slice(0, i + 1).map((j, i) => i > 0 ? j : stringify([j])).join(""));
+                vm.pushCommand("jeb:eval");
+                vm.pushCommand("jeb:shuffle", 2, [1, 0]);
             }
             vm.pushData(name[0]);
         }
-        vm.pushCommand("lookup");
-        vm.pushCommand("eval");
+        vm.pushCommand("jeb:lookup");
+        vm.pushCommand("jeb:eval");
         return NOTHING;
     }, `["$", [<name+defvar>, <properties...:sameline>]]
 ["$", <name+defvar>]
 
 Look up the variable with this name in the current environment, and return the value, or throw a \`reference_error\` if it is not defined anywhere.
 If \`properties\` are given, they index the variable like Javascript square brackets.`);
-    defineOpcode(vm, "store", (vm, args) => {
+    defineOpcode(vm, "jeb:store", (vm, args) => {
         const value = vm.peekData();
         const name: string = args[0];
         const didSet = vm.setVar(name, value);
         if (!didSet) {
-            vm.pushCommand("throw", "jeb:reference_error", `variable ${stringify(name)} not found`, {
+            vm.pushCommand("jeb:throw", "jeb:reference_error", `variable ${stringify(name)} not found`, {
                 define: Continuation.fromVM(vm, ["store", name])
             });
             return;
         }
         if (value instanceof Lambda && value.name === undefined) value.name = name;
     });
-    defineOpcode(vm, "define", (vm, args) => {
+    defineOpcode(vm, "jeb:define", (vm, args) => {
         const value = vm.peekData();
         const name: string = args[0];
         vm.currentEnv.define(name, value);
         if (value instanceof Lambda && value.name === undefined) value.name = name;
     });
-    defineOpcode(vm, "set_prop", (vm, args) => {
+    defineOpcode(vm, "jeb:set_prop", (vm, args) => {
         const name = vm.popData();
         const obj = vm.popData();
         if ((obj ?? null) === null) {
             const propHint = args[0] as string ?? "unknown expression";
-            vm.pushCommand("throw", "jeb:type_error", `can't set property ${stringify(name)} on ${obj} (evaluating ${propHint})`, {});
+            vm.pushCommand("jeb:throw", "jeb:type_error", `can't set property ${stringify(name)} on ${obj} (evaluating ${propHint})`, {});
             return;
         }
         try {
             obj[name] = vm.peekData();
         } catch (e) {
-            vm.pushCommand("throw", "jeb:type_error", String(e), {});
+            vm.pushCommand("jeb:throw", "jeb:type_error", String(e), {});
         }
     });
     defineBuiltin(vm, "set", 2, true, false, (args, vm) => {
         const name = args[0] as string | any[];
         if (!isArray(name)) {
-            vm.pushCommand("store", name);
-            vm.pushCommand("eval");
+            vm.pushCommand("jeb:store", name);
+            vm.pushCommand("jeb:eval");
             vm.pushData(args[1]);
         } else {
             if (name.length < 2) {
-                vm.pushCommand("throw", "jeb:value_error", "array form of set must have 2 or more elements", {});
+                vm.pushCommand("jeb:throw", "jeb:value_error", "array form of set must have 2 or more elements", {});
                 return;
             }
             // On the last iteration, stack looks like:
@@ -286,20 +286,20 @@ If \`properties\` are given, they index the variable like Javascript square brac
             //     name obj value
             // eval name, and then set.
             vm.pushData(args[1]);
-            vm.pushCommand("set_prop", name.map((j, i) => i > 0 ? j : stringify([j])).join(""));
-            vm.pushCommand("eval");
-            vm.pushCommand("shuffle", 3, [2, 1, 0]);
-            vm.pushCommand("eval");
-            vm.pushCommand("shuffle", 3, [1, 2, 0]);
+            vm.pushCommand("jeb:set_prop", name.map((j, i) => i > 0 ? j : stringify([j])).join(""));
+            vm.pushCommand("jeb:eval");
+            vm.pushCommand("jeb:shuffle", 3, [2, 1, 0]);
+            vm.pushCommand("jeb:eval");
+            vm.pushCommand("jeb:shuffle", 3, [1, 2, 0]);
             vm.pushData(last(name));
             // On each prior iteration, it's the same as in $
             for (var i = name.length - 2; i > 0; i--) {
                 vm.pushData(name[i]);
-                vm.pushCommand("get_prop", name.slice(0, i + 1).map((j, i) => i > 0 ? j : stringify([j])).join(""));
-                vm.pushCommand("eval");
-                vm.pushCommand("shuffle", 2, [1, 0]);
+                vm.pushCommand("jeb:get_prop", name.slice(0, i + 1).map((j, i) => i > 0 ? j : stringify([j])).join(""));
+                vm.pushCommand("jeb:eval");
+                vm.pushCommand("jeb:shuffle", 2, [1, 0]);
             }
-            vm.pushCommand(isString(name[0]) ? "lookup" : "eval");
+            vm.pushCommand(isString(name[0]) ? "jeb:lookup" : "jeb:eval");
             vm.pushData(name[0]);
         }
         return NOTHING;
@@ -311,7 +311,7 @@ Set the value of the variable in the environment in which it is defined. If it w
 If \`properties\` are given, the \`name\` will be looked up instead, and the properties will be used to index the object, and the last one will be used to set the property.`);
 
     // MARK: error handling
-    defineOpcode(vm, "throw", (vm, args) => {
+    defineOpcode(vm, "jeb:throw", (vm, args) => {
         const type = args[0] as string;
         const error = args[1] as string;
         const ctx = args[2] as Record<string, any>;
@@ -322,11 +322,11 @@ If \`properties\` are given, the \`name\` will be looked up instead, and the pro
             vm.curDynamicWind = dw.parent!;
             dw.restore(vm);
             if (dw.handler?.exit) {
-                vm.pushCommand("if", null, ["throw", type, error, ctx], true);
-                vm.pushCommand("apply", [false, type, error, ctx], true);
+                vm.pushCommand("jeb:if", null, ["jeb:throw", type, error, ctx], true);
+                vm.pushCommand("jeb:apply", [false, type, error, ctx], true);
                 vm.pushData(dw.handler?.exit);
             } else {
-                vm.pushCommand("throw", type, error, ctx);
+                vm.pushCommand("jeb:throw", type, error, ctx);
             }
             return;
         }
@@ -337,7 +337,7 @@ If \`properties\` are given, the \`name\` will be looked up instead, and the pro
         const type = args[0] as string;
         const error = args[1] as string;
         const ctx = args[2] as Record<string, Continuation>;
-        vm.pushCommand("throw", type, error, ctx);
+        vm.pushCommand("jeb:throw", type, error, ctx);
         return NOTHING;
     }, `["error", <type>, <message>, <context>]
 
@@ -347,7 +347,7 @@ Throw an error with the specified type, message, and context value. If we're ins
     defineBuiltin(vm, "with", { min: 2, max: Infinity }, true, false, (args, vm) => {
         const binding = args[0];
         if (!isString(binding) && binding !== null) {
-            vm.pushCommand("throw", "jeb:type_error", "expected variable name or null as first argument to 'with'", {});
+            vm.pushCommand("jeb:throw", "jeb:type_error", "expected variable name or null as first argument to 'with'", {});
             return;
         }
         const context = args[1];
@@ -356,10 +356,10 @@ Throw an error with the specified type, message, and context value. If we're ins
         const dw = DynamicWind.fromVM(vm);
         // this looks backwards because it is - it's a stack, so the last one pushed (at the bottom)
         // is the first one executed
-        vm.pushCommand("with.teardown");
+        vm.pushCommand("jeb:with/teardown");
         implicitBegin(vm, body);
-        vm.pushCommand("with.setup", dw, binding);
-        vm.pushCommand("eval");
+        vm.pushCommand("jeb:with/setup", dw, binding);
+        vm.pushCommand("jeb:eval");
         vm.pushData(context);
         return NOTHING;
     }, `["with", <varname>, <context>, <body...>]
@@ -369,37 +369,37 @@ When entering the block, the \`enter\` hook will be called with one parameter, \
 When exiting the block, the \`exit\` hook will be called with four parameters - \`continuation\`, \`type\`, \`message\`, and \`context\`. \`continuation\` is as with the \`enter\` handler (indicating if the block exit is due to a continuation or not), and \`type\`, \`message\`, and \`context\` will be \`null\` if there is no error being handled, or non-\`null\` if there is an error in progess. The \`exit\` handler can return \`true\` to indicate that it has handled the error, and prevent it from propagating up the call stack.
 Some errors also include a *restart* as part of their \`context\` - this will be a continuation that when invoked, will jump back to the site of the error and resume execution with the substituted value.`);
 
-    defineOpcode(vm, "with.setup", (vm, args) => {
+    defineOpcode(vm, "jeb:with/setup", (vm, args) => {
         // we just got the before and after handlers evaluated
         const context = vm.popData() as Windable;
         const notObject = typeof context !== "object" || context === null;
         if (notObject || !("enter" in context || "exit" in context)) {
-            vm.pushCommand("throw", "jeb:type_error", notObject ? "context manager should be an object" : "context manager should have 'enter' and/or 'exit' handlers", {});
+            vm.pushCommand("jeb:throw", "jeb:type_error", notObject ? "context manager should be an object" : "context manager should have 'enter' and/or 'exit' handlers", {});
             return;
         }
         const name = args[1] as string | null;
         const dw = (args[0] as DynamicWind).setHandler(context);
         // set up the winder to be installed AFTER the enter handler runs, so that errors thrown by this handler won't be caught by the exit handler
-        vm.pushCommand("with.install", dw);
+        vm.pushCommand("jeb:with/install", dw);
 
         if (!context.enter) return;
-        vm.pushCommand("shuffle", 1, []);
-        if (name !== null) vm.pushCommand("store", name);
-        vm.pushCommand("apply", [false], true);
+        vm.pushCommand("jeb:shuffle", 1, []);
+        if (name !== null) vm.pushCommand("jeb:store", name);
+        vm.pushCommand("jeb:apply", [false], true);
         vm.pushData(context.enter);
     });
 
-    defineOpcode(vm, "with.install", (vm, args) => {
+    defineOpcode(vm, "jeb:with/install", (vm, args) => {
         vm.curDynamicWind = args[0] as DynamicWind;
     });
 
-    defineOpcode(vm, "with.teardown", vm => {
+    defineOpcode(vm, "jeb:with/teardown", vm => {
         if (!vm.curDynamicWind.parent) throw new Error("Dynamic wind stack underflow");
         const dw = vm.curDynamicWind;
         vm.curDynamicWind = dw.parent!;
         // discard the exit handler's result
-        vm.pushCommand("shuffle", 1, []);
-        vm.pushCommand("apply", [false, null, null, null], true);
+        vm.pushCommand("jeb:shuffle", 1, []);
+        vm.pushCommand("jeb:apply", [false, null, null, null], true);
         vm.pushData(dw.handler?.exit);
     });
 
@@ -412,9 +412,9 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
     defineApplier(vm, new class extends Applier<Lambda> {
         constructor() { super(Lambda); }
         apply(lambda: Lambda, alreadyEvaluated: boolean, tailcallHint: boolean, args: any[], vm: JebVM) {
-            if (!tailcallHint || lambda.isMacro) vm.pushCommand("env.reset", vm.currentEnv);
-            vm.pushCommand("exec.lambda", lambda, args.length);
-            vm.pushCommand("call", this.getNameOf(lambda), tailcallHint);
+            if (!tailcallHint || lambda.isMacro) vm.pushCommand("jeb:apply/resetEnv", vm.currentEnv);
+            vm.pushCommand("jeb:exec/lambda", lambda, args.length);
+            vm.pushCommand("jeb:tb_push", this.getNameOf(lambda), tailcallHint);
             argsHelper(vm, args, !lambda.isMacro && !alreadyEvaluated);
         }
         getNameOf(lambda: Lambda) { return lambda.name ?? "[lambda]"; }
@@ -429,10 +429,10 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
         }
         getIsMacro(lambda: Lambda) { return lambda.isMacro; }
     });
-    defineOpcode(vm, "env.reset", (vm, args) => {
+    defineOpcode(vm, "jeb:apply/resetEnv", (vm, args) => {
         vm.currentEnv = args[0] as Env;
     });
-    defineOpcode(vm, "exec.lambda", (vm, args) => {
+    defineOpcode(vm, "jeb:exec/lambda", (vm, args) => {
         const lambda = args[0] as Lambda;
         const argc = args[1] as number;
         const required = lambda.args, nRequired = required.length;
@@ -441,7 +441,7 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
         if ((nRequired + nOpt) > argc) {
             // Need to evaluate defaults.
             const dynamicEnv = new Env({}, [lambda.closureEnv, vm.currentEnv]);
-            vm.pushCommand("exec.lambda", lambda, nRequired + nOpt);
+            vm.pushCommand("jeb:exec/lambda", lambda, nRequired + nOpt);
             argsHelper(vm, optional.slice(argc - nRequired).map(o => o[1]), true);
             vm.currentEnv = dynamicEnv;
             return NOTHING;
@@ -476,18 +476,18 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
                         break;
                     }
                     if (optional.length > 0) {
-                        vm.pushCommand("throw", "jeb:syntax_error", "required parameter cannot follow optional parameter", {});
+                        vm.pushCommand("jeb:throw", "jeb:syntax_error", "required parameter cannot follow optional parameter", {});
                         return NOTHING;
                     }
                     required.push(p);
                 } else if (isArray(p)) {
                     if (p.length !== 2) {
-                        vm.pushCommand("throw", "jeb:syntax_error", "invalid optional argument");
+                        vm.pushCommand("jeb:throw", "jeb:syntax_error", "invalid optional argument");
                         return;
                     }
                     optional.push(p);
                 } else {
-                    vm.pushCommand("throw", "jeb:syntax_error", "invalid parameter to lambda", {})
+                    vm.pushCommand("jeb:throw", "jeb:syntax_error", "invalid parameter to lambda", {})
                 }
             }
             return new Lambda(isMacro, undefined, required, optional, rest, body, vm.currentEnv, docstring);
@@ -516,7 +516,7 @@ If the first element of \`body\` is a string and there is something additional a
     });
 
     // MARK: logic
-    defineOpcode(vm, "if", (vm, args) => {
+    defineOpcode(vm, "jeb:if", (vm, args) => {
         const condition = vm.popData();
         const then = args[0];
         const else_ = args[1];
@@ -526,7 +526,7 @@ If the first element of \`body\` is a string and there is something additional a
             if (condition) { if (then) vm.pushCommand(...then); } else if (else_) vm.pushCommand(...else_);
         } else {
             vm.pushData(condition ? then : else_);
-            vm.pushCommand("eval", true);
+            vm.pushCommand("jeb:eval", true);
         }
     });
 
@@ -534,8 +534,8 @@ If the first element of \`body\` is a string and there is something additional a
         const condition = args[0];
         const then = args[1];
         const else_ = args[2] ?? null;
-        vm.pushCommand("if", then, else_);
-        vm.pushCommand("eval");
+        vm.pushCommand("jeb:if", then, else_);
+        vm.pushCommand("jeb:eval");
         vm.pushData(condition);
         return NOTHING;
     }, `["if", <condition>, <code if true:newline>, <code if false>]
@@ -567,7 +567,7 @@ Runs each of the body statements in order, and returns the result from the last 
             const initializers = bindings.map(b => b[1]);
             vm.pushData([["lambda", params, ...body], ...initializers]);
         }
-        vm.pushCommand("eval");
+        vm.pushCommand("jeb:eval");
         return NOTHING;
     }, `["let", [<pairs...:eachline+let>], <body...>]
 ["let", <loopname+defvar>, [<pairs...:eachline+let>], <body...>]
@@ -584,14 +584,14 @@ This actually is a macro that expands to an immediately-invoked lambda, so "[lam
             const funcName = name2[0] as string;
             const params = name2.slice(1) as string[];
             const body = args.slice(2);
-            vm.pushCommand("define", funcName);
-            vm.pushCommand("eval");
+            vm.pushCommand("jeb:define", funcName);
+            vm.pushCommand("jeb:eval");
             vm.pushData(["macro", params, ...body]);
         }
         else if (isString(name)) {
             // variable definition: (define x 10)
-            vm.pushCommand("define", name);
-            vm.pushCommand("eval");
+            vm.pushCommand("jeb:define", name);
+            vm.pushCommand("jeb:eval");
             vm.pushData(args[1]);
         }
         else if (isArray(name)) {
@@ -599,12 +599,12 @@ This actually is a macro that expands to an immediately-invoked lambda, so "[lam
             const funcName = name[0] as string;
             const params = name.slice(1) as string[];
             const body = args.slice(1);
-            vm.pushCommand("define", funcName);
-            vm.pushCommand("eval");
+            vm.pushCommand("jeb:define", funcName);
+            vm.pushCommand("jeb:eval");
             vm.pushData(["lambda", params, ...body]);
         }
         else {
-            vm.pushCommand("throw", "jeb:syntax_error", "invalid define syntax", {});
+            vm.pushCommand("jeb:throw", "jeb:syntax_error", "invalid define syntax", {});
         }
         return NOTHING;
     }, `["define", <varname+defvar>, <value>]
@@ -634,7 +634,7 @@ The third form (with \`true\`) expands to a [[macro]] in the same way.`);
             for (var i = 1; i < a.length; i++) {
                 const res = vm.math.call(operation, acc, a[i]);
                 if (!res.ok) {
-                    vm.pushCommand("throw", "jeb:type_error", "math error: " + res.value, {
+                    vm.pushCommand("jeb:throw", "jeb:type_error", "math error: " + res.value, {
                         return: Continuation.fromVM(vm)
                     });
                     return NOTHING;
@@ -708,7 +708,7 @@ Boolean inverse`);
                     ["if", getsym, getsym, rest] :
                     ["if", getsym, rest, getsym]
             ], args[0]]);
-            vm.pushCommand("eval", true);
+            vm.pushCommand("jeb:eval", true);
             return NOTHING;
         }, `["${name}", <values...:sameline>]
 
@@ -731,7 +731,7 @@ Returns a copy of the list without the first element`);
         const out: any[] = [];
         for (var arg of args) {
             if (!isArray(arg)) {
-                vm.pushCommand("throw", "jeb:type_error", "not an array to concat", {
+                vm.pushCommand("jeb:throw", "jeb:type_error", "not an array to concat", {
                     return: Continuation.fromVM(vm)
                 });
                 return NOTHING;
@@ -754,7 +754,7 @@ Prevents its argument from being evaluated.`);
         if (result.ok) {
             return result.value;
         }
-        vm.pushCommand("throw", "jeb:value_error", result.value, {
+        vm.pushCommand("jeb:throw", "jeb:value_error", result.value, {
             return: Continuation.fromVM(vm)
         });
     }, `["quasiquote", <value>]
@@ -763,13 +763,13 @@ Prevents its argument from being evaluated.`);
 Prevents its argument from being evaluated, but walks the elements and replaces [[${UNQUOTE_NAME}]] and [[${UNQUOTE_SPLICING_NAME}]] with the results of evaluating their arguments. The argument to [[${UNQUOTE_SPLICING_NAME}]] must be a list.`);
     alias(vm, QUASIQUOTE_NAME, "~");
 
-    defineBuiltin(vm, UNQUOTE_NAME, 1, false, false, (_, vm) => (vm.pushCommand("throw", "jeb:syntax_error", UNQUOTE_NAME + " not valid outside of quasiquote", {
+    defineBuiltin(vm, UNQUOTE_NAME, 1, false, false, (_, vm) => (vm.pushCommand("jeb:throw", "jeb:syntax_error", UNQUOTE_NAME + " not valid outside of quasiquote", {
         return: Continuation.fromVM(vm)
     }), NOTHING), `["${UNQUOTE_NAME}", <value>]
 [",", <value>]
 
 Marks a value to be interpolated inside a [[${QUASIQUOTE_NAME}]]. This is not valid outside of a [[${QUASIQUOTE_NAME}]] and will throw an error if called as a normal function.`);
-    defineBuiltin(vm, UNQUOTE_SPLICING_NAME, 1, false, false, (_, vm) => (vm.pushCommand("throw", "jeb:syntax_error", UNQUOTE_SPLICING_NAME + " not valid outside of quasiquote", {
+    defineBuiltin(vm, UNQUOTE_SPLICING_NAME, 1, false, false, (_, vm) => (vm.pushCommand("jeb:throw", "jeb:syntax_error", UNQUOTE_SPLICING_NAME + " not valid outside of quasiquote", {
         return: Continuation.fromVM(vm)
     }), NOTHING), `["${UNQUOTE_SPLICING_NAME}", <value>]
 [",@", <value>]
@@ -782,7 +782,7 @@ Marks a list to be interpolated via splicing inside a [[${QUASIQUOTE_NAME}]]. Th
         try {
             return parse(args[0]);
         } catch (e) {
-            vm.pushCommand("throw", "jeb:value_error", String(e), {});
+            vm.pushCommand("jeb:throw", "jeb:value_error", String(e), {});
             return NOTHING;
         }
     }, `["parseJSON", <string>]
@@ -792,7 +792,7 @@ Parses the string using \`JSON.parse()\`, and returns the result.`);
         try {
             return stringify(args[0]);
         } catch (e) {
-            vm.pushCommand("throw", "jeb:value_error", String(e), {});
+            vm.pushCommand("jeb:throw", "jeb:value_error", String(e), {});
             return NOTHING;
         }
     }, `["dumpJSON", <value>]

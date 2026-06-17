@@ -145,7 +145,7 @@ describe("traceback compression", () => {
         ], 6000)).toBeFalse();
 
         // force an error to snapshot the stack
-        vm.pushCommand("throw", "boom", "x", {});
+        vm.pushCommand("jeb:throw", "boom", "x", {});
         var err: any;
         try { for (; vm.step();); } catch (e) { err = e; }
 

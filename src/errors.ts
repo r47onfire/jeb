@@ -103,7 +103,7 @@ export const resultToError = (vm: JebVM, errType: string, result: Result<any>) =
     if (result.ok) {
         return result.value;
     }
-    vm.pushCommand("throw", errType, result.value, {
+    vm.pushCommand("jeb:throw", errType, result.value, {
         return: Continuation.fromVM(vm)
     });
     return NOTHING;

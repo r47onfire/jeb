@@ -98,7 +98,7 @@ export class JebVM {
     start(code: any) {
         if (llLength(this.commandStack) > 0) throw new Error("VM is already running");
         this.pushData(code);
-        this.pushCommand("eval");
+        this.pushCommand("jeb:eval");
     }
     reset() {
         this.commandStack = this.dataStack = this.tracebackStack = null;
@@ -109,7 +109,7 @@ export class JebVM {
     }
     checkRecursion(length: number) {
         if (this.recursionDepth > length) {
-            this.pushCommand("throw", "recursion_error", "too much recursion", {});
+            this.pushCommand("jeb:throw", "jeb:recursion_error", "too much recursion", {});
         }
     }
     tracebackArray() {
