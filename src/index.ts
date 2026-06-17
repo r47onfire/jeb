@@ -6,8 +6,10 @@ export { Env } from "./env";
 export { jsError, resultToError, tracebackPop, tracebackPush } from "./errors";
 export { Formatter, type Format } from "./format";
 export { KAPLAYFormatter, type Theme } from "./kaplay_fmt";
+export { llLength, llPop, llPopN, llPush, llPushArray, llToArray, type Linked, type LinkedList } from "./linked_list";
 export { numberOp } from "./math";
 export { Arithmetic, typeMatches, type Operation, type Operations } from "./overload";
 export { err, ok, type Result } from "./result";
-export { Applier, JebVM, type OpcodeFunction } from "./vm";
 export { JEBEditor } from "./sed";
+export { Applier, JebVM, type OpcodeFunction } from "./vm";
+

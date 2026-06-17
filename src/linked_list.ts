@@ -15,19 +15,19 @@ export const llLength = (ll: LinkedList<any>): number => {
 export const llPop = <T extends Linked<any>>(ll: T): { value: T["value"]; rest: T | null; } => {
     return { value: ll.value, rest: ll.next };
 }
-export const llPopN = <T extends Linked<any>>(ll: T, popAmount: number): { values: T["value"][]; rest: T | null; } => {
+export const llPopN = <T extends Linked<any>>(ll: T, popAmount: number, reverse = true): { values: T["value"][]; rest: T | null; } => {
     const out: T["value"][] = [];
     for (var i = 0; i < popAmount && ll; i++) {
         const { value, rest } = llPop(ll!);
         out.push(value);
         ll = rest as any;
     }
-    return { values: out.reverse(), rest: ll };
+    return { values: reverse ? out.reverse() : out, rest: ll };
 }
 export const llPushArray = <T>(ll: LinkedList<T>, moreValues: T[]): LinkedList<T> => {
-    for (var i = 0; i < moreValues.length; i++) ll = llPush(ll, moreValues[i]!);
+    for (var i = moreValues.length - 1; i >= 0; i--) ll = llPush(ll, moreValues[i]!);
     return ll;
 }
 export const llToArray = <T extends Linked<any>>(ll: T | null): T["value"][] => {
-    return ll ? llPopN(ll, Infinity).values : [];
+    return ll ? llPopN(ll, Infinity, false).values : [];
 }
