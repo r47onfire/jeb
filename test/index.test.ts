@@ -202,11 +202,11 @@ describe("with / dynamic-wind", () => {
     testTest("after runs on error", (vm, out) => {
         var err: any;
         try {
-            run(vm, makeWith("before", "after", ["error", "runtime_error", "boom", {}]));
+            run(vm, makeWith("before", "after", ["error", "test:runtime_error", "boom", {}]));
         } catch (e) { err = e; }
         expect(err.message).toContain("boom");
         expect(err.message).toContain("VM stack: error<-with");
-        expect(out).toEqual(["before false", "after false runtime_error boom [object Object]"]);
+        expect(out).toEqual(["before false", "after false test:runtime_error boom [object Object]"]);
     });
 
     testTest("nested with unwinds in stack order", (vm, out) => {
@@ -222,7 +222,7 @@ describe("with / dynamic-wind", () => {
                 ["print", "inside"]),
             ["print", "outside"],
             ["k", null],          // jump back into the with
-            ["error", "unreachable_error", "unreachable", {}]
+            ["error", "test:unreachable_error", "unreachable", {}]
         ], 2000)).toBeFalse();
 
         const init = [
@@ -247,7 +247,7 @@ describe("with / dynamic-wind", () => {
                 makeWith("enter", "exit",
                     ["print", "inside"],
                     ["return", null],
-                    ["error", "unreachable_error", "unreachable", {}])
+                    ["error", "test:unreachable_error", "unreachable", {}])
             ]],
             ["print", "outside"]
         ]);
@@ -456,7 +456,7 @@ describe("self-defined macros", () => {
     const makeTryCatch = (body: any) => ["try",
         body,
         {
-            bar_error: ["lambda", ["message", "restarts"], "",
+            ["test:bar_error"]: ["lambda", ["message", "restarts"], "",
                 ["print", "caught bar!", ["$", "message"]]],
             "*": ["lambda", ["type", "message", "restarts"], "",
                 ["print", "caught star!", ["$", "type"], ["$", "message"]]],
@@ -464,15 +464,15 @@ describe("self-defined macros", () => {
         }];
     testTest("trycatch 1", (vm, out) => {
         expect(run(vm, ["begin",
-            makeTryCatch(["error", "bar_error", "an error!", {}]),
+            makeTryCatch(["error", "test:bar_error", "an error!", {}]),
         ])).toBeTrue();
         expect(out).toEqual(["caught bar! an error!"]);
     });
     testTest("trycatch 2", (vm, out) => {
         expect(run(vm, ["begin",
-            makeTryCatch(["error", "foo_error", "foo error!", {}]),
+            makeTryCatch(["error", "test:foo_error", "foo error!", {}]),
         ])).toBeTrue();
-        expect(out).toEqual(["caught star! foo_error foo error!"]);
+        expect(out).toEqual(["caught star! test:foo_error foo error!"]);
     });
     testTest("trycatch 3", (vm, out) => {
         expect(run(vm, ["begin",
@@ -502,4 +502,14 @@ describe("self-defined macros", () => {
         ])).toBeTrue();
         expect(vm.popData()).toEqual(123);
     });
+    testTest("reset", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", "x", 0],
+            ["print", ["reset", "x", 10]],
+            ["print", ["$", "x"]],
+            ["print", ["reset", "x", ["+", 1, ["$", "_"]]]],
+            ["print", ["$", "x"]]
+        ])).toBeTrue();
+        expect(out).toEqual(["0", "10", "10", "11"]);
+    })
 });

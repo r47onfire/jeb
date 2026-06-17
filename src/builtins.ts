@@ -122,7 +122,7 @@ Evaluate the argument in the current environment and return the result.`);
         const applier = vm.applyTable.find(a => typeMatches(func, a.type));
         if (!applier) {
             const typename = func === null ? "null" : isArray(func) ? "array" : typeof func;
-            vm.pushCommand("throw", "type_error", `can't call ${typename === "object" ? (func.constructor.name ?? "object") : typename}`, {
+            vm.pushCommand("throw", "jeb:type_error", `can't call ${typename === "object" ? (func.constructor.name ?? "object") : typename}`, {
                 return: Continuation.fromVM(vm),
             });
             return;
@@ -141,7 +141,7 @@ Evaluate the argument in the current environment and return the result.`);
             ok = argc >= arity.min && argc <= arity.max;
         }
         if (!ok) {
-            vm.pushCommand("throw", "value_error", `expected ${isNumber(arity) ? arity : `${arity!.min} to ${arity!.max}`} args, got ${argc}`, {});
+            vm.pushCommand("throw", "jeb:value_error", `expected ${isNumber(arity) ? arity : `${arity!.min} to ${arity!.max}`} args, got ${argc}`, {});
             return;
         }
         applier.apply(func, alreadyEvaluated, tailcallHint, values, vm);
@@ -188,7 +188,7 @@ Evaluate the argument in the current environment and return the result.`);
         const variable = vm.getVar(name);
         const functionHint = args[0] ?? false;
         if (!variable.ok) {
-            vm.pushCommand("throw", "reference_error", `${functionHint ? "function" : "variable"} ${stringify(name)} not found`, {
+            vm.pushCommand("throw", "jeb:reference_error", `${functionHint ? "function" : "variable"} ${stringify(name)} not found`, {
                 define: Continuation.fromVM(vm, ["store", name])
             });
             return;
@@ -200,7 +200,7 @@ Evaluate the argument in the current environment and return the result.`);
         const obj = vm.popData();
         if ((obj ?? null) === null) {
             const propHint = args[0] as string ?? "unknown expression";
-            vm.pushCommand("throw", "type_error", `can't get property ${stringify(name)} of ${obj} (evaluating ${propHint})`, {});
+            vm.pushCommand("throw", "jeb:type_error", `can't get property ${stringify(name)} of ${obj} (evaluating ${propHint})`, {});
             return;
         }
         vm.pushData(obj[name]);
@@ -211,7 +211,7 @@ Evaluate the argument in the current environment and return the result.`);
             vm.pushData(name);
         } else {
             if (name.length < 2) {
-                vm.pushCommand("throw", "value_error", "array form of $ must have 2 or more elements", {});
+                vm.pushCommand("throw", "jeb:value_error", "array form of $ must have 2 or more elements", {});
                 return;
             }
             // On each iteration, the stack looks like:
@@ -240,7 +240,7 @@ If \`properties\` are given, they index the variable like Javascript square brac
         const name: string = args[0];
         const didSet = vm.setVar(name, value);
         if (!didSet) {
-            vm.pushCommand("throw", "reference_error", `variable ${stringify(name)} not found`, {
+            vm.pushCommand("throw", "jeb:reference_error", `variable ${stringify(name)} not found`, {
                 define: Continuation.fromVM(vm, ["store", name])
             });
             return;
@@ -258,13 +258,13 @@ If \`properties\` are given, they index the variable like Javascript square brac
         const obj = vm.popData();
         if ((obj ?? null) === null) {
             const propHint = args[0] as string ?? "unknown expression";
-            vm.pushCommand("throw", "type_error", `can't set property ${stringify(name)} on ${obj} (evaluating ${propHint})`, {});
+            vm.pushCommand("throw", "jeb:type_error", `can't set property ${stringify(name)} on ${obj} (evaluating ${propHint})`, {});
             return;
         }
         try {
             obj[name] = vm.peekData();
         } catch (e) {
-            vm.pushCommand("throw", "type_error", String(e), {});
+            vm.pushCommand("throw", "jeb:type_error", String(e), {});
         }
     });
     defineBuiltin(vm, "set", 2, true, false, (args, vm) => {
@@ -275,7 +275,7 @@ If \`properties\` are given, they index the variable like Javascript square brac
             vm.pushData(args[1]);
         } else {
             if (name.length < 2) {
-                vm.pushCommand("throw", "value_error", "array form of set must have 2 or more elements", {});
+                vm.pushCommand("throw", "jeb:value_error", "array form of set must have 2 or more elements", {});
                 return;
             }
             // On the last iteration, stack looks like:
@@ -341,12 +341,13 @@ If \`properties\` are given, the \`name\` will be looked up instead, and the pro
         return NOTHING;
     }, `["error", <type>, <message>, <context>]
 
-Throw an error with the specified type, message, and context value. If we're inside a \`with\` block, it will trigger the \`exit\` handler of the context object to possibly handle the error. If the error is not handled, it will be thrown as a Javascript error, causing the program to halt.`);
+Throw an error with the specified type, message, and context value. If we're inside a \`with\` block, it will trigger the \`exit\` handler of the context object to possibly handle the error. If the error is not handled, it will be thrown as a Javascript error, causing the program to halt.
+\`type\` is recommended to be a namespaced string, such as \`foo:bar\`, to prevent collisions.`);
     // MARK: with
     defineBuiltin(vm, "with", { min: 2, max: Infinity }, true, false, (args, vm) => {
         const binding = args[0];
         if (!isString(binding) && binding !== null) {
-            vm.pushCommand("throw", "type_error", "expected variable name or null as first argument to 'with'", {});
+            vm.pushCommand("throw", "jeb:type_error", "expected variable name or null as first argument to 'with'", {});
             return;
         }
         const context = args[1];
@@ -373,7 +374,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         const context = vm.popData() as Windable;
         const notObject = typeof context !== "object" || context === null;
         if (notObject || !("enter" in context || "exit" in context)) {
-            vm.pushCommand("throw", "type_error", notObject ? "context manager should be an object" : "context manager should have 'enter' and/or 'exit' handlers", {});
+            vm.pushCommand("throw", "jeb:type_error", notObject ? "context manager should be an object" : "context manager should have 'enter' and/or 'exit' handlers", {});
             return;
         }
         const name = args[1] as string | null;
@@ -475,18 +476,18 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
                         break;
                     }
                     if (optional.length > 0) {
-                        vm.pushCommand("throw", "syntax_error", "required parameter cannot follow optional parameter", {});
+                        vm.pushCommand("throw", "jeb:syntax_error", "required parameter cannot follow optional parameter", {});
                         return NOTHING;
                     }
                     required.push(p);
                 } else if (isArray(p)) {
                     if (p.length !== 2) {
-                        vm.pushCommand("throw", "syntax_error", "invalid optional argument");
+                        vm.pushCommand("throw", "jeb:syntax_error", "invalid optional argument");
                         return;
                     }
                     optional.push(p);
                 } else {
-                    vm.pushCommand("throw", "syntax_error", "invalid parameter to lambda", {})
+                    vm.pushCommand("throw", "jeb:syntax_error", "invalid parameter to lambda", {})
                 }
             }
             return new Lambda(isMacro, undefined, required, optional, rest, body, vm.currentEnv, docstring);
@@ -603,7 +604,7 @@ This actually is a macro that expands to an immediately-invoked lambda, so "[lam
             vm.pushData(["lambda", params, ...body]);
         }
         else {
-            vm.pushCommand("throw", "syntax_error", "invalid define syntax", {});
+            vm.pushCommand("throw", "jeb:syntax_error", "invalid define syntax", {});
         }
         return NOTHING;
     }, `["define", <varname+defvar>, <value>]
@@ -633,7 +634,7 @@ The third form (with \`true\`) expands to a [[macro]] in the same way.`);
             for (var i = 1; i < a.length; i++) {
                 const res = vm.math.call(operation, acc, a[i]);
                 if (!res.ok) {
-                    vm.pushCommand("throw", "type_error", res.value, {
+                    vm.pushCommand("throw", "jeb:type_error", "math error: " + res.value, {
                         return: Continuation.fromVM(vm)
                     });
                     return NOTHING;
@@ -730,7 +731,7 @@ Returns a copy of the list without the first element`);
         const out: any[] = [];
         for (var arg of args) {
             if (!isArray(arg)) {
-                vm.pushCommand("throw", "type_error", "not an array to concat", {
+                vm.pushCommand("throw", "jeb:type_error", "not an array to concat", {
                     return: Continuation.fromVM(vm)
                 });
                 return NOTHING;
@@ -753,7 +754,7 @@ Prevents its argument from being evaluated.`);
         if (result.ok) {
             return result.value;
         }
-        vm.pushCommand("throw", "value_error", result.value, {
+        vm.pushCommand("throw", "jeb:value_error", result.value, {
             return: Continuation.fromVM(vm)
         });
     }, `["quasiquote", <value>]
@@ -762,13 +763,13 @@ Prevents its argument from being evaluated.`);
 Prevents its argument from being evaluated, but walks the elements and replaces [[${UNQUOTE_NAME}]] and [[${UNQUOTE_SPLICING_NAME}]] with the results of evaluating their arguments. The argument to [[${UNQUOTE_SPLICING_NAME}]] must be a list.`);
     alias(vm, QUASIQUOTE_NAME, "~");
 
-    defineBuiltin(vm, UNQUOTE_NAME, 1, false, false, (_, vm) => (vm.pushCommand("throw", "value_error", UNQUOTE_NAME + " not valid outside of quasiquote", {
+    defineBuiltin(vm, UNQUOTE_NAME, 1, false, false, (_, vm) => (vm.pushCommand("throw", "jeb:syntax_error", UNQUOTE_NAME + " not valid outside of quasiquote", {
         return: Continuation.fromVM(vm)
     }), NOTHING), `["${UNQUOTE_NAME}", <value>]
 [",", <value>]
 
 Marks a value to be interpolated inside a [[${QUASIQUOTE_NAME}]]. This is not valid outside of a [[${QUASIQUOTE_NAME}]] and will throw an error if called as a normal function.`);
-    defineBuiltin(vm, UNQUOTE_SPLICING_NAME, 1, false, false, (_, vm) => (vm.pushCommand("throw", "value_error", UNQUOTE_SPLICING_NAME + " not valid outside of quasiquote", {
+    defineBuiltin(vm, UNQUOTE_SPLICING_NAME, 1, false, false, (_, vm) => (vm.pushCommand("throw", "jeb:syntax_error", UNQUOTE_SPLICING_NAME + " not valid outside of quasiquote", {
         return: Continuation.fromVM(vm)
     }), NOTHING), `["${UNQUOTE_SPLICING_NAME}", <value>]
 [",@", <value>]
@@ -781,7 +782,7 @@ Marks a list to be interpolated via splicing inside a [[${QUASIQUOTE_NAME}]]. Th
         try {
             return parse(args[0]);
         } catch (e) {
-            vm.pushCommand("throw", "value_error", String(e), {});
+            vm.pushCommand("throw", "jeb:value_error", String(e), {});
             return NOTHING;
         }
     }, `["parseJSON", <string>]
@@ -791,7 +792,7 @@ Parses the string using \`JSON.parse()\`, and returns the result.`);
         try {
             return stringify(args[0]);
         } catch (e) {
-            vm.pushCommand("throw", "value_error", String(e), {});
+            vm.pushCommand("throw", "jeb:value_error", String(e), {});
             return NOTHING;
         }
     }, `["dumpJSON", <value>]
@@ -843,7 +844,7 @@ Equivalent to \`["[[if]]", *condition*, null, ["[[begin]]", *body...*]]\`.`,
         ["define", true, ["try", "body", "handlers"],
             `["try", <body>, <handlers>]
 
-Catches and handles errors. The \`handlers\` is an object mapping error type to handler; it will be expanded using [[obj]].
+Catches and handles errors. The \`handlers\` is an object mapping error type to handler function.
 During evaluation of the body, if an error is thrown, the error's \`type\` (as returned by [[with]]) will be checked to see if it's in the handlers, and if it is, the handler is called with the \`message\` and \`context\` of the error.
 If no handler directly matches, the special catch-all handler \`"\\*"\` is tried, and if it exists, it is called with \`type\`, \`message\` and \`context\`.
 In both cases if the handler exists, \`true\` is returned to [[with]] to stop propagation of the error. If the handler wants to propagate the error, it should re-throw it using [[error]].
@@ -876,11 +877,11 @@ Prevents continuations from jumping in or out of \`body\`; only normal control f
             [QUASIQUOTE_NAME, ["with", null, {
                 enter: ["lambda", ["k"],
                     ["when", ["$", "k"],
-                        ["error", "state_error", "Continuation tried to jump into a 'with-baffle' block", {}]],
+                        ["error", "jeb:state_error", "Continuation tried to jump into a 'with-baffle' block", {}]],
                     null],
                 exit: ["lambda", ["k", "_", true],
                     ["when", ["$", "k"],
-                        ["error", "state_error", "Continuation tried to jump out of a 'with-baffle' block", {}]],
+                        ["error", "jeb:state_error", "Continuation tried to jump out of a 'with-baffle' block", {}]],
                     false]
             },
                 [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]],
@@ -901,6 +902,22 @@ This is analogous to Javascript's proposed pipe operator.`,
                     [["lambda", ["#"],
                         ["|>", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]],
                     [UNQUOTE_NAME, ["$", "value"]]]]]],
+        ["define", true, ["reset", "name", "value"],
+            `["reset", <name>, <value>]
+["reset", [<name>, <properties...:sameline>], <value>]
+["reset", [<object>, <properties...:sameline>], <value>]
+
+Analogous to [[set]], except the result of the expression is the *old* value of \`name\`, not the new one.
+The \`value\` expression will have access to the old value in the variable \`_\`.`,
+            [QUASIQUOTE_NAME,
+                ["let",
+                    [
+                        ["_", ["$", [UNQUOTE_NAME, ["$", "name"]]]]
+                    ],
+                    // TODO: this evaluates the path twice if it's a path
+                    // Need to add generalized lvalues
+                    ["set", [UNQUOTE_NAME, ["$", "name"]], [UNQUOTE_NAME, ["$", "value"]]],
+                    ["$", "_"]]]],
         ["define", ["reduce", "list", "f", "value"],
             `["reduce", <list>, <function>, <value>]
 
