@@ -5,11 +5,11 @@ import { JebVM } from "./vm";
 
 const STACKFRAME_JOINER = "<-";
 const MAX_CYCLE_LEN = 32;
-function memcmp(a: string[], aPos: number, bPos: number, len: number): boolean {
+const memcmp = (a: string[], aPos: number, bPos: number, len: number): boolean => {
     for (var i = 0; i < len; i++) if (a[aPos + i] !== a[bPos + i]) return false;
     return true;
 }
-function compress1(tokens: string[]): string[] {
+const compress1 = (tokens: string[]): string[] => {
     const out: string[] = [];
     const n = tokens.length;
     var i = 0;
@@ -39,7 +39,7 @@ function compress1(tokens: string[]): string[] {
     }
     return out;
 }
-function compressStack(parts: string[]): string {
+const compressStack = (parts: string[]): string => {
     for (var pass = 0; pass < MAX_CYCLE_LEN; pass++) {
         const next = compress1(parts);
         if (next.length >= parts.length) break;
@@ -47,11 +47,11 @@ function compressStack(parts: string[]): string {
     }
     return parts.join(STACKFRAME_JOINER);
 }
-export function jsError(type: string, message: string, stack: string[]): never {
+export const jsError = (type: string, message: string, stack: string[]): never => {
     throw new Error(`(${type}) ${message}\nVM stack: ${compressStack(stack)}`);
 }
 
-export function tracebackPush(vm: JebVM, args: any[]) {
+export const tracebackPush = (vm: JebVM, args: any[]) => {
     const top = vm.tracebackStack;
     const func = args[0] as string;
     const tailcallHint = args[1] as boolean;
@@ -72,7 +72,7 @@ export function tracebackPush(vm: JebVM, args: any[]) {
         };
     }
 }
-export function tracebackPop(vm: JebVM) {
+export const tracebackPop = (vm: JebVM) => {
     var cur = vm.tracebackStack;
     if (!cur) throw new Error("Traceback stack underflow");
 
@@ -99,7 +99,7 @@ export function tracebackPop(vm: JebVM) {
         vm.tracebackStack = cur.next;
     }
 }
-export function resultToError(vm: JebVM, errType: string, result: Result<any>) {
+export const resultToError = (vm: JebVM, errType: string, result: Result<any>) => {
     if (result.ok) {
         return result.value;
     }

@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { stringify } from "lib0/json";
 import { defineBuiltin, JebVM } from "../src";
 
-function testTest(name: string, testBody: (vm: JebVM, out: string[]) => void) {
+const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) => {
     const vm = new JebVM();
     const out: string[] = [];
     // simple print hook for the tests
@@ -10,7 +10,7 @@ function testTest(name: string, testBody: (vm: JebVM, out: string[]) => void) {
     test(name, () => testBody(vm, out));
 }
 
-function run(vm: JebVM, code: any, steps = Infinity, recursionLimit = 10000) {
+const run = (vm: JebVM, code: any, steps = Infinity, recursionLimit = 10000) => {
     vm.start(code);
     for (var i = 0; i < steps; i++) {
         if (!vm.step()) return true;
@@ -19,7 +19,7 @@ function run(vm: JebVM, code: any, steps = Infinity, recursionLimit = 10000) {
     return false;
 }
 
-function rawTraceback(vm: JebVM): string[] {
+const rawTraceback = (vm: JebVM): string[] => {
     const res: string[] = [];
     var t = vm.tracebackStack;
     while (t) { res.push(t.value); t = t.next; }

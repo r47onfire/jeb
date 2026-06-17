@@ -1,8 +1,8 @@
 import kaplay, { DrawTextOpt } from "kaplay";
 import "kaplay/global";
-import { parse } from "lib0/json";
+import { parse, stringify } from "lib0/json";
 import { min } from "lib0/math";
-import { JEBEditor, JebVM, KAPLAYFormatter, Result } from "../src";
+import { JEBEditor, JebVM, KAPLAYFormatter, ok, Result } from "../src";
 
 kaplay({
     pixelDensity: min(devicePixelRatio, 2),
@@ -15,11 +15,29 @@ kaplay({
         menu_down: {},
         menu_select: {},
 
-        nav_up_level: { keyboard: "up" },
-        nav_down_level: { keyboard: "down" },
-        nav_next_el: { keyboard: "right" },
-        nav_prev_el: { keyboard: "left" },
-        nav_toggle_pretty: { keyboard: "space" },
+        edit_up_level: { keyboard: "up" },
+        edit_down_level: { keyboard: "down" },
+        edit_next_el: { keyboard: "right" },
+        edit_prev_el: { keyboard: "left" },
+        edit_toggle_pretty: { keyboard: "`" },
+
+        edit_undo: {},
+        edit_redo: {},
+
+        edit_cut: {},
+        edit_copy: {},
+        edit_paste: {},
+
+        edit_edit_atom: {},
+        edit_change_atom_type: {},
+
+        edit_move_forward: {},
+        edit_move_back: {},
+        edit_insert_after: {},
+        edit_insert_before: {},
+        edit_delete: {},
+        edit_wrap_in_array: { keyboard: "[" },
+        edit_wrap_in_object: {},
     }
 });
 
@@ -103,9 +121,12 @@ canvas.addEventListener("drop", async e => {
 // MARK: editor state
 
 var EDITOR: JEBEditor | null = null;
+import TEST_JSON from "../test.json";
 
 onMousePress(() => {
     if (!EDITOR) {
+        openFile("test.json", stringify(TEST_JSON));
+        return;
         showOpenFilePicker({
             types: [{
                 description: "JSON code",
@@ -129,7 +150,7 @@ onLoad(() => {
     centerText();
 });
 
-function openFile(name: string, text: string) {
+const openFile = (name: string, text: string) => {
     try {
         loadDocumentAndStartEditing(parse(text));
     } catch (e: any) {
@@ -139,8 +160,7 @@ function openFile(name: string, text: string) {
     }
 }
 
-function loadDocumentAndStartEditing(json: any) {
-    console.log("Loading JSON:", json);
+const loadDocumentAndStartEditing = (json: any) => {
     EDITOR = new JEBEditor(json, FORMATTER);
     refreshEditor();
 }
@@ -165,16 +185,17 @@ const VM = new JebVM, FORMATTER = new KAPLAYFormatter(VM, {
     code: { style: "code" },
 });
 
-function refreshEditor() {
+const refreshEditor = () => {
     for (var i = 0; i < 2; i++) {
         const textOpts = centerText();
-        FORMATTER.maxWidth = 0;
-        while (formatText({ ...textOpts, text: "a".repeat(FORMATTER.maxWidth) }).width < AREA_WIDTH()) FORMATTER.maxWidth++;
-        FORMATTER.maxWidth--;
+        var w = 0;
+        while (formatText({ ...textOpts, text: "a".repeat(w) }).width < AREA_WIDTH()) w++;
+        FORMATTER.columns = w - 1;
         mainText.text = EDITOR!.render();
+        console.log(compileStyledText(mainText.text).text);
     }
 }
-function centerText() {
+const centerText = () => {
     mainText.pos = center();
     const textOpts: Omit<DrawTextOpt, "text"> = {
         size: mainText.textSize,
@@ -185,7 +206,7 @@ function centerText() {
     return textOpts;
 }
 
-function refreshed(cb: () => Result<any>) {
+const refreshed = (cb: () => Result<any>) => {
     return () => {
         if (!EDITOR) return;
         const res = cb();
@@ -193,7 +214,9 @@ function refreshed(cb: () => Result<any>) {
         else debug.error(res.value);
     }
 }
-onButtonPress("nav_up_level", refreshed(() => EDITOR!.goOut()));
-onButtonPress("nav_down_level", refreshed(() => EDITOR!.goIn()));
-onButtonPress("nav_next_el", refreshed(() => EDITOR!.goPrevNext(1, true)));
-onButtonPress("nav_prev_el", refreshed(() => EDITOR!.goPrevNext(-1, true)));
+onButtonPress("edit_up_level", refreshed(() => EDITOR!.goOut()));
+onButtonPress("edit_down_level", refreshed(() => EDITOR!.goIn()));
+onButtonPress("edit_next_el", refreshed(() => EDITOR!.goPrevNext(1, true)));
+onButtonPress("edit_prev_el", refreshed(() => EDITOR!.goPrevNext(-1, true)));
+onButtonPress("edit_toggle_pretty", refreshed(() => ok(FORMATTER.prettySyntax = !FORMATTER.prettySyntax)));
+onButtonPress("edit_wrap_in_array", refreshed(() => ok(EDITOR!.wrap(true))));

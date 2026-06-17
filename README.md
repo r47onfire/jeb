@@ -13,13 +13,13 @@ however, Lisp/Scheme has symbols *and* strings, while JSON only has strings. so,
 
 ## continuations?
 
-these are accomplished by compiling the JSON evaluation process into micro-operations for a lower-level stack machine on the fly as it's evaluated. a continuation simply stores a snapshot of what the data stack and instruction stack are when it was captured (among other things), and replaces them when invoked.
+these are accomplished by compiling the JSON evaluation process into micro-operations for a lower-level stack machine on the fly as it's evaluated. a continuation simply stores a snapshot of what the data stack and instruction stack are when it was captured (among other things), and surreptitiously replaces them when invoked.
 
 JEB also supports a Scheme-like `dynamic-wind` context manager syntax, so code can know when it's jumping in and out, and for what reason (normal, continuation, or exception).
 
 ## what's currently not yet implemented
 
-* structural editor & pretty-printer (based off of <http://forum.ulisp.com/t/extensible-t-deck-lisp-editor/1322>)
+* structural editor & pretty-printer (based off of [the uLisp editor](http://forum.ulisp.com/t/extensible-t-deck-lisp-editor/1322) and/or [SRFI 272](https://srfi.schemers.org/srfi-272/srfi-272.html#the-srfi-272-colorize-library))
 
 ## naming
 

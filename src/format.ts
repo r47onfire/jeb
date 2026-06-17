@@ -1,10 +1,9 @@
 import { isArray } from "lib0/array";
-import { undefinedToNull } from "lib0/conditions";
+import { id, isString } from "lib0/function";
 import { stringify } from "lib0/json";
 import { max } from "lib0/math";
 import { getBreakage, HasDocstring } from "./doc";
 import { JebVM } from "./vm";
-import { id } from "lib0/function";
 
 export type NonterminalPath = (string | number)[];
 export type Path = NonterminalPath | [...NonterminalPath, true];
@@ -16,16 +15,49 @@ export interface Format {
     flag?: string;
 };
 
+interface FatString {
+    /** formatted */
+    f: string;
+    /** unformatted */
+    u: string;
+}
+
+const fatString = (formatted: string, unformatted: string): FatString => {
+    return { f: formatted, u: unformatted };
+}
+
+const lastLineWidth = (str: FatString): number => {
+    const nlPos = str.u.lastIndexOf("\n");
+    if (nlPos > 0) return str.u.length - nlPos - 1;
+    return str.u.length;
+}
+
+/** string parts are assumed to be unformatted. */
+const fatConcat = (...parts: (string | FatString)[]): FatString => {
+    var formatted = "";
+    var unformatted = "";
+    for (var part of parts) {
+        if (isString(part)) {
+            formatted += part;
+            unformatted += part;
+        } else {
+            formatted += part.f;
+            unformatted += part.u;
+        }
+    }
+    return { f: formatted, u: unformatted };
+}
+
 export class Formatter {
     prettySyntax = true;
 
     constructor(
         public vm: JebVM,
         public baseIndent = 2,
-        public maxWidth = 100) {
+        public columns = 100) {
     }
     format(node: any, selector: Path) {
-        return this.#superprint(node, null, 0, selector, this.maxWidth, [], null);
+        return this.#superprint(node, null, 0, selector, this.columns, [], null).f;
     }
     getIndent(width: number) {
         return " ".repeat(width);
@@ -56,75 +88,83 @@ export class Formatter {
         availableWidth: number,
         path: Path = [],
         currentFormat: Format | null = null
-    ): string {
+    ): FatString {
         const indentForm = (width: number) => this.getIndent(max(0, width));
         const pathMatches = (a: Path) => a.length === sel.length && a.every((v, i) => v === sel[i]);
-        const hlWrapper = (s: string, flag: string | null, path2 = path) => this.wrapNode(pathMatches(path2) ? this.highlight(s) : s, flag);
+        const hlString = (s: string, flag: string | null, path2 = path) => this.wrapNode(pathMatches(path2) ? this.highlight(s) : s, flag);
+        const hlFatString = (s: FatString, flag: string | null, path2 = path) => fatString(this.wrapNode(pathMatches(path2) ? this.highlight(s.f) : s.f, flag), s.u);
         const recur = (n: any, i: number, p: Path, childFmt?: Format | null, width: number = availableWidth) =>
             this.#superprint(n, node, i, sel, width, p, childFmt);
 
         if (isArray(node)) {
             const fmt = currentFormat ?? this.#getFormat(node);
-            const curFlag = undefinedToNull(fmt?.flag);
-            if (node.length === 0) return hlWrapper("()", curFlag);
+            const curFlag = fmt?.flag ?? null;
+            if (node.length === 0) return fatString(hlString("()", curFlag), "()");
 
             // sigil like $x 'x `x ,x ,@x
             if (fmt?.sig && this.prettySyntax) {
                 const sigPath = [...path as NonterminalPath, 0];
                 const childFmt = fmt.children?.[1];
                 const sigFmt = this.handleAtom(fmt.sig, pathMatches(sigPath), childFmt?.flag ?? null, node, 0, availableWidth);
-                return indentText(
-                    hlWrapper(
-                        hlWrapper(sigFmt, null, sigPath)
-                        + recur(node[1]!, 1, [...path as NonterminalPath, 1],
-                            childFmt, availableWidth - this.unFormat(sigFmt).length - 1),
-                        curFlag),
-                    indentForm,
-                    fmt.sig.length,
-                    false);
+                const sigFat: FatString = { f: sigFmt, u: this.unFormat(sigFmt) };
+                const childResult = recur(node[1]!, 1, [...path as NonterminalPath, 1],
+                    childFmt, availableWidth - sigFat.u.length - 1);
+                const combined = hlFatString(
+                    fatConcat(hlFatString(sigFat, null, sigPath), childResult),
+                    curFlag);
+                return indentText(combined, indentForm, fmt.sig.length, false);
             }
 
             var { l1keep, indent, children = [] } = fmt ?? {};
             indent ||= this.baseIndent;
 
-            foo: {
-                if (!l1keep) {
-                    var inline = "(";
+            if (!l1keep) {
+                foo: {
+                    var inline = fatString("(", "(");
                     for (var i = 0; i < node.length; i++) {
-                        if (i > 0) inline += " ";
-                        const strippedStr = this.unFormat(inline);
+                        if (i > 0) inline = fatConcat(inline, " ");
+                        const childResult = recur(node[i], i, [...path as NonterminalPath, i], children[i], availableWidth - inline.u.length);
                         const nextChunk = indentText(
-                            recur(node[i], i, [...path as NonterminalPath, i], children[i], availableWidth - strippedStr.length),
+                            childResult,
                             indentForm,
-                            strippedStr.length,
+                            inline.u.length,
                             false);
-                        if (/\n/.test(nextChunk)) break foo;
-                        inline += nextChunk;
+                        if (/\n/.test(nextChunk.f)) break foo;
+                        inline = fatConcat(inline, nextChunk);
                     }
-                    inline += ")";
-                    if (this.unFormat(inline).length <= availableWidth) return hlWrapper(inline, curFlag);
+                    inline = fatConcat(inline, ")");
+                    if (inline.u.length <= availableWidth) return hlFatString(inline, curFlag);
                 }
             }
 
             l1keep ||= 1;
-            var inline = "(";
+            var brokenlines = fatString("(", "(");
             for (var i = 0; i < node.length; i++) {
-                if (i >= l1keep) inline += "\n";
-                else if (i > 0) inline += " ";
-                const strippedStr = this.unFormat(inline);
-                const curLineWidth = strippedStr.length - max(strippedStr.lastIndexOf("\n"), 0) - indent;
-                const render = () => recur(node[i]!, i, [...path as NonterminalPath, i], children[i],
-                    availableWidth - (i >= l1keep! ? indent! : curLineWidth));
-                var rendered = render();
-                inline += i >= l1keep
-                    ? rendered
-                    : indentText(rendered, indentForm, curLineWidth, false);
-                if (/\n/.test(rendered) && l1keep > 0) {
+                if (i >= l1keep) brokenlines = fatConcat(brokenlines, "\n");
+                else if (i > 0) brokenlines = fatConcat(brokenlines, " ");
+
+                const curLineWidth = lastLineWidth(brokenlines);
+                const rendered = recur(node[i]!, i, [...path as NonterminalPath, i], children[i], availableWidth - (i >= l1keep! ? indent! : curLineWidth));
+
+                if (i >= l1keep) {
+                    brokenlines = fatConcat(brokenlines, rendered);
+                } else {
+                    const indented = indentText(rendered, indentForm, curLineWidth, false);
+                    brokenlines = fatConcat(brokenlines, indented);
+                }
+
+                if (/\n/.test(rendered.f) && l1keep > 0) {
                     l1keep = 0;
                 }
             }
-            inline += ")";
-            return hlWrapper(indentText(inline, indentForm, indent, false), curFlag);
+            brokenlines = fatConcat(brokenlines, ")");
+
+            if (fmt) {
+                const indented = indentText(brokenlines, indentForm, indent, false);
+                return hlFatString(indented, curFlag);
+            } else {
+                return hlFatString(brokenlines, curFlag);
+            }
         }
 
         if (node && typeof node === "object") {
@@ -134,29 +174,37 @@ export class Formatter {
                 const keyStr = this.#escapeString(k);
                 const keyMatched = pathMatches(keyPath);
                 const renderedKey = (keyMatched ? (s: string) => this.highlight(s) : id)(this.handleAtom(keyStr, keyMatched, curFlag, node, i, availableWidth - 1));
-                const valueCol = this.unFormat(renderedKey).length + 2;
+                const keyLen = this.unFormat(renderedKey).length;
+                const valueCol = keyLen + 2;
                 const val = recur(v, i, [...path as NonterminalPath, k], children[i] ?? children[k as any], availableWidth - valueCol);
-                return `${renderedKey}: ${indentText(val, indentForm, valueCol, false)}`;
+                const indentedVal = indentText(val, indentForm, valueCol, false);
+                return fatConcat(renderedKey, ": ", indentedVal);
             });
 
-            var strLong = "{", strSameline = strLong;
+            var strLong = fatString("{", "{"), strSameline = strLong;
             for (var i = 0; i < parts.length; i++) {
                 if (i > 0) {
-                    strLong += ",\n";
-                    strSameline += ", ";
+                    strLong = fatConcat(strLong, ",\n");
+                    strSameline = fatConcat(strSameline, ", ");
                 }
                 const s = parts[i]!;
-                strLong += indentText(s, indentForm, 1, i > 0);
-                strSameline += s;
+                const indentedLong = indentText(s, indentForm, 1, i > 0);
+                strLong = fatConcat(strLong, indentedLong);
+                strSameline = fatConcat(strSameline, s);
             }
-            strLong += "}";
-            strSameline += "}";
-            if (this.unFormat(strSameline).length > availableWidth || /\n/.test(strSameline)) return hlWrapper(strLong, curFlag);
-            return hlWrapper(strSameline, curFlag);
+            strLong = fatConcat(strLong, "}");
+            strSameline = fatConcat(strSameline, "}");
+
+
+            if (strSameline.u.length > availableWidth || /\n/.test(strSameline.u)) {
+                return hlFatString(strLong, curFlag);
+            }
+            return hlFatString(strSameline, curFlag);
         }
 
-        const flag = undefinedToNull(currentFormat?.flag);
-        return hlWrapper(this.handleAtom(node, pathMatches(path), flag, parent, parentIndex, availableWidth), flag);
+        const flag = currentFormat?.flag ?? null;
+        const atom = this.handleAtom(node, pathMatches(path), flag, parent, parentIndex, availableWidth);
+        return fatString(hlString(atom, flag), this.unFormat(atom));
     }
     #getFormat(form: any[]): Format | null {
         const name = form[0];
@@ -179,6 +227,12 @@ export class Formatter {
 
 
 
-function indentText(text: string, form: (width: number) => string, indent: number, indentFirst: boolean): string {
-    return text.split("\n").map((line, i) => (indentFirst || i > 0 ? (form(indent) + line) : line).trimEnd()).join("\n");
+const indentText = (fs: FatString, form: (width: number) => string, indent: number, indentFirst: boolean): FatString => {
+    const indentStr = form(indent);
+
+    const indentInner = (s: string) => s.split("\n").map((line, i) => (indentFirst || i > 0 ? indentStr + line : line).trimEnd()).join("\n");
+    const newFormatted = indentInner(fs.f);
+    const newUnformatted = indentInner(fs.u);
+
+    return { f: newFormatted, u: newUnformatted };
 }

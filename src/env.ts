@@ -60,6 +60,6 @@ export class Env {
     }
 }
 
-function randchars() {
+const randchars = () => {
     return Math.random().toString(36).slice(2, 10);
 }

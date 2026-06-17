@@ -7,7 +7,7 @@ export { jsError, resultToError, tracebackPop, tracebackPush } from "./errors";
 export { Formatter, type Format } from "./format";
 export { KAPLAYFormatter, type Theme } from "./kaplay_fmt";
 export { numberOp } from "./math";
-export { add, Arithmetic, typeMatches, type Operation, type Operations } from "./overload";
+export { Arithmetic, typeMatches, type Operation, type Operations } from "./overload";
 export { err, ok, type Result } from "./result";
 export { Applier, JebVM, type OpcodeFunction } from "./vm";
 export { JEBEditor } from "./sed";

@@ -50,7 +50,7 @@ export class KAPLAYFormatter extends Formatter {
         return [...text].map(e => /[\[\]\\]/.test(e) ? "\\" + e : e).join("");
     }
     highlight(s: string) {
-        return this.#style(s.split("\n").map((l, i) => (i === 0 ? "" : this.#style("\n", this.theme.noHighlight)) + l).join(""), this.theme.highlight);
+        return this.#style(s.replaceAll("\n", this.#style("\n", this.theme.noHighlight)), this.theme.highlight);
     }
     wrapNode(string: string, flag: string | null): string {
         return flag === "quote" ? this.#style(string, this.theme.quoted) : string;
@@ -100,7 +100,7 @@ export class KAPLAYFormatter extends Formatter {
         newLine();
         const pushWord = (text: string, width: number) => {
             var l = last(lines);
-            if ((l[1] + width) > (maxWidth)) {
+            if ((l[1] + width) >= (maxWidth)) {
                 newLine();
                 l = last(lines);
                 const s = l[0].trimEnd();

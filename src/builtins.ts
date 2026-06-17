@@ -1,34 +1,34 @@
 import { isArray, last } from "lib0/array";
-import { undefinedToNull } from "lib0/conditions.js";
 import { id, isNumber, isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
+import { add } from "lib0/math";
 import { keys } from "lib0/object";
 import { BuiltinFunction, Lambda } from "./callable";
 import { Continuation, DynamicWind, Windable } from "./continuation";
 import { Env } from "./env";
 import { jsError, resultToError, tracebackPop, tracebackPush } from "./errors";
 import { float, numberOp } from "./math";
-import { add, Operation, typeMatches } from "./overload";
+import { Operation, typeMatches } from "./overload";
 import { err, ok, Result } from "./result";
 import { Applier, JebVM, OpcodeFunction } from "./vm";
 
-export function defineBuiltin(vm: JebVM, name: string, arity: { min: number, max: number } | number | null, isSpecial: boolean, resultIsMacro: boolean, fn: (args: any[], vm: JebVM) => any, doc: string) {
+export const defineBuiltin = (vm: JebVM, name: string, arity: { min: number, max: number } | number | null, isSpecial: boolean, resultIsMacro: boolean, fn: (args: any[], vm: JebVM) => any, doc: string) => {
     vm.globalEnv.define(name, new BuiltinFunction(name, arity, isSpecial, resultIsMacro, fn, doc));
 }
 
-export function defineOpcode(vm: JebVM, name: string, fn: OpcodeFunction) {
+export const defineOpcode = (vm: JebVM, name: string, fn: OpcodeFunction) => {
     vm.opcodeTable[name] = fn;
 }
 
-export function defineApplier(vm: JebVM, apply: Applier<any>) {
+export const defineApplier = (vm: JebVM, apply: Applier<any>) => {
     vm.applyTable.push(apply);
 }
 
-export function alias(vm: JebVM, name1: string, name2: string) {
+export const alias = (vm: JebVM, name1: string, name2: string) => {
     vm.globalEnv.define(name2, vm.globalEnv.get(name1).value!);
 }
 
-function argsHelper(vm: JebVM, args: any[], shouldEval: boolean) {
+const argsHelper = (vm: JebVM, args: any[], shouldEval: boolean) => {
     const len = args.length;
     for (var i = len - 1; i >= 0; i--) {
         vm.pushData(args[i]);
@@ -41,7 +41,7 @@ function argsHelper(vm: JebVM, args: any[], shouldEval: boolean) {
     }
 }
 
-export function implicitBegin(vm: JebVM, args: any) {
+export const implicitBegin = (vm: JebVM, args: any) => {
     const len = args.length;
     if (len === 0) {
         vm.pushData(null);
@@ -60,7 +60,7 @@ export const NOTHING = Symbol("nothing");
 
 // TODO: split this all up
 // MARK: loadBuiltins()
-export function loadBuiltins(vm: JebVM) {
+export const loadBuiltins = (vm: JebVM) => {
 
 
     // MARK: op: traceback push/pop
@@ -198,7 +198,7 @@ Evaluate the argument in the current environment and return the result.`);
     defineOpcode(vm, "get_prop", (vm, args) => {
         const name = vm.popData();
         const obj = vm.popData();
-        if (undefinedToNull(obj) === null) {
+        if ((obj ?? null) === null) {
             const propHint = args[0] as string ?? "unknown expression";
             vm.pushCommand("throw", "type_error", `can't get property ${stringify(name)} of ${obj} (evaluating ${propHint})`, {});
             return;
@@ -256,7 +256,7 @@ If \`properties\` are given, they index the variable like Javascript square brac
     defineOpcode(vm, "set_prop", (vm, args) => {
         const name = vm.popData();
         const obj = vm.popData();
-        if (undefinedToNull(obj) === null) {
+        if ((obj ?? null) === null) {
             const propHint = args[0] as string ?? "unknown expression";
             vm.pushCommand("throw", "type_error", `can't set property ${stringify(name)} on ${obj} (evaluating ${propHint})`, {});
             return;
@@ -403,7 +403,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
     });
 
     // MARK: JS objects
-    defineBuiltin(vm, "nil?", 1, false, false, args => undefinedToNull(args[0]) === null, `["nil?", <value>]
+    defineBuiltin(vm, "nil?", 1, false, false, args => (args[0] ?? null) === null, `["nil?", <value>]
 
 Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any other value (including \`false\`, \`""\`, or \`[]\`) is considered not-null, even though it might be falsy.`);
 
@@ -460,7 +460,7 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
         implicitBegin(vm, lambda.body);
         return NOTHING;
     });
-    function lambdaHelper(name: string, isMacro: boolean, kind: string, extra: string) {
+    const lambdaHelper = (name: string, isMacro: boolean, kind: string, extra: string) => {
         defineBuiltin(vm, name, { min: 2, max: Infinity }, true, false, (args, vm) => {
             const params = args[0] as (string | [string, any] | true)[];
             const body = args.slice(1);
@@ -618,14 +618,14 @@ The second one expands into a [[lambda]] with the specified name, docstring, par
 The third form (with \`true\`) expands to a [[macro]] in the same way.`);
 
     // MARK: Operators
-    function mathHelper(operator: string, operation: Operation, identity: number,
+    const mathHelper = (operator: string, operation: Operation, identity: number,
         numnum: (x: number, y: number) => any,
         bignum: (x: bigint, y: number) => any,
         numbig: (x: number, y: bigint) => any,
         bigbig: (x: bigint, y: bigint) => any,
         num: (x: number) => any,
         big: (x: bigint) => any,
-    ) {
+    ) => {
         defineBuiltin(vm, operator, null, false, false, (a, vm) => {
             if (a.length === 0) return identity;
             if (a.length === 1) return resultToError(vm, "type_error", vm.math.call(operation, a[0]!));
@@ -675,7 +675,7 @@ Math`);
 Math`);
 
     // comparisons
-    function comparisonHelper(op: string, bits: number) {
+    const comparisonHelper = (op: string, bits: number) => {
         defineBuiltin(vm, op, 2, false, false, (args, vm) => resultToError(vm, "type_error", vm.math.call("cmp", args[0], args[1], bits)), `["${op}", <number1>, <number2>]
 
 Comparison`);
@@ -694,7 +694,7 @@ Comparison`);
     defineBuiltin(vm, "not", 1, false, false, args => !args[0], `["not", <value>]
 
 Boolean inverse`);
-    function booleanHelper(name: string, shortCircuitOn: boolean) {
+    const booleanHelper = (name: string, shortCircuitOn: boolean) => {
         defineBuiltin(vm, name, null, true, true, (args: any[], vm: JebVM) => {
             if (args.length === 0) {
                 return !shortCircuitOn;
@@ -937,7 +937,7 @@ const UNQUOTE_NAME = "unquote";
 const UNQUOTE_SPLICING_NAME = "unquoteSplicing";
 
 // MARK: processQuasiquote
-function processQuasiquote(vm: JebVM, form: any, depth: number): Result<any> {
+const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any> => {
     // atoms
     if (!isArray(form)) {
         if (typeof form !== "object" || form === null) {

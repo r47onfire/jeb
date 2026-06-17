@@ -1,4 +1,5 @@
 import { isArray, last } from "lib0/array";
+import { isString } from "lib0/function";
 import { keys } from "lib0/object";
 import { type Draft } from "mutative";
 import { Travels } from "travels";
@@ -54,14 +55,14 @@ interface EditState {
     readonly editCursor: number,
 }
 
-function newEditState(
+const newEditState = (
     doc: any,
     focus: NonterminalPath = [],
     onKey = false,
     preferredHeight = 0,
     atomEdit: any = null,
     editCursor = 0
-): EditState {
+): EditState => {
     return {
         doc,
         focus,
@@ -118,17 +119,39 @@ export class JEBEditor {
     goPrevNext(dir: 1 | -1, autojump = true) {
         return this.#edit(false, s(dir, autojump));
     }
+    // Actual editor actions
+    wrap(inList: boolean) {
+        return this.#edit(true, state => {
+            const { doc, focus } = state;
+            const wrapper = focus.length > 0 ? getAtPath(doc, butlast(focus)) : state;
+            const key = focus.length > 0 ? last(focus) : "doc";
+            const wrapped = getAtPath(doc, focus);
+            if (inList) {
+                wrapper[key] = [wrapped];
+                focus.push(0);
+                state.onKey = false;
+            } else {
+                wrapper[key] = {key: wrapped};
+                focus.push("key");
+                state.onKey = true;
+            }
+            return true;
+        });
+    }
 }
 
-function in_(state: Draft<EditState>, fail: (msg: string) => void, end = false, changePreferred = true) {
+const ITEM_LENGTH = (item: any[] | object) => {
+    return (isArray(item) ? item : keys(item)).length;
+}
+
+const in_ = (state: Draft<EditState>, fail: (msg: string) => void, end = false, changePreferred = true) => {
     const { doc, focus } = state;
     const item = getAtPath(doc, focus);
-    const len = () => (isArray(item) ? item : keys(item)).length;
-    if (typeof item !== "object" || len() === 0) {
+    if (!item || typeof item !== "object" || ITEM_LENGTH(item) === 0) {
         fail("can't go in");
         return false;
     } else {
-        const i = (end ? len() - 1 : 0);
+        const i = (end ? ITEM_LENGTH(item) - 1 : 0);
         focus.push(isArray(item) ? i : keys(item)[i]!);
         if (changePreferred) state.preferredHeight = focus.length;
         state.onKey = isArray(item) ? false : !end;
@@ -136,7 +159,7 @@ function in_(state: Draft<EditState>, fail: (msg: string) => void, end = false, 
     }
 }
 
-function s(dir: 1 | -1, autojump: boolean): editCb {
+const s = (dir: 1 | -1, autojump: boolean): editCb => {
     return (state, fail) => {
         const { doc, focus, preferredHeight, onKey } = state;
         for (; ;) {
@@ -167,6 +190,7 @@ function s(dir: 1 | -1, autojump: boolean): editCb {
                     if (dir < 0) {
                         if (i === 0) { // first key
                             if (autojump) {
+                                state.onKey = false;
                                 focus.pop();
                                 continue;
                             } else {
@@ -185,6 +209,7 @@ function s(dir: 1 | -1, autojump: boolean): editCb {
                         if (i >= (k.length - 1)) { // last key
                             if (autojump) {
                                 focus.pop();
+                                state.onKey = isString(last(focus));
                                 continue;
                             } else {
                                 fail("at end of object");
@@ -208,13 +233,13 @@ function s(dir: 1 | -1, autojump: boolean): editCb {
     }
 }
 
-function getAtPath(obj: any, path: NonterminalPath) {
+const getAtPath = (obj: any, path: NonterminalPath) => {
     for (var i = 0; i < path.length; i++) {
         obj = obj[path[i]!];
     }
     return obj;
 }
 
-function butlast<T>(a: T[]): T[] {
+const butlast = <T>(a: T[]): T[] => {
     return a.slice(0, -1);
 }

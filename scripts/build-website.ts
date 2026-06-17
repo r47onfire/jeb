@@ -2,7 +2,7 @@ import { build } from "./build-common.js";
 
 await build({
     splitting: true,
-    minify: true,
+    minify: false,
     entrypoints: [
         "website/editor.html",
     ],

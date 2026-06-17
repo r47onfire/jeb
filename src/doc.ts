@@ -20,7 +20,7 @@ export class HasDocstring {
     }
 }
 
-export function parseDoc(docstring: string): Doc {
+export const parseDoc = (docstring: string): Doc => {
     const doc: Doc = { headerData: [], headers: [], body: [] };
     docstring = docstring.split("\n").map(s => s.trimEnd()).join("\n");
     if (!docstring) return doc;
@@ -38,7 +38,7 @@ export function parseDoc(docstring: string): Doc {
     return doc;
 }
 
-function parseInline(s: string): DocNode[] {
+const parseInline = (s: string): DocNode[] => {
     const root: DocNode = ["" as DocNodeType];
     const stack: DocNode[][] = [root];
     var i = 0;
@@ -121,13 +121,13 @@ class HeaderForm {
     }
 }
 
-export function getBreakage(header: HeaderForm, form: any): Format | null {
+export const getBreakage = (header: HeaderForm, form: any): Format | null => {
     const { spec, placeholders, actions, flags } = header;
     var sig;
     if (spec.length === 2 && /^[\p{P}\p{S}\p{C}\p{Z}]+$/u.test(spec[0])) sig = spec[0];
     // Calculate breakage
     const recur = (spec: any[], form: any[]): Format => {
-        var l1keep, indent = 0, children: Format[] = [];
+        var l1keep, indent, children: Format[] = [];
         const end = last(spec);
         const p = placeholders.get(end);
         if (p) {
@@ -144,9 +144,7 @@ export function getBreakage(header: HeaderForm, form: any): Format | null {
         }
         for (var i = 1; i < spec.length; i++) {
             const f = spec[i]!;
-            const p = placeholders.get(f);
-            if (!p) continue;
-            const action = actions.get(p);
+            const action = actions.get(placeholders.get(f)!);
             if (action === "newline") {
                 if (l1keep !== 1 && l1keep !== Infinity) {
                     l1keep = i;
@@ -157,9 +155,7 @@ export function getBreakage(header: HeaderForm, form: any): Format | null {
         for (var i = 0; i < spec.length; i++) {
             const p = spec[i]!;
             if (isString(p)) {
-                const p2 = placeholders.get(p);
-                if (!p2) continue;
-                const flag = flags.get(p2);
+                const flag = flags.get(placeholders.get(p)!);
                 if (flag) {
                     // Kludge... hmmm.
                     // TODO: more control codes in the docstring to control this
@@ -186,7 +182,7 @@ export function getBreakage(header: HeaderForm, form: any): Format | null {
     return res;
 }
 
-function parseHeader(header: string): [DocNode | undefined, HeaderForm | undefined, string | undefined] {
+const parseHeader = (header: string): [node: DocNode | undefined, form: HeaderForm | undefined, rest: string | undefined] => {
     const wildcardMap = new Map<string, string>();
     const actionMap = new Map<string, string>();
     const flagMap = new Map<string, string>();

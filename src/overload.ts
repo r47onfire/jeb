@@ -1,5 +1,5 @@
 import { stringify } from "lib0/json";
-import { pow } from "lib0/math";
+import { add, pow } from "lib0/math";
 import { Result, err, ok } from "./result";
 
 
@@ -52,7 +52,6 @@ export interface Operations {
 export type Operation = keyof Operations;
 type TypeValue<T extends Type> = T extends keyof TypeMap ? TypeMap[T] : T extends abstract new (...args: any[]) => infer U ? U : T extends null ? any : never;
 type TypeArrayValue<T extends Type[][]> = T extends [infer Head extends Type[], ...infer Tail extends Type[][]] ? [TypeValue<Head[number]>, ...TypeArrayValue<Tail>] : [];
-export const add = (a: any, b: any) => a + b;
 // MARK: class Arithmetic
 /**
  * Represents an object that you can use to perform operations on any kind of number-like quantity,
