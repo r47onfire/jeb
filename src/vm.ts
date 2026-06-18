@@ -27,22 +27,23 @@ export type OpcodeFunction = (vm: JebVM, args: any[]) => void;
 
 export class JebVM {
     /** current environment */
-    currentEnv = new Env;
+    currentEnv!: Env;
     /** stack of commands to execute */
-    commandStack: LinkedList<Command> = null;
+    commandStack!: LinkedList<Command>;
     /** stack of values */
-    dataStack: LinkedList<any> = null;
+    dataStack!: LinkedList<any>;
     /** current dynamic wind stack (linked list / tree) */
-    curDynamicWind = new DynamicWind(this.currentEnv);
+    curDynamicWind!: DynamicWind;
     /** whether the VM is paused */
     paused = false;
     /** callstack entries */
-    tracebackStack: StackCount | null = null;
+    tracebackStack!: StackCount | null;
     globalEnv = new Env;
     opcodeTable: Record<string, OpcodeFunction> = {};
     applyTable: Applier<any>[] = [];
 
     constructor(public math = new Arithmetic) {
+        this.reset();
         loadBuiltins(this);
     }
     pushData(value: any) {
@@ -78,6 +79,9 @@ export class JebVM {
     setVar(name: string, value: any) {
         if (this.currentEnv.set(name, value)) return true;
         return this.globalEnv.set(name, value);
+    }
+    defineVar(name: string, value: any) {
+        this.currentEnv.define(name, value);
     }
     #popCommand() {
         if (llLength(this.commandStack) === 0) throw new Error("Opcode stack underflow");
@@ -129,6 +133,9 @@ export class JebVM {
             this.commandStack,
             this.dataStack,
         );
+    }
+    createEnv(...parents: Env[]) {
+        return new Env({}, parents);
     }
     /**
      * Returns the current continuation at this state.

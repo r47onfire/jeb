@@ -250,7 +250,7 @@ If \`properties\` are given, they index the variable like Javascript square brac
     defineOpcode(vm, "jeb:define", (vm, args) => {
         const value = vm.peekData();
         const name: string = args[0];
-        vm.currentEnv.define(name, value);
+        vm.defineVar(name, value);
         if (value instanceof Lambda && value.name === undefined) value.name = name;
     });
     defineOpcode(vm, "jeb:set_prop", (vm, args) => {
@@ -441,13 +441,13 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
         const rest = lambda.restArg;
         if ((nRequired + nOpt) > argc) {
             // Need to evaluate defaults.
-            const dynamicEnv = new Env({}, [lambda.closureEnv, vm.currentEnv]);
+            const dynamicEnv = vm.createEnv(lambda.closureEnv, vm.currentEnv);
             vm.pushCommand("jeb:exec/lambda", lambda, nRequired + nOpt);
             argsHelper(vm, optional.slice(argc - nRequired).map(o => o[1]), true);
             vm.currentEnv = dynamicEnv;
             return NOTHING;
         }
-        const callEnv = new Env({}, [lambda.closureEnv]);
+        const callEnv = vm.createEnv(lambda.closureEnv);
         const argv = vm.popNData(argc).reverse();
         for (var n = 0; n < nRequired; n++) {
             callEnv.define(required[n]!, argv[n]);
@@ -975,7 +975,11 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any> => 
 
     const head = form[0], tail = form.slice(1);
 
-    const same = (x: string, y: string) => vm.getVar(x).value === vm.getVar(y).value;
+    const same = (x: string, y: string) => {
+        const v1 = vm.getVar(x);
+        const v2 = vm.getVar(y);
+        return v1.ok === v2.ok && v1.value === v2.value;
+    }
 
     // ,x
     if (same(head, UNQUOTE_NAME)) {
