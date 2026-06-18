@@ -1,7 +1,7 @@
-import { DynamicWind } from "./continuation";
+import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
 import { loadBuiltins } from ".";
-import { Linked, LinkedList, llPush, llLength, llPopN, llPop, llToArray } from "./linked_list";
+import { Linked, LinkedList, llPush, llLength, llPopN, llPop, llToArray, llPushArray } from "./linked_list";
 import { Type, Arithmetic } from "./overload";
 
 // MARK: class Applier
@@ -120,5 +120,12 @@ export class JebVM {
             stack = stack.next;
         }
         return parts;
+    }
+    /**
+     * Returns the current continuation at this state.
+     * @param extraOps Extra opcodes to push to the command stack *when this continuation is invoked* (not now).
+     */
+    cc(...extraOps: Command[]) {
+        return new Continuation(this.currentEnv, llPushArray(this.commandStack, extraOps), this.dataStack, this.curDynamicWind, this.tracebackStack);
     }
 }

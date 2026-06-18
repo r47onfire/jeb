@@ -123,7 +123,7 @@ Evaluate the argument in the current environment and return the result.`);
         if (!applier) {
             const typename = func === null ? "null" : isArray(func) ? "array" : typeof func;
             vm.pushCommand("jeb:throw", "jeb:type_error", `can't call ${typename === "object" ? (func.constructor.name ?? "object") : typename}`, {
-                return: Continuation.fromVM(vm),
+                return: vm.cc(),
             });
             return;
         }
@@ -189,7 +189,7 @@ Evaluate the argument in the current environment and return the result.`);
         const functionHint = args[0] ?? false;
         if (!variable.ok) {
             vm.pushCommand("jeb:throw", "jeb:reference_error", `${functionHint ? "function" : "variable"} ${stringify(name)} not found`, {
-                define: Continuation.fromVM(vm, ["store", name])
+                define: vm.cc(["store", name]),
             });
             return;
         }
@@ -241,7 +241,7 @@ If \`properties\` are given, they index the variable like Javascript square brac
         const didSet = vm.setVar(name, value);
         if (!didSet) {
             vm.pushCommand("jeb:throw", "jeb:reference_error", `variable ${stringify(name)} not found`, {
-                define: Continuation.fromVM(vm, ["store", name])
+                define: vm.cc(["store", name]),
             });
             return;
         }
@@ -456,7 +456,8 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
         }
         if (rest) {
             callEnv.define(rest, argv.slice(nRequired + nOpt));
-        } callEnv.define("return", Continuation.fromVM(vm));
+        }
+        callEnv.define("return", vm.cc());
         vm.currentEnv = callEnv;
         implicitBegin(vm, lambda.body);
         return NOTHING;
@@ -635,7 +636,7 @@ The third form (with \`true\`) expands to a [[macro]] in the same way.`);
                 const res = vm.math.call(operation, acc, a[i]);
                 if (!res.ok) {
                     vm.pushCommand("jeb:throw", "jeb:type_error", "math error: " + res.value, {
-                        return: Continuation.fromVM(vm)
+                        return: vm.cc(),
                     });
                     return NOTHING;
                 }
@@ -732,7 +733,7 @@ Returns a copy of the list without the first element`);
         for (var arg of args) {
             if (!isArray(arg)) {
                 vm.pushCommand("jeb:throw", "jeb:type_error", "not an array to concat", {
-                    return: Continuation.fromVM(vm)
+                    return: vm.cc()
                 });
                 return NOTHING;
             }
@@ -755,7 +756,7 @@ Prevents its argument from being evaluated.`);
             return result.value;
         }
         vm.pushCommand("jeb:throw", "jeb:value_error", result.value, {
-            return: Continuation.fromVM(vm)
+            return: vm.cc(),
         });
     }, `["quasiquote", <value>]
 ["~", <value>]
@@ -764,13 +765,13 @@ Prevents its argument from being evaluated, but walks the elements and replaces 
     alias(vm, QUASIQUOTE_NAME, "~");
 
     defineBuiltin(vm, UNQUOTE_NAME, 1, false, false, (_, vm) => (vm.pushCommand("jeb:throw", "jeb:syntax_error", UNQUOTE_NAME + " not valid outside of quasiquote", {
-        return: Continuation.fromVM(vm)
+        return: vm.cc(),
     }), NOTHING), `["${UNQUOTE_NAME}", <value>]
 [",", <value>]
 
 Marks a value to be interpolated inside a [[${QUASIQUOTE_NAME}]]. This is not valid outside of a [[${QUASIQUOTE_NAME}]] and will throw an error if called as a normal function.`);
     defineBuiltin(vm, UNQUOTE_SPLICING_NAME, 1, false, false, (_, vm) => (vm.pushCommand("jeb:throw", "jeb:syntax_error", UNQUOTE_SPLICING_NAME + " not valid outside of quasiquote", {
-        return: Continuation.fromVM(vm)
+        return: vm.cc(),
     }), NOTHING), `["${UNQUOTE_SPLICING_NAME}", <value>]
 [",@", <value>]
 

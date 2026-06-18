@@ -12,9 +12,6 @@ export class Continuation {
         public traceback: StackCount | null
     ) {
     }
-    static fromVM(vm: JebVM, ...extraOps: Command[]) {
-        return new Continuation(vm.currentEnv, llPushArray(vm.commandStack, extraOps), vm.dataStack, vm.curDynamicWind, vm.tracebackStack);
-    }
     invoke(vm: JebVM, data: any) {
         vm.currentEnv = this.env;
         vm.commandStack = this.commands;
