@@ -35,16 +35,6 @@ export class DynamicWind {
         public commandsHere: LinkedList<Command> = null,
         public dataHere: LinkedList<any> = null,
     ) { }
-
-    static fromVM(vm: JebVM) {
-        return new DynamicWind(
-            vm.currentEnv,
-            vm.curDynamicWind,
-            null,
-            vm.commandStack,
-            vm.dataStack,
-        );
-    }
     setHandler(handler: Windable) {
         this.handler = handler;
         return this;

@@ -127,11 +127,11 @@ Evaluate the argument in the current environment and return the result.`);
             });
             return;
         }
-        if (applier.getIsMacro(func)) vm.pushCommand("jeb:eval");
         const name = applier.getNameOf(func);
         if (name) {
             if (!tailcallHint) vm.pushCommand("jeb:tb_pop");
         }
+        if (applier.getIsMacro(func)) vm.pushCommand("jeb:eval");
         // check arg counts
         const arity = applier.getArity(func);
         var ok = true;
@@ -352,8 +352,8 @@ Throw an error with the specified type, message, and context value. If we're ins
         }
         const context = args[1];
         const body = args.slice(2);
-        // Capture "from" here so that it doesn't capture the "with.teardown" opcode
-        const dw = DynamicWind.fromVM(vm);
+        // Capture "from" here so that it doesn't capture the "with/teardown" opcode
+        const dw = vm.newDynamicWind();
         // this looks backwards because it is - it's a stack, so the last one pushed (at the bottom)
         // is the first one executed
         vm.pushCommand("jeb:with/teardown");
@@ -397,10 +397,11 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         if (!vm.curDynamicWind.parent) throw new Error("Dynamic wind stack underflow");
         const dw = vm.curDynamicWind;
         vm.curDynamicWind = dw.parent!;
+        if (!dw.handler?.exit) return;
         // discard the exit handler's result
         vm.pushCommand("jeb:shuffle", 1, []);
         vm.pushCommand("jeb:apply", [false, null, null, null], true);
-        vm.pushData(dw.handler?.exit);
+        vm.pushData(dw.handler.exit);
     });
 
     // MARK: JS objects
