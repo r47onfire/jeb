@@ -38,7 +38,7 @@ export class JebVM {
     paused = false;
     /** callstack entries */
     tracebackStack!: StackCount | null;
-    globalEnv = new Env;
+    globalEnv = this.createEnv();
     opcodeTable: Record<string, OpcodeFunction> = {};
     applyTable: Applier<any>[] = [];
 
@@ -106,7 +106,7 @@ export class JebVM {
     }
     reset() {
         this.commandStack = this.dataStack = this.tracebackStack = null;
-        this.curDynamicWind = new DynamicWind(this.currentEnv = new Env);
+        this.curDynamicWind = new DynamicWind(this.currentEnv = this.createEnv());
     }
     get recursionDepth() {
         return llLength(this.commandStack);
