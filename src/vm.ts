@@ -25,15 +25,15 @@ export interface StackCount extends Linked<string> {
 
 export type OpcodeFunction = (vm: JebVM, args: any[]) => void;
 
-export class JebVM {
+export class JebVM<T extends Env = Env> {
     /** current environment */
-    currentEnv!: Env;
+    currentEnv!: T;
     /** stack of commands to execute */
     commandStack!: LinkedList<Command>;
     /** stack of values */
     dataStack!: LinkedList<any>;
     /** current dynamic wind stack (linked list / tree) */
-    curDynamicWind!: DynamicWind;
+    curDynamicWind!: DynamicWind<T>;
     /** whether the VM is paused */
     paused = false;
     /** callstack entries */
@@ -134,15 +134,15 @@ export class JebVM {
             this.dataStack,
         );
     }
-    createEnv(...parents: Env[]) {
-        return new Env({}, parents);
+    createEnv(...parents: T[]): T {
+        return new Env({}, parents) as T;
     }
     /**
      * Returns the current continuation at this state.
      * @param extraOps Extra opcodes to push to the command stack *when this continuation is invoked* (not now).
      */
     cc(...extraOps: Command[]) {
-        return new Continuation(
+        return new Continuation<T>(
             this.currentEnv,
             llPushArray(this.commandStack, extraOps),
             this.dataStack,

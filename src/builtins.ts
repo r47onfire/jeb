@@ -336,7 +336,7 @@ If \`properties\` are given, the \`name\` will be looked up instead, and the pro
     defineBuiltin(vm, "error", 3, false, false, (args, vm) => {
         const type = args[0] as string;
         const error = args[1] as string;
-        const ctx = args[2] as Record<string, Continuation>;
+        const ctx = args[2] as Record<string, Continuation<any>>;
         vm.pushCommand("jeb:throw", type, error, ctx);
         return NOTHING;
     }, `["error", <type>, <message>, <context>]
@@ -378,7 +378,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
             return;
         }
         const name = args[1] as string | null;
-        const dw = (args[0] as DynamicWind).setHandler(context);
+        const dw = (args[0] as DynamicWind<any>).setHandler(context);
         // set up the winder to be installed AFTER the enter handler runs, so that errors thrown by this handler won't be caught by the exit handler
         vm.pushCommand("jeb:with/install", dw);
 
@@ -390,7 +390,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
     });
 
     defineOpcode(vm, "jeb:with/install", (vm, args) => {
-        vm.curDynamicWind = args[0] as DynamicWind;
+        vm.curDynamicWind = args[0] as DynamicWind<any>;
     });
 
     defineOpcode(vm, "jeb:with/teardown", vm => {
@@ -506,9 +506,9 @@ If the first element of \`body\` is a string and there is something additional a
     lambdaHelper("macro", true, "macro", "\nA macro differs from a normal function in that its arguments are passed in *before* being evaluated, so the macro body has access to the actual code passed in; additionally, the return value of the macro is expected to be code as well, and is evaluated again the the scope that the macro was called from.");
 
     // MARK: continuation applier
-    defineApplier(vm, new class extends Applier<Continuation> {
+    defineApplier(vm, new class extends Applier<Continuation<any>> {
         constructor() { super(Continuation); }
-        apply(cont: Continuation, _: boolean, __: boolean, args: any[], vm: JebVM) {
+        apply(cont: Continuation<any>, _: boolean, __: boolean, args: any[], vm: JebVM) {
             cont.invoke(vm, args[0]);
         }
         // @ts-ignore continuations never show up in a traceback since they replace all 3 stacks!
