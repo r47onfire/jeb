@@ -458,13 +458,18 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
         if (rest) {
             callEnv.define(rest, argv.slice(nRequired + nOpt));
         }
-        callEnv.define("return", vm.cc());
+        if (!lambda.isImplicit) callEnv.define("return", vm.cc());
         vm.currentEnv = callEnv;
         implicitBegin(vm, lambda.body);
         return NOTHING;
     });
     const lambdaHelper = (name: string, isMacro: boolean, kind: string, extra: string) => {
         defineBuiltin(vm, name, { min: 2, max: Infinity }, true, false, (args, vm) => {
+            var isImplicit = false;
+            if (typeof args[0] === "boolean") {
+                isImplicit = args[0];
+                args = args.slice(1);
+            }
             const params = args[0] as (string | [string, any] | true)[];
             const body = args.slice(1);
             const docstring = isString(body[0]) && body.length > 1 ? body.shift() : "";
@@ -492,15 +497,19 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
                     vm.pushCommand("jeb:throw", "jeb:syntax_error", "invalid parameter to lambda", {})
                 }
             }
-            return new Lambda(isMacro, undefined, required, optional, rest, body, vm.currentEnv, docstring);
+            return new Lambda(isMacro, isImplicit, undefined, required, optional, rest, body, vm.currentEnv, docstring);
         }, `["${name}", [<parameters...:sameline+lambda>], <body...>]
 ["${name}", [<parameters...:sameline+lambda>, true], <body...>]
 ["${name}", [<parameters...:sameline+lambda>], <docstring+docstring>, <body...>]
+["${name}", true, [<parameters...:sameline+lambda>], <body...>]
+["${name}", true, [<parameters...:sameline+lambda>, true], <body...>]
+["${name}", true, [<parameters...:sameline+lambda>], <docstring+docstring>, <body...>]
 
 Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}
 If the last element of the argument list is the Boolean \`true\` the last named argument before it becomes a rest argument, that will be an array at runtime filled with all the arguments given after it.
 If the \`param\` in the parameters list is a 2-tuple \`[*name*, *default*]\`, then the parameter is optional, and if it is not provided then the value of \`default\` is evaluated in a dynamic environment of both the environment in which the ${name} was defined, as well as the environment from which it was called.
-If the first element of \`body\` is a string and there is something additional after it (so that it would otherwise be a no-op), the string is used as the documentation string.`);
+If the first element of \`body\` is a string and there is something additional after it (so that it would otherwise be a no-op), the string is used as the documentation string.
+If the first element is \`true\` it is removed and the lambda is flagged as an implicit lambda, where the special \`return\` continuation is not injected.`);
     }
     lambdaHelper("lambda", false, "function", "");
     lambdaHelper("macro", true, "macro", "\nA macro differs from a normal function in that its arguments are passed in *before* being evaluated, so the macro body has access to the actual code passed in; additionally, the return value of the macro is expected to be code as well, and is evaluated again the the scope that the macro was called from.");
@@ -560,14 +569,14 @@ Runs each of the body statements in order, and returns the result from the last 
             const body = args.slice(2);
             const params = bindings.map(b => b[0]);
             const initializers = bindings.map(b => b[1]);
-            vm.pushData([["lambda", [loopname], ["set", loopname, ["lambda", params, ...body]], [loopname, ...initializers]], null]);
+            vm.pushData([["lambda", true, [loopname], ["set", loopname, ["lambda", true, params, ...body]], [loopname, ...initializers]], null]);
         } else {
             // rewrite (let ((x 1) (y 2)) body) to ((lambda (x y) body) 1 2)
             const bindings = args[0] as [string, any][];
             const body = args.slice(1);
             const params = bindings.map(b => b[0]);
             const initializers = bindings.map(b => b[1]);
-            vm.pushData([["lambda", params, ...body], ...initializers]);
+            vm.pushData([["lambda", true, params, ...body], ...initializers]);
         }
         vm.pushCommand("jeb:eval");
         return NOTHING;
@@ -631,7 +640,7 @@ The third form (with \`true\`) expands to a [[macro]] in the same way.`);
     ) => {
         defineBuiltin(vm, operator, null, false, false, (a, vm) => {
             if (a.length === 0) return identity;
-            if (a.length === 1) return resultToError(vm, "type_error", vm.math.call(operation, a[0]!));
+            if (a.length === 1) return resultToError(vm, "jeb:type_error", vm.math.call(operation, a[0]!));
             var acc = a[0]!;
             for (var i = 1; i < a.length; i++) {
                 const res = vm.math.call(operation, acc, a[i]);
@@ -679,7 +688,7 @@ Math`);
 
     // comparisons
     const comparisonHelper = (op: string, bits: number) => {
-        defineBuiltin(vm, op, 2, false, false, (args, vm) => resultToError(vm, "type_error", vm.math.call("cmp", args[0], args[1], bits)), `["${op}", <number1>, <number2>]
+        defineBuiltin(vm, op, 2, false, false, (args, vm) => resultToError(vm, "jeb:type_error", vm.math.call("cmp", args[0], args[1], bits)), `["${op}", <number1>, <number2>]
 
 Comparison`);
     }
@@ -705,7 +714,7 @@ Boolean inverse`);
             const sym = vm.currentEnv.gensym();
             const rest = [name, ...args.slice(1)];
             const getsym = ["$", sym];
-            vm.pushData([["lambda", [sym],
+            vm.pushData([["lambda", true, [sym],
                 shortCircuitOn ?
                     ["if", getsym, getsym, rest] :
                     ["if", getsym, rest, getsym]
@@ -901,7 +910,7 @@ This is analogous to Javascript's proposed pipe operator.`,
             ["if", ["zero?", ["length", ["$", "items"]]],
                 ["$", "value"],
                 [QUASIQUOTE_NAME,
-                    [["lambda", ["#"],
+                    [["lambda", true, ["#"],
                         ["|>", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]],
                     [UNQUOTE_NAME, ["$", "value"]]]]]],
         ["define", true, ["reset", "name", "value"],

@@ -16,6 +16,7 @@ export class BuiltinFunction extends HasDocstring {
 export class Lambda extends HasDocstring {
     constructor(
         public readonly isMacro: boolean,
+        public readonly isImplicit: boolean,
         public name: string | undefined,
         public readonly args: string[],
         public readonly optArgs: [string, any][],

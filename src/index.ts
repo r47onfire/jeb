@@ -11,5 +11,5 @@ export { numberOp } from "./math";
 export { Arithmetic, typeMatches, type Operation, type Operations } from "./overload";
 export { err, ok, type Result } from "./result";
 export { JEBEditor } from "./sed";
-export { Applier, JebVM, type OpcodeFunction } from "./vm";
+export { Applier, JebVM, type Command, type OpcodeFunction, type StackCount } from "./vm";
 
