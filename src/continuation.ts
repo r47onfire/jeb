@@ -2,17 +2,17 @@ import { Env } from "./env";
 import { Command, StackCount, JebVM } from "./vm";
 import { LinkedList, llPushArray } from "./linked_list";
 
-export class Continuation<T extends Env> {
+export class Continuation {
 
     constructor(
-        public env: T,
+        public env: any,
         public commands: LinkedList<Command>,
         public data: LinkedList<any>,
-        public winders: DynamicWind<T>,
+        public winders: DynamicWind,
         public traceback: StackCount | null
     ) {
     }
-    invoke(vm: JebVM<T>, data: any) {
+    invoke(vm: JebVM, data: any) {
         vm.currentEnv = this.env;
         vm.commandStack = this.commands;
         vm.dataStack = this.data;
@@ -27,10 +27,10 @@ export interface Windable {
     exit: any;
 }
 
-export class DynamicWind<T extends Env> {
+export class DynamicWind {
     constructor(
-        public envHere: T,
-        public parent: DynamicWind<T> | null = null,
+        public envHere: Env,
+        public parent: DynamicWind | null = null,
         public handler: Windable | null = null,
         public commandsHere: LinkedList<Command> = null,
         public dataHere: LinkedList<any> = null,
@@ -39,11 +39,11 @@ export class DynamicWind<T extends Env> {
         this.handler = handler;
         return this;
     }
-    processJumpHere(vm: JebVM<T>) {
-        var tp: DynamicWind<T> | null = this;
+    processJumpHere(vm: JebVM) {
+        var tp: DynamicWind | null = this;
         // find the common ancestor of from and to
         // parents: rightmost is innermost
-        const parentsOfTo: DynamicWind<T>[] = [];
+        const parentsOfTo: DynamicWind[] = [];
         while (tp) {
             parentsOfTo.unshift(tp);
             tp = tp.parent;
@@ -53,7 +53,7 @@ export class DynamicWind<T extends Env> {
         // walk up the "from" stack, adding ops to run the exit handlers
         // when we reach the common ancestor, add ops to run the enter handlers for the "to" stack
         var i = -1;
-        var fp: DynamicWind<T> | null = vm.curDynamicWind;
+        var fp: DynamicWind | null = vm.curDynamicWind;
         while (fp) {
             i = parentsOfTo.indexOf(fp);
             if (i !== -1) break;
@@ -78,7 +78,7 @@ export class DynamicWind<T extends Env> {
         // restore values
         vm.curDynamicWind = this;
     }
-    restore(vm: JebVM<T>) {
+    restore(vm: JebVM) {
         vm.commandStack = this.commandsHere;
         vm.dataStack = this.dataHere;
         vm.currentEnv = this.envHere;
