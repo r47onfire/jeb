@@ -1,10 +1,10 @@
 import { isArray, last } from "lib0/array";
 import { isNumber, isString } from "lib0/function";
 import { max } from "lib0/math";
-import { BuiltinFunction, Lambda } from "./callable";
-import { DocNode, DocNodeType, parseDoc } from "./doc";
+import { BuiltinFunction, Lambda } from "../callable";
+import { DocNode, DocNodeType, parseDoc } from "../doc";
 import { Formatter } from "./format";
-import { JebVM } from "./vm";
+import { JebVM } from "../vm";
 
 interface ThemeValue {
     style: string;

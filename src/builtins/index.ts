@@ -3,14 +3,14 @@ import { id, isNumber, isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
 import { add } from "lib0/math";
 import { keys } from "lib0/object";
-import { BuiltinFunction, Lambda } from "./callable";
-import { Continuation, DynamicWind, Windable } from "./continuation";
-import { Env } from "./env";
-import { jsError, resultToError, tracebackPop, tracebackPush } from "./errors";
-import { float, numberOp } from "./math";
-import { Operation, typeMatches } from "./overload";
-import { err, ok, Result } from "./result";
-import { Applier, JebVM, OpcodeFunction } from "./vm";
+import { BuiltinFunction, Lambda } from "../callable";
+import { Continuation, DynamicWind, Windable } from "../continuation";
+import { Env } from "../env";
+import { jsError, resultToError, tracebackPop, tracebackPush } from "../errors";
+import { float, numberOp } from "../math";
+import { Operation, typeMatches } from "../overload";
+import { err, ok, Result } from "../result";
+import { Applier, JebVM, OpcodeFunction } from "../vm";
 
 export const defineBuiltin = <T extends JebVM>(vm: T, name: string, arity: { min: number, max: number } | number | null, isSpecial: boolean, resultIsMacro: boolean, fn: (args: any[], vm: T) => any, doc: string) => {
     vm.globalEnv.define(name, new BuiltinFunction(name, arity, isSpecial, resultIsMacro, fn as any, doc));

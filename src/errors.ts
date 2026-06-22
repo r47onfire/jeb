@@ -1,4 +1,3 @@
-import { Continuation } from "./continuation";
 import { NOTHING } from ".";
 import { Result } from "./result";
 import { JebVM } from "./vm";

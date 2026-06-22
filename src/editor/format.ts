@@ -2,8 +2,8 @@ import { isArray } from "lib0/array";
 import { id, isString } from "lib0/function";
 import { stringify } from "lib0/json";
 import { max } from "lib0/math";
-import { getBreakage, HasDocstring } from "./doc";
-import { JebVM } from "./vm";
+import { getBreakage, HasDocstring } from "../doc";
+import { JebVM } from "../vm";
 
 export type NonterminalPath = (string | number)[];
 export type Path = NonterminalPath | [...NonterminalPath, true];

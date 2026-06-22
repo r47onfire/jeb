@@ -116,6 +116,7 @@ export class JebVM {
             this.pushCommand("jeb:throw", "jeb:recursion_error", "too much recursion", {});
         }
     }
+    // TODO: don't expand the repeats! it should be able to take advantage of them to compress faster
     tracebackArray() {
         var stack = this.tracebackStack;
         const parts: string[] = [];

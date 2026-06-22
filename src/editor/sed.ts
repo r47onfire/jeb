@@ -3,8 +3,8 @@ import { isString } from "lib0/function";
 import { keys } from "lib0/object";
 import { type Draft } from "mutative";
 import { Travels } from "travels";
+import { err, ok } from "../result";
 import { Formatter, NonterminalPath } from "./format";
-import { err, ok } from "./result";
 
 /*
 
