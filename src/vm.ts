@@ -23,7 +23,7 @@ export interface StackCount extends Linked<string> {
     readonly isTailCalled: boolean;
 }
 
-export type OpcodeFunction = (vm: JebVM, args: any[]) => void;
+export type OpcodeFunction<T extends JebVM> = (vm: T, args: any[]) => void;
 
 export class JebVM {
     /** current environment */
@@ -39,7 +39,7 @@ export class JebVM {
     /** callstack entries */
     tracebackStack!: StackCount | null;
     globalEnv = this.createEnv();
-    opcodeTable: Record<string, OpcodeFunction> = {};
+    opcodeTable: Record<string, OpcodeFunction<this>> = {};
     applyTable: Applier<any>[] = [];
 
     constructor(public math = new Arithmetic) {

@@ -12,11 +12,11 @@ import { Operation, typeMatches } from "./overload";
 import { err, ok, Result } from "./result";
 import { Applier, JebVM, OpcodeFunction } from "./vm";
 
-export const defineBuiltin = (vm: JebVM, name: string, arity: { min: number, max: number } | number | null, isSpecial: boolean, resultIsMacro: boolean, fn: (args: any[], vm: JebVM) => any, doc: string) => {
-    vm.globalEnv.define(name, new BuiltinFunction(name, arity, isSpecial, resultIsMacro, fn, doc));
+export const defineBuiltin = <T extends JebVM>(vm: T, name: string, arity: { min: number, max: number } | number | null, isSpecial: boolean, resultIsMacro: boolean, fn: (args: any[], vm: T) => any, doc: string) => {
+    vm.globalEnv.define(name, new BuiltinFunction(name, arity, isSpecial, resultIsMacro, fn as any, doc));
 }
 
-export const defineOpcode = (vm: JebVM, name: string, fn: OpcodeFunction) => {
+export const defineOpcode = <T extends JebVM>(vm: T, name: string, fn: OpcodeFunction<T>) => {
     vm.opcodeTable[name] = fn;
 }
 
@@ -156,9 +156,9 @@ Evaluate the argument in the current environment and return the result.`);
             vm.pushCommand("jeb:lookup", true);
             vm.pushData(func);
         }
-        getNameOf() { return undefined; }
-        getArity() { return null; }
-        getIsMacro() { return false; };
+        getNameOf = () => undefined;
+        getArity = () => null;
+        getIsMacro = () => false;
     });
     // MARK: builtin applier
     defineApplier(vm, new class extends Applier<BuiltinFunction> {
@@ -168,9 +168,9 @@ Evaluate the argument in the current environment and return the result.`);
             vm.pushCommand("jeb:tb_push", this.getNameOf(func), tailcallHint);
             argsHelper(vm, args, !func.isSpecial && !alreadyEvaluated);
         }
-        getNameOf(func: BuiltinFunction) { return func.name; }
-        getArity(func: BuiltinFunction) { return func.arity; }
-        getIsMacro(func: BuiltinFunction) { return func.resultIsMacro; }
+        getNameOf = (func: BuiltinFunction) => func.name;
+        getArity = (func: BuiltinFunction) => func.arity;
+        getIsMacro = (func: BuiltinFunction) => func.resultIsMacro;
     });
     defineOpcode(vm, "jeb:exec/builtin", (vm, args) => {
         const func = args[0] as BuiltinFunction;
@@ -415,10 +415,10 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
         apply(lambda: Lambda, alreadyEvaluated: boolean, tailcallHint: boolean, args: any[], vm: JebVM) {
             if (!tailcallHint || lambda.isMacro) vm.pushCommand("jeb:apply/resetEnv", vm.currentEnv);
             vm.pushCommand("jeb:exec/lambda", lambda, args.length);
-            vm.pushCommand("jeb:tb_push", this.getNameOf(lambda), tailcallHint);
+            if (!lambda.isImplicit) vm.pushCommand("jeb:tb_push", this.getNameOf(lambda), tailcallHint);
             argsHelper(vm, args, !lambda.isMacro && !alreadyEvaluated);
         }
-        getNameOf(lambda: Lambda) { return lambda.name ?? "[lambda]"; }
+        getNameOf = (lambda: Lambda) => lambda.isImplicit ? undefined : lambda.name ?? "[lambda]";
         getArity(lambda: Lambda) {
             const required = lambda.args.length;
             const optional = lambda.optArgs.length;
@@ -428,7 +428,7 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
                 max: rest ? Infinity : required + optional,
             };
         }
-        getIsMacro(lambda: Lambda) { return lambda.isMacro; }
+        getIsMacro = (lambda: Lambda) => lambda.isMacro;
     });
     defineOpcode(vm, "jeb:apply/resetEnv", (vm, args) => {
         vm.currentEnv = args[0] as Env;
@@ -520,10 +520,9 @@ If the first element is \`true\` it is removed and the lambda is flagged as an i
         apply(cont: Continuation, _: boolean, __: boolean, args: any[], vm: JebVM) {
             cont.invoke(vm, args[0]);
         }
-        // @ts-ignore continuations never show up in a traceback since they replace all 3 stacks!
-        getNameOf(): string { }
-        getArity() { return 1; }
-        getIsMacro() { return false; }
+        getNameOf = () => undefined;
+        getArity = () => 1;
+        getIsMacro = () => false;
     });
 
     // MARK: logic
@@ -584,8 +583,7 @@ Runs each of the body statements in order, and returns the result from the last 
 ["let", <loopname+defvar>, [<pairs...:eachline+let>], <body...>]
 
 Each one of the \`pairs\` is a 2-tuple \`[*name*, *expression*]\`. Each of the expressions will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.
-The second form, where the first argument is a string, allows the lambda body to recursively call itself with new values for each of the variables.
-This actually is a macro that expands to an immediately-invoked lambda, so "[lambda]" may show up in the traceback when using \`let\`.`);
+The second form, where the first argument is a string, allows the lambda body to recursively call itself with new values for each of the variables.`);
 
     defineBuiltin(vm, "define", null, true, false, (args, vm) => {
         const name = args[0] as string | string[];
