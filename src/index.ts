@@ -1,4 +1,5 @@
-export { alias, defineApplier, defineBuiltin, defineOpcode, loadBuiltins, NOTHING } from "./builtins";
+export { loadBuiltins } from "./builtins";
+export { alias, defineApplier, defineBuiltin, defineOpcode, implicitBegin, NOTHING } from "./builtins/utils";
 export { BuiltinFunction, Lambda } from "./callable";
 export { Continuation, DynamicWind, type Windable } from "./continuation";
 export { HasDocstring, parseDoc, type Doc, type DocNode, type DocNodeType } from "./doc";

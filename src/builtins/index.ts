@@ -10,53 +10,8 @@ import { jsError, resultToError, tracebackPop, tracebackPush } from "../errors";
 import { float, numberOp } from "../math";
 import { Operation, typeMatches } from "../overload";
 import { err, ok, Result } from "../result";
-import { Applier, JebVM, OpcodeFunction } from "../vm";
-
-export const defineBuiltin = <T extends JebVM>(vm: T, name: string, arity: { min: number, max: number } | number | null, isSpecial: boolean, resultIsMacro: boolean, fn: (args: any[], vm: T) => any, doc: string) => {
-    vm.globalEnv.define(name, new BuiltinFunction(name, arity, isSpecial, resultIsMacro, fn as any, doc));
-}
-
-export const defineOpcode = <T extends JebVM>(vm: T, name: string, fn: OpcodeFunction<T>) => {
-    vm.opcodeTable[name] = fn;
-}
-
-export const defineApplier = (vm: JebVM, apply: Applier<any>) => {
-    vm.applyTable.push(apply);
-}
-
-export const alias = (vm: JebVM, name1: string, name2: string) => {
-    vm.globalEnv.define(name2, vm.globalEnv.get(name1).value!);
-}
-
-const argsHelper = (vm: JebVM, args: any[], shouldEval: boolean) => {
-    const len = args.length;
-    for (var i = len - 1; i >= 0; i--) {
-        vm.pushData(args[i]);
-        if (shouldEval) {
-            // rotate the argument we just evaluated around and bring up the next one
-            // optimize if len == 1 then don't bother shuffling!
-            if (len > 1) vm.pushCommand("jeb:shuffle", len, new Array(len).fill(0).map((_, j) => (j + 1) % len));
-            vm.pushCommand("jeb:eval");
-        }
-    }
-}
-
-export const implicitBegin = (vm: JebVM, args: any) => {
-    const len = args.length;
-    if (len === 0) {
-        vm.pushData(null);
-    }
-    // Evaluate all in order (reverse because stack)
-    for (var i = len - 1, last = true; i >= 0; i--, last = false) {
-        // Drop all but the last one
-        if (!last) vm.pushCommand("jeb:shuffle", 1, []);
-        vm.pushData(args[i]);
-        // Do a tail call on the last item
-        vm.pushCommand("jeb:eval", last);
-    }
-}
-
-export const NOTHING = Symbol("nothing");
+import { Applier, JebVM } from "../vm";
+import { alias, argsHelper, defineApplier, defineBuiltin, defineOpcode, implicitBegin, NOTHING } from "./utils";
 
 // TODO: split this all up
 // MARK: loadBuiltins()
