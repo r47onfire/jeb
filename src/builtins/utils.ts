@@ -49,7 +49,7 @@ export const wrapThrowToError = (vm: JebVM, kind: string, f: () => any) => {
  * e.g. an FFI callback).
  */
 export const defineBuiltin = <T extends JebVM>(vm: T, name: string, arity: { min: number; max: number; } | number | null, isSpecial: boolean, resultIsMacro: boolean, fn: (args: any[], vm: T) => any, doc: string) => {
-    vm.globalEnv.define(name, new BuiltinFunction(name, arity, isSpecial, resultIsMacro, fn as any, doc));
+    vm.builtinsEnv.define(name, new BuiltinFunction(name, arity, isSpecial, resultIsMacro, fn as any, doc));
 };
 
 /**
@@ -66,5 +66,5 @@ export const defineApplier = (vm: JebVM, apply: Applier<any>) => {
 };
 
 export const alias = (vm: JebVM, name1: string, name2: string) => {
-    vm.globalEnv.define(name2, vm.globalEnv.get(name1).value!);
+    vm.builtinsEnv.define(name2, vm.builtinsEnv.get(name1).value!);
 };

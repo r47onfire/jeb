@@ -39,7 +39,8 @@ export class JebVM {
     paused = false;
     /** callstack entries */
     tracebackStack!: StackCount | null;
-    globalEnv = this.createEnv();
+    builtinsEnv = this.createEnv();
+    globalEnv = this.createEnv(this.builtinsEnv);
     opcodeTable: Record<string, OpcodeFunction<this>> = {};
     applyTable: Applier<any>[] = [];
 
@@ -73,13 +74,10 @@ export class JebVM {
         this.commandStack = llPush(this.commandStack, [name, ...args]);
     }
     getVar(name: string) {
-        var x = this.currentEnv.get(name);
-        if (!x.ok) x = this.globalEnv.get(name);
-        return x;
+        return this.currentEnv.get(name);
     }
     setVar(name: string, value: any) {
-        if (this.currentEnv.set(name, value)) return true;
-        return this.globalEnv.set(name, value);
+        return this.currentEnv.set(name, value);
     }
     defineVar(name: string, value: any) {
         this.currentEnv.define(name, value);
@@ -107,7 +105,7 @@ export class JebVM {
     }
     reset() {
         this.commandStack = this.dataStack = this.tracebackStack = null;
-        this.curDynamicWind = new DynamicWind(this.currentEnv = this.createEnv());
+        this.curDynamicWind = new DynamicWind(this.currentEnv = this.createEnv(this.globalEnv));
     }
     get recursionDepth() {
         return llLength(this.commandStack);
@@ -126,6 +124,52 @@ export class JebVM {
             stack = stack.next;
         }
         return parts;
+    }
+    tracebackPush(func: string, tailcallHint: boolean) {
+        const top = this.tracebackStack;
+        if (top && top.value === func && top.isTailCalled === tailcallHint) {
+            // same name and type = just bump the counter
+            this.tracebackStack = {
+                value: func,
+                count: top.count + 1,
+                next: top.next,
+                isTailCalled: tailcallHint
+            };
+        } else {
+            this.tracebackStack = {
+                value: func,
+                count: 1,
+                next: top,
+                isTailCalled: tailcallHint
+            };
+        }
+    }
+    tracebackPop() {
+        var cur = this.tracebackStack;
+        if (!cur) throw new Error("Traceback stack underflow");
+
+        // drop all TCO'ed frames
+        while (cur && cur.isTailCalled) {
+            cur = cur.next;
+        }
+
+        if (!cur) {
+            // oops, all tail calls
+            this.tracebackStack = null;
+            return;
+        }
+
+        // normal frame pop
+        if (cur.count > 1) {
+            this.tracebackStack = {
+                value: cur.value,
+                count: cur.count - 1,
+                next: cur.next,
+                isTailCalled: false
+            };
+        } else {
+            this.tracebackStack = cur.next;
+        }
     }
     newDynamicWind() {
         return new DynamicWind(

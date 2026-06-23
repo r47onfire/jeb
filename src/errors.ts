@@ -49,55 +49,6 @@ const compressStack = (parts: string[]): string => {
 export const jsError = (type: string, message: string, stack: string[]): never => {
     throw new Error(`(${type}) ${message}\nVM stack: ${compressStack(stack)}`);
 }
-
-export const tracebackPush = (vm: JebVM, args: any[]) => {
-    const top = vm.tracebackStack;
-    const func = args[0] as string;
-    const tailcallHint = args[1] as boolean;
-    if (top && top.value === func && top.isTailCalled === tailcallHint) {
-        // same name and type = just bump the counter
-        vm.tracebackStack = {
-            value: func,
-            count: top.count + 1,
-            next: top.next,
-            isTailCalled: tailcallHint
-        };
-    } else {
-        vm.tracebackStack = {
-            value: func,
-            count: 1,
-            next: top,
-            isTailCalled: tailcallHint
-        };
-    }
-}
-export const tracebackPop = (vm: JebVM) => {
-    var cur = vm.tracebackStack;
-    if (!cur) throw new Error("Traceback stack underflow");
-
-    // drop all TCO'ed frames
-    while (cur && cur.isTailCalled) {
-        cur = cur.next;
-    }
-
-    if (!cur) {
-        // oops, all tail calls
-        vm.tracebackStack = null;
-        return;
-    }
-
-    // normal frame pop
-    if (cur.count > 1) {
-        vm.tracebackStack = {
-            value: cur.value,
-            count: cur.count - 1,
-            next: cur.next,
-            isTailCalled: false
-        };
-    } else {
-        vm.tracebackStack = cur.next;
-    }
-}
 export const resultToError = (vm: JebVM, errType: string, result: Result<any>) => {
     if (result.ok) {
         return result.value;

@@ -7,7 +7,7 @@ export { Formatter, type Format } from "./editor/format";
 export { KAPLAYFormatter, type Theme } from "./editor/kaplay_fmt";
 export { JEBEditor } from "./editor/sed";
 export { Env } from "./env";
-export { jsError, resultToError, tracebackPop, tracebackPush } from "./errors";
+export { jsError, resultToError } from "./errors";
 export { llLength, llPop, llPopN, llPush, llPushArray, llToArray, type Linked, type LinkedList } from "./linked_list";
 export { numberOp } from "./math";
 export { Arithmetic, typeMatches, type Operation, type Operations } from "./overload";

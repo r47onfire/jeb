@@ -1,4 +1,5 @@
 import { isArray, last } from "lib0/array";
+import { undefinedToNull } from "lib0/conditions";
 import { id, isNumber, isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
 import { add } from "lib0/math";
@@ -6,7 +7,7 @@ import { keys } from "lib0/object";
 import { BuiltinFunction, Lambda } from "../callable";
 import { Continuation, DynamicWind, Windable } from "../continuation";
 import { Env } from "../env";
-import { resultToError, tracebackPop, tracebackPush } from "../errors";
+import { resultToError } from "../errors";
 import { float, numberOp } from "../math";
 import { Operation, typeMatches } from "../overload";
 import { err, ok, Result } from "../result";
@@ -19,8 +20,8 @@ export const loadBuiltins = (vm: JebVM) => {
 
 
     // MARK: op: traceback push/pop
-    defineOpcode(vm, "jeb:tb_pop", tracebackPop);
-    defineOpcode(vm, "jeb:tb_push", tracebackPush);
+    defineOpcode(vm, "jeb:tb_pop", vm => vm.tracebackPop());
+    defineOpcode(vm, "jeb:tb_push", (vm, args) => vm.tracebackPush(args[0], args[1]));
 
     // MARK: op: stack shuffle
     // N/[0, 1, 2, 3, ..., N-1] = identity, 2/[1, 0] = swap, 1/[] = drop, 1/[0, 0] = dup, N/[1, 2, 3, 4, ..., N-1, 0] = N-tuck, etc.
@@ -361,7 +362,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
     });
 
     // MARK: JS objects
-    defineBuiltin(vm, "nil?", 1, false, false, args => (args[0] ?? null) === null, `["nil?", <value>]
+    defineBuiltin(vm, "nil?", 1, false, false, args => undefinedToNull(args[0]) === null, `["nil?", <value>]
 
 Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any other value (including \`false\`, \`""\`, or \`[]\`) is considered not-null, even though it might be falsy.`);
 
