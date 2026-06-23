@@ -17,10 +17,6 @@ these are accomplished by compiling the JSON evaluation process into micro-opera
 
 JEB also supports a Scheme-like `dynamic-wind` context manager syntax, so code can know when it's jumping in and out, and for what reason (normal, continuation, or exception).
 
-## what's currently not yet implemented
-
-* structural editor & pretty-printer (based off of [the uLisp editor](http://forum.ulisp.com/t/extensible-t-deck-lisp-editor/1322) and/or [SRFI 272](https://srfi.schemers.org/srfi-272/srfi-272.html#the-srfi-272-colorize-library))
-
 ## naming
 
 canonically, JEB stands for "JSON Evaluation Backend". however, JEB can stand for many other things:
