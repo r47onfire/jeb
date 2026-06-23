@@ -9,11 +9,34 @@ import { Arithmetic, Type, TypeFor } from "./overload";
 
 export abstract class Applier<T> {
     constructor(
+        /**
+         * The type that this applier works with.
+         */
         public readonly type: Type
     ) { }
+    /**
+     * Performs the application
+     * @param func The thing in function position that is being applied.
+     * @param alreadyEvaluated True if the arguments provided are from a synthetic/implicit application, and should not be re-evaluated, even if it's not a macro
+     * @param tailcallHint True if this application is a tail call.
+     * @param args The unevaluated arguments
+     * @param vm The VM to evaluate in
+     */
     abstract apply(func: TypeFor<T>, alreadyEvaluated: boolean, tailcallHint: boolean, args: any[], vm: JebVM): void;
+    /**
+     * Gets the name of the function to appear in tracebacks, if undefined is returned it means it's a hidden callframe and won't show.
+     * Note: the apply opcode uses this to determine whether to insert a `jeb:tb_pop` opcode, but it relies on this applier's {@link apply}
+     * method to add the corresponding `jeb:tb_push` opcode.
+     */
     abstract getNameOf(func: TypeFor<T>): string | undefined;
+    /**
+     * Gets the minimum and maximum arguments for the function call, this is checked before {@link apply} is called.
+     * A single number means min = max = that number, and null means min = 0, max = Infinity.
+     */
     abstract getArity(func: TypeFor<T>): { min: number; max: number; } | number | null;
+    /**
+     * Returns true if the functor being called is a macro, and the result should be evaluated again in its caller's scope.
+     */
     abstract getIsMacro(func: TypeFor<T>): boolean;
 }
 // MARK: class JebVM
