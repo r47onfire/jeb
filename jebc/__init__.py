@@ -1,5 +1,3 @@
-#!/usr/bin/env python3
-
 from pyparsing import *
 from pyparsing import pyparsing_unicode as unicode
 
@@ -66,4 +64,7 @@ toplevel.ignore(comment)
 
 def transpile(src: str):
     result = toplevel.parse_string(src, True)
-    return result.as_list()
+    out = result.as_list()
+    if len(out) == 1:
+        return out[0]
+    return ["begin", *out]
