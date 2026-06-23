@@ -1,8 +1,9 @@
-import { loadBuiltins } from ".";
+import { loadBuiltins } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
+import { jsError } from "./errors";
 import { Linked, LinkedList, llLength, llPop, llPopN, llPush, llPushArray } from "./linked_list";
-import { Arithmetic, Type } from "./overload";
+import { Arithmetic, Type, TypeFor } from "./overload";
 
 // MARK: class Applier
 
@@ -10,10 +11,10 @@ export abstract class Applier<T> {
     constructor(
         public readonly type: Type
     ) { }
-    abstract apply(func: T, alreadyEvaluated: boolean, tailcallHint: boolean, args: any[], vm: JebVM): void;
-    abstract getNameOf(func: T): string | undefined;
-    abstract getArity(func: T): { min: number; max: number; } | number | null;
-    abstract getIsMacro(func: T): boolean;
+    abstract apply(func: TypeFor<T>, alreadyEvaluated: boolean, tailcallHint: boolean, args: any[], vm: JebVM): void;
+    abstract getNameOf(func: TypeFor<T>): string | undefined;
+    abstract getArity(func: TypeFor<T>): { min: number; max: number; } | number | null;
+    abstract getIsMacro(func: TypeFor<T>): boolean;
 }
 // MARK: class JebVM
 
@@ -150,5 +151,8 @@ export class JebVM {
             this.curDynamicWind,
             this.tracebackStack,
         );
+    }
+    fatalError(type: string, message: string): never {
+        return jsError(type, message, this.tracebackArray());
     }
 }

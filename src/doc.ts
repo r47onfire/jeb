@@ -1,11 +1,10 @@
 import { isArray, last } from "lib0/array";
 import { isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
-import { Format } from "./format";
 
 export type DocNodeType = "i" | "b" | "p" | "code" | "ref";
 
-export type DocNode = string | [DocNodeType, ...(string | DocNode)[]];
+export type DocNode = string | [DocNodeType, ...DocNode[]];
 
 export interface Doc {
     headerData: HeaderForm[];
@@ -13,11 +12,8 @@ export interface Doc {
     body: DocNode[][];
 }
 
-export class HasDocstring {
+export interface HasDocstring {
     readonly doc: Doc;
-    constructor(docstring: string) {
-        this.doc = parseDoc(docstring);
-    }
 }
 
 export const parseDoc = (docstring: string): Doc => {
@@ -96,7 +92,7 @@ const parseInline = (s: string): DocNode[] => {
     return root.slice(1) as DocNode[];
 }
 
-class HeaderForm {
+export class HeaderForm {
     constructor(
         public readonly spec: any[],
         public readonly placeholders: Map<string, string>,
@@ -119,67 +115,6 @@ class HeaderForm {
         };
         return recur(data, this.spec, false);
     }
-}
-
-export const getBreakage = (header: HeaderForm, form: any): Format | null => {
-    const { spec, placeholders, actions, flags } = header;
-    var sig;
-    if (spec.length === 2 && /^[\p{P}\p{S}\p{C}\p{Z}]+$/u.test(spec[0])) sig = spec[0];
-    // Calculate breakage
-    const recur = (spec: any[], form: any[]): Format => {
-        var l1keep, indent, children: Format[] = [];
-        const end = last(spec);
-        const p = placeholders.get(end);
-        if (p) {
-            const action = actions.get(p);
-            if (p.endsWith("...")) {
-                l1keep = spec.length - 1;
-            }
-            if (action === "sameline") {
-                l1keep = Infinity;
-            }
-            else if (action === "eachline") {
-                l1keep = indent = 1;
-            }
-        }
-        for (var i = 1; i < spec.length; i++) {
-            const f = spec[i]!;
-            const action = actions.get(placeholders.get(f)!);
-            if (action === "newline") {
-                if (l1keep !== 1 && l1keep !== Infinity) {
-                    l1keep = i;
-                }
-                break;
-            }
-        }
-        for (var i = 0; i < spec.length; i++) {
-            const p = spec[i]!;
-            if (isString(p)) {
-                const flag = flags.get(placeholders.get(p)!);
-                if (flag) {
-                    // Kludge... hmmm.
-                    // TODO: more control codes in the docstring to control this
-                    // TODO: 'quote' code that goes recursively
-                    if (flag === "let") {
-                        for (var j = i; j < form.length; j++) {
-                            children[j] = { l1keep: 2, children: [{ flag: "defvar" }] };
-                        }
-                    }
-                    else if (flag === "lambda") {
-                        for (var j = i; j < form.length; j++) {
-                            children[j] = { flag: "defvar" };
-                        }
-                    }
-                    else children[i] = { flag };
-                }
-            }
-            else if (isArray(p)) children[i] = recur(p, form?.[i]);
-        }
-        return { l1keep, indent, children }
-    };
-    const res = recur(spec, form);
-    if (sig) res.sig = sig;
-    return res;
 }
 
 const parseHeader = (header: string): [node: DocNode | undefined, form: HeaderForm | undefined, rest: string | undefined] => {

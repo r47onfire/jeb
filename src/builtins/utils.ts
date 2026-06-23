@@ -30,6 +30,15 @@ export const implicitBegin = (vm: JebVM, args: any) => {
 };
 export const NOTHING: unique symbol = Symbol("nothing");
 
+export const wrapThrowToError = (vm: JebVM, kind: string, f: () => any) => {
+    try {
+        return f();
+    } catch (e) {
+        vm.pushCommand("jeb:throw", kind, String(e), {});
+        return NOTHING;
+    }
+};
+
 /**
  * @param arity The allowable number of arguments to the function.
  * If an object, specifies the min and max.

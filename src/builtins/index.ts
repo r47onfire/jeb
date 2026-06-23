@@ -6,12 +6,12 @@ import { keys } from "lib0/object";
 import { BuiltinFunction, Lambda } from "../callable";
 import { Continuation, DynamicWind, Windable } from "../continuation";
 import { Env } from "../env";
-import { jsError, resultToError, tracebackPop, tracebackPush } from "../errors";
+import { resultToError, tracebackPop, tracebackPush } from "../errors";
 import { float, numberOp } from "../math";
 import { Operation, typeMatches } from "../overload";
 import { err, ok, Result } from "../result";
 import { Applier, JebVM } from "../vm";
-import { alias, argsHelper, defineApplier, defineBuiltin, defineOpcode, implicitBegin, NOTHING } from "./utils";
+import { alias, argsHelper, defineApplier, defineBuiltin, defineOpcode, implicitBegin, NOTHING, wrapThrowToError } from "./utils";
 
 // TODO: split this all up
 // MARK: loadBuiltins()
@@ -158,7 +158,12 @@ Evaluate the argument in the current environment and return the result.`);
             vm.pushCommand("jeb:throw", "jeb:type_error", `can't get property ${stringify(name)} of ${obj} (evaluating ${propHint})`, {});
             return;
         }
-        vm.pushData(obj[name]);
+        const should_bind = args[1] as boolean;
+        var value: any = obj[name];
+        if (should_bind && typeof value === "function") {
+            value = value.bind(obj);
+        }
+        vm.pushData(value);
     });
     defineBuiltin(vm, "$", 1, true, false, (args, vm) => {
         const name = args[0] as string | any[];
@@ -174,9 +179,9 @@ Evaluate the argument in the current environment and return the result.`);
             // So we swap, eval nameA, then index it and it becomes
             //     value nameB nameC
             // rinse and repeat.
-            for (var i = name.length - 1; i > 0; i--) {
+            for (var i = name.length - 1, first = true; i > 0; i--, first = false) {
                 vm.pushData(name[i]);
-                vm.pushCommand("jeb:get_prop", name.slice(0, i + 1).map((j, i) => i > 0 ? j : stringify([j])).join(""));
+                vm.pushCommand("jeb:get_prop", name.slice(0, i + 1).map((j, i) => i > 0 ? j : stringify([j])).join(""), first);
                 vm.pushCommand("jeb:eval");
                 vm.pushCommand("jeb:shuffle", 2, [1, 0]);
             }
@@ -216,11 +221,7 @@ If \`properties\` are given, they index the variable like Javascript square brac
             vm.pushCommand("jeb:throw", "jeb:type_error", `can't set property ${stringify(name)} on ${obj} (evaluating ${propHint})`, {});
             return;
         }
-        try {
-            obj[name] = vm.peekData();
-        } catch (e) {
-            vm.pushCommand("jeb:throw", "jeb:type_error", String(e), {});
-        }
+        wrapThrowToError(vm, "jeb:type_error", () => obj[name] = vm.peekData());
     });
     defineBuiltin(vm, "set", 2, true, false, (args, vm) => {
         const name = args[0] as string | any[];
@@ -286,7 +287,7 @@ If \`properties\` are given, the \`name\` will be looked up instead, and the pro
             return;
         }
         // if there's nothing to catch the error, just throw it back to JavaScript
-        jsError(type, error, vm.tracebackArray());
+        vm.fatalError(type, error);
     });
     defineBuiltin(vm, "error", 3, false, false, (args, vm) => {
         const type = args[0] as string;
@@ -742,39 +743,50 @@ Marks a list to be interpolated via splicing inside a [[${QUASIQUOTE_NAME}]]. Th
     alias(vm, UNQUOTE_NAME, ",");
     alias(vm, UNQUOTE_SPLICING_NAME, ",@");
 
-    defineBuiltin(vm, "parseJSON", 1, false, false, (args, vm) => {
-        try {
-            return parse(args[0]);
-        } catch (e) {
-            vm.pushCommand("jeb:throw", "jeb:value_error", String(e), {});
-            return NOTHING;
+    defineBuiltin(vm, "parseJSON", 1, false, false, (args, vm) => wrapThrowToError(vm, "jeb:value_error", () => parse(args[0])),
+        `["parseJSON", <string>]
+
+Parses the string using \`JSON.parse()\`, and returns the result. Will throw a \`jeb:value_error\` if it couldn't be parsed.`);
+    defineBuiltin(vm, "dumpJSON", 1, false, false, (args, vm) => wrapThrowToError(vm, "jeb:value_error", () => stringify(args[0])),
+        `["dumpJSON", <value>]
+
+Dumps the value to string using \`JSON.stringify()\`, and returns the serialized JSON. Will throw a \`jeb:value_error\` if there is something that can't be serialized, such as a function or circular reference.`);
+
+    // MARK: FFI calling
+    defineApplier(vm, new class extends Applier<"function"> {
+        constructor() { super("function"); }
+        apply(f: Function, alreadyEvaluated: boolean, tailcallHint: boolean, args: any[], vm: JebVM) {
+            vm.pushCommand("jeb:exec/callFFI", f, args.length);
+            vm.pushCommand("jeb:tb_push", this.getNameOf(f), tailcallHint);
+            argsHelper(vm, args, !alreadyEvaluated);
         }
-    }, `["parseJSON", <string>]
-
-Parses the string using \`JSON.parse()\`, and returns the result.`);
-    defineBuiltin(vm, "dumpJSON", 1, false, false, (args, vm) => {
-        try {
-            return stringify(args[0]);
-        } catch (e) {
-            vm.pushCommand("jeb:throw", "jeb:value_error", String(e), {});
-            return NOTHING;
+        getNameOf = (f: Function) => `[function ${f.name}]`;
+        getArity(f: Function) {
+            return {
+                min: 0,
+                max: f.length,
+            };
         }
-    }, `["dumpJSON", <value>]
+        getIsMacro = (f: any) => !!f.MACRO;
+    });
 
-Dumps the value to string using \`JSON.stringify()\`, and returns the serialized JSON. Will throw a \`value_error\` if there is something that can't be serialized, such as a function or circular reference.`);
-    defineBuiltin(vm, "log", null, false, false, args => console.log(...args), `["log", <values...>]
-
-Passes the values to \`console.log()\` directly and returns \`undefined\`.`);
+    defineOpcode(vm, "jeb:exec/callFFI", (vm, args) => {
+        const f = args[0] as Function;
+        const argc = args[1] as number;
+        const argv = vm.popNData(argc).reverse();
+        const result = wrapThrowToError(vm, "jeb:value_error", () => f.apply(null, argv));
+        if (result !== NOTHING) vm.pushData(result);
+    });
 
     // MARK: JSON based standard library!
     const standardLibrary = ["begin",
         ["define", true, ["comment", "items", true],
             `["comment", <items...+comment>]
-[";", <items...+comment>]
+["#;", <items...+comment>]
 
-Skips evaluating the items.`,
+Skips evaluating the items and returns null immediately.`,
             null],
-        ["define", ";", ["$", "comment"]],
+        ["define", "#;", ["$", "comment"]],
         ["define", true, ["uncomment", "items", true],
             `["uncomment", <items...:newline>]
 ["!;", <items...:newline>]
@@ -782,25 +794,28 @@ Skips evaluating the items.`,
 Evaluates the items as with [[begin]].`,
             ["define", "!;", ["$", "uncomment"]],
             [QUASIQUOTE_NAME, ["begin", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]]],
-        ["define", ["call/cc", "f"],
-            `["call/cc", <function>]
-["call-with-current-continuation", <function>]
+        ["define", ["call-with-current-continuation", "f"],
+            `["call-with-current-continuation", <function>]
+["call/cc", <function>]
 
 Calls the function with a *continuation*, which is a special callable object. When the continuation is called with one argument, it will not return normally, and instead jump back to the place where \`call/cc\` was created from and make the \`call/cc\` return the given value instead - *even if* the \`call/cc\` expression has already returned!
 Invoking a continuation will cause the \`enter\` and \`exit\` handlers of [[with]] blocks jumped across to be triggered with \`true\` to indicate it was due to a continuation.
 Continuations can be used for very complex control structures and can be incredibly confusing to debug, so use with care.`,
             ["f", ["$", "return"]]],
+        ["define", "call/cc", ["$", "call-with-current-continuation"]],
         ["define", true, ["when", "test", "body", true],
             `["when", <condition>, <body...>]
 
-Equivalent to \`["[[if]]", *condition*, ["[[begin]]", *body...*]]\`.`,
+If \`condition\` is truthy, runs \`body\` as with [[begin]].
+(Equivalent to \`["[[if]]", *condition*, ["[[begin]]", *body...*]]\`.)`,
             [QUASIQUOTE_NAME,
                 ["if", [UNQUOTE_NAME, ["$", "test"]],
                     ["begin", [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]]],
         ["define", true, ["unless", "test", "body", true],
             `["unless", <condition>, <body...>]
 
-Equivalent to \`["[[if]]", *condition*, null, ["[[begin]]", *body...*]]\`.`,
+If \`condition\` is falsy, runs \`body\` as with [[begin]].
+(Equivalent to \`["[[if]]", *condition*, null, ["[[begin]]", *body...*]]\`.)`,
             [QUASIQUOTE_NAME,
                 ["if", [UNQUOTE_NAME, ["$", "test"]],
                     null,
@@ -851,15 +866,17 @@ Prevents continuations from jumping in or out of \`body\`; only normal control f
                 [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]],
         ["define", ["length", "x"], `["length", <value>]
 
-Returns the length of the value (list or string)`, ["$", ["x", "length"]]],
+Returns the length of the value (list or string)`,
+            ["$", ["x", "length"]]],
         ["define", ["zero?", "x"], `["length", <value>]
 
-Returns true if the value is zero.`, ["=", ["$", "x"], 0]],
+Returns true if the value is zero.`,
+            ["=", ["$", "x"], 0]],
         ["define", true, ["|>", "value", "items", true],
             `["|>", <value>, <expressions...>]
 
 Pipes the \`value\` as the variable \`#\` into the next expression, and then the result of it becomes the next \`#\`, etc. until all expressions have been evaluated.
-This is analogous to Javascript's proposed pipe operator.`,
+This is analogous to Javascript's proposed pipe operator, specifically the Hack style but using \`#\` for the placeholder instead of \`%\`.`,
             ["if", ["zero?", ["length", ["$", "items"]]],
                 ["$", "value"],
                 [QUASIQUOTE_NAME,

@@ -1,8 +1,8 @@
-import { isArray } from "lib0/array";
+import { isArray, last } from "lib0/array";
 import { id, isString } from "lib0/function";
 import { stringify } from "lib0/json";
 import { max } from "lib0/math";
-import { getBreakage, HasDocstring } from "../doc";
+import { Doc, HeaderForm } from "../doc";
 import { JebVM } from "../vm";
 
 export type NonterminalPath = (string | number)[];
@@ -210,8 +210,8 @@ export class Formatter {
         const name = form[0];
         if (!name) return null;
         const { value } = this.vm.globalEnv.get(name);
-        if (!(value instanceof HasDocstring)) return null;
-        const headerForms = value.doc.headerData;
+        if (!(value.doc)) return null;
+        const headerForms = (value.doc as Doc).headerData;
         var breakage: Format | null = null;
         for (var headerForm of headerForms) {
             if (headerForm.matches(form)) {
@@ -235,4 +235,65 @@ const indentText = (fs: FatString, form: (width: number) => string, indent: numb
     const newUnformatted = indentInner(fs.u);
 
     return { f: newFormatted, u: newUnformatted };
-}
+};
+
+export const getBreakage = (header: HeaderForm, form: any): Format | null => {
+    const { spec, placeholders, actions, flags } = header;
+    var sig;
+    if (spec.length === 2 && /^[\p{P}\p{S}\p{C}\p{Z}]+$/u.test(spec[0])) sig = spec[0];
+    // Calculate breakage
+    const recur = (spec: any[], form: any[]): Format => {
+        var l1keep, indent, children: Format[] = [];
+        const end = last(spec);
+        const p = placeholders.get(end);
+        if (p) {
+            const action = actions.get(p);
+            if (p.endsWith("...")) {
+                l1keep = spec.length - 1;
+            }
+            if (action === "sameline") {
+                l1keep = Infinity;
+            }
+            else if (action === "eachline") {
+                l1keep = indent = 1;
+            }
+        }
+        for (var i = 1; i < spec.length; i++) {
+            const f = spec[i]!;
+            const action = actions.get(placeholders.get(f)!);
+            if (action === "newline") {
+                if (l1keep !== 1 && l1keep !== Infinity) {
+                    l1keep = i;
+                }
+                break;
+            }
+        }
+        for (var i = 0; i < spec.length; i++) {
+            const p = spec[i]!;
+            if (isString(p)) {
+                const flag = flags.get(placeholders.get(p)!);
+                if (flag) {
+                    // Kludge... hmmm.
+                    // TODO: more control codes in the docstring to control this
+                    // TODO: 'quote' code that goes recursively
+                    if (flag === "let") {
+                        for (var j = i; j < form.length; j++) {
+                            children[j] = { l1keep: 2, children: [{ flag: "defvar" }] };
+                        }
+                    }
+                    else if (flag === "lambda") {
+                        for (var j = i; j < form.length; j++) {
+                            children[j] = { flag: "defvar" };
+                        }
+                    }
+                    else children[i] = { flag };
+                }
+            }
+            else if (isArray(p)) children[i] = recur(p, form?.[i]);
+        }
+        return { l1keep, indent, children };
+    };
+    const res = recur(spec, form);
+    if (sig) res.sig = sig;
+    return res;
+};

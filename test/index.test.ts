@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { stringify } from "lib0/json";
-import { defineBuiltin, JebVM } from "../src";
+import { defineBuiltin, JebVM, Lambda } from "../src";
 
 const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) => {
     const vm = new JebVM();
@@ -512,4 +512,29 @@ describe("self-defined macros", () => {
         ])).toBeTrue();
         expect(out).toEqual(["0", "10", "10", "11"]);
     })
+});
+
+describe("FFI", () => {
+    testTest("FFI calling functions", (vm, out) => {
+        expect(run(vm, ["begin",
+            [(arg: any) => { out.push(arg, { a: 1 } as any); }, "hi"]
+        ])).toBeTrue();
+        expect(out).toEqual(["hi", { a: 1 } as any]);
+    });
+    testTest("FFI get function is bound", vm => {
+        expect(run(vm, ["begin",
+            ["let", [["x", { a: 7, b() { return this.a * 6; } }]],
+                [["$", ["x", "b"]]]]
+        ])).toBeTrue();
+        expect(vm.peekData()).toEqual(42);
+    });
+    testTest("FFI function callbacks", (vm, out) => {
+        const thrice = (f: (x: string) => void, x: string) => (f(x), f(x), f(x));
+        expect(run(vm, ["begin",
+            ["let", [["x", ["lambda", ["x"], ["print", ["$", "x"]]]]],
+                [thrice, ["$", "x"], "hi"],
+                [thrice, ["$", "x"], "bye"]]
+        ])).toBeTrue();
+        expect(out).toEqual(["hi", "hi", "hi", "bye", "bye", "bye"]);
+    });
 });

@@ -14,6 +14,9 @@ type TypeMap = {
     function: Function;
     bigint: bigint;
 };
+
+export type TypeFor<T> = T extends keyof TypeMap ? TypeMap[T] : T;
+
 export function typeMatches(obj: any, type: Type): number {
     if (type === null) return 1;
     if (typeof type === "string") {

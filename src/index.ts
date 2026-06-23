@@ -2,7 +2,7 @@ export { loadBuiltins } from "./builtins";
 export { alias, defineApplier, defineBuiltin, defineOpcode, implicitBegin, NOTHING } from "./builtins/utils";
 export { BuiltinFunction, Lambda } from "./callable";
 export { Continuation, DynamicWind, type Windable } from "./continuation";
-export { HasDocstring, parseDoc, type Doc, type DocNode, type DocNodeType } from "./doc";
+export { parseDoc, type Doc, type DocNode, type DocNodeType, type HasDocstring } from "./doc";
 export { Formatter, type Format } from "./editor/format";
 export { KAPLAYFormatter, type Theme } from "./editor/kaplay_fmt";
 export { JEBEditor } from "./editor/sed";
