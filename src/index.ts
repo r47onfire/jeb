@@ -8,6 +8,5 @@ export { jsError, resultToError } from "./errors";
 export { llLength, llPop, llPopN, llPush, llPushArray, llToArray, type Linked, type LinkedList } from "./linked_list";
 export { numberOp } from "./math";
 export { Arithmetic, typeMatches, type Operation, type Operations } from "./overload";
-export { err, ok, type Result } from "./result";
 export { Applier, JebVM, type Command, type OpcodeFunction, type StackCount } from "./vm";
 

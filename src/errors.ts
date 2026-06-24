@@ -1,5 +1,5 @@
+import { Result } from "ts-res";
 import { NOTHING } from ".";
-import { Result } from "./result";
 import { JebVM } from "./vm";
 
 const STACKFRAME_JOINER = "<-";
@@ -49,11 +49,19 @@ const compressStack = (parts: string[]): string => {
 export const jsError = (type: string, message: string, stack: string[]): never => {
     throw new Error(`(${type}) ${message}\nVM stack: ${compressStack(stack)}`);
 }
-export const resultToError = (vm: JebVM, errType: string, result: Result<any>) => {
-    if (result.ok) {
-        return result.value;
+export const wrapThrowToError = <T>(vm: JebVM, kind: string, f: () => T) => {
+    try {
+        return f();
+    } catch (e) {
+        vm.pushCommand("jeb:throw", kind, String(e), {});
+        return NOTHING;
     }
-    vm.pushCommand("jeb:throw", errType, result.value, {
+}
+export const resultToError = <T>(vm: JebVM, kind: string, result: Result<T, any>) => {
+    if (result.ok) {
+        return result.data;
+    }
+    vm.pushCommand("jeb:throw", kind, result.error, {
         return: vm.cc(),
     });
     return NOTHING;

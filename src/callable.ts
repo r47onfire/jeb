@@ -1,4 +1,4 @@
-import { Doc, type HasDocstring, parseDoc } from "./doc";
+import { type HasDocstring } from "./doc";
 import { Env } from "./env";
 import { JebVM } from "./vm";
 
@@ -29,19 +29,17 @@ export abstract class CallableClass extends Object {
 
 
 export class BuiltinFunction implements HasDocstring {
-    doc: Doc;
     constructor(
         public readonly name: string,
         public readonly arity: { min: number; max: number; } | number | null,
         public readonly isSpecial: boolean,
         public readonly resultIsMacro: boolean,
         public readonly impl: (args: any[], vm: JebVM) => any,
-        doc: string,
-    ) { this.doc = parseDoc(doc); }
+        public readonly doc: string,
+    ) { }
 }
 
 export class Lambda extends CallableClass implements HasDocstring {
-    doc: Doc;
     constructor(
         public readonly isMacro: boolean,
         public readonly isImplicit: boolean,
@@ -51,8 +49,8 @@ export class Lambda extends CallableClass implements HasDocstring {
         public readonly restArg: string | null,
         public readonly body: any,
         public readonly closureEnv: Env,
-        doc: string,
-    ) { super(); this.doc = parseDoc(doc); }
+        public readonly doc: string,
+    ) { super(); }
     __call__() {
         throw new Error("Cannot call JEB lambda.");
     }

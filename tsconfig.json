@@ -12,8 +12,7 @@
         "moduleResolution": "Bundler",
         "module": "ESNext",
         "types": [
-            "bun",
-            "wicg-file-system-access"
+            "bun"
         ],
         "lib": [
             "esnext",

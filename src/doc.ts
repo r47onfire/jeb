@@ -13,7 +13,7 @@ export interface Doc {
 }
 
 export interface HasDocstring {
-    readonly doc: Doc;
+    readonly doc: string;
 }
 
 export const parseDoc = (docstring: string): Doc => {

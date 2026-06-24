@@ -1,6 +1,6 @@
 import { stringify } from "lib0/json";
 import { add, pow } from "lib0/math";
-import { Result, err, ok } from "./result";
+import { Err, Ok, Result } from "ts-res";
 
 
 export type Type = (abstract new (...args: any[]) => any) | keyof TypeMap | null;
@@ -32,7 +32,7 @@ export function typeMatches(obj: any, type: Type): number {
  * Value = table of [types for each operator, handler for this overload]
  */
 interface OverloadTable {
-    [k: number]: [types: Type[][], handler: (...params: any[]) => Result<any>][];
+    [k: number]: [types: Type[][], handler: (...params: any[]) => Result<any, string>][];
 }
 /**
  * Table of operations that can be done to number-like quantities
@@ -63,22 +63,22 @@ type TypeArrayValue<T extends Type[][]> = T extends [infer Head extends Type[], 
 
 export class Arithmetic {
     #operations: Partial<Operations> = {};
-    overload<const T extends Type[][]>(op: Operation, types: T, handler: (...args: TypeArrayValue<T>) => Result<any>) {
+    overload<const T extends Type[][]>(op: Operation, types: T, handler: (...args: TypeArrayValue<T>) => Result<any, string>) {
         ((this.#operations[op] ??= {})[types.length] ??= []).push([types, handler]);
     }
-    call(op: Operation, ...args: [any, ...any[]]): Result<any> {
+    call(op: Operation, ...args: [any, ...any[]]): Result<any, string> {
         const res = this.#findOverload(op, args);
         if (!res.ok) return res;
-        return res.value(...args);
+        return res.data(...args);
     }
-    #findOverload(op: Operation, args: any[]): Result<(...args: any[]) => Result<any>> {
+    #findOverload(op: Operation, args: any[]): Result<(...args: any[]) => Result<any, string>, string> {
         const opImpl = this.#operations[op];
-        if (!opImpl) return err(`Operator ${stringify(op)} doesn't exist`);
+        if (!opImpl) return Err(`Operator ${stringify(op)} doesn't exist`);
         const opTable = opImpl[args.length];
-        if (!opTable) return err(`Operator ${stringify(op)} doesn't work with ${args.length} operands`);
+        if (!opTable) return Err(`Operator ${stringify(op)} doesn't work with ${args.length} operands`);
         var bestScore = 0, bestHandler = undefined;
         var typeNames = args.map(_ => { }) as (string | undefined)[];
-        for (var [types, handler] of opTable) {
+        for (var { 0: types, 1: handler } of opTable) {
             const scores = types.map((typeUnion, i) => {
                 const item = args[i];
                 const unionScoreRaw = typeUnion.map(type => {
@@ -95,7 +95,7 @@ export class Arithmetic {
                 bestHandler = handler;
             }
         }
-        if (!bestHandler) return err(`No overload of ${stringify(op)} found for types ${typeNames.map(t => stringify(t ?? "unknown")).join(", ")}`);
-        return ok(bestHandler);
+        if (!bestHandler) return Err(`No overload of ${stringify(op)} found for types ${typeNames.map(t => stringify(t ?? "unknown")).join(", ")}`);
+        return Ok(bestHandler);
     }
 }

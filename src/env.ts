@@ -1,5 +1,5 @@
 import { keys } from "lib0/object";
-import { Result, err, ok } from "./result";
+import { Err, Ok, Result } from "ts-res";
 
 const hasOwn = Object.hasOwn;
 
@@ -16,15 +16,15 @@ export class Env {
      * Look up the value, and return its value (in an ok result)
      * or an err result if not found
      */
-    get(name: string): Result<any> {
+    get(name: string): Result<any, void> {
         if (hasOwn(this.bindings, name)) {
-            return ok(this.bindings[name]);
+            return Ok(this.bindings[name]);
         }
         for (var i = 0; i < this.parents.length; i++) {
             const result = this.parents[i]!.get(name);
             if (result.ok) return result;
         }
-        return err("");
+        return Err();
     }
     /**
      * Defines the value in this scope

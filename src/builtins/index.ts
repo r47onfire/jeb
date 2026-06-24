@@ -4,15 +4,15 @@ import { id, isNumber, isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
 import { add } from "lib0/math";
 import { keys } from "lib0/object";
+import { Err, Ok, Result } from "ts-res";
 import { BuiltinFunction, Lambda } from "../callable";
 import { Continuation, DynamicWind, Windable } from "../continuation";
 import { Env } from "../env";
-import { resultToError } from "../errors";
+import { resultToError, wrapThrowToError } from "../errors";
 import { float, numberOp } from "../math";
 import { Operation, typeMatches } from "../overload";
-import { err, ok, Result } from "../result";
 import { Applier, JebVM } from "../vm";
-import { alias, argsHelper, defineApplier, defineBuiltin, defineOpcode, implicitBegin, NOTHING, wrapThrowToError } from "./utils";
+import { alias, argsHelper, defineApplier, defineBuiltin, defineOpcode, implicitBegin, NOTHING } from "./utils";
 
 // TODO: split this all up
 // MARK: loadBuiltins()
@@ -149,7 +149,7 @@ Evaluate the argument in the current environment and return the result.`);
             });
             return;
         }
-        vm.pushData(variable.value);
+        vm.pushData(variable.data);
     });
     defineOpcode(vm, "jeb:get_prop", (vm, args) => {
         const name = vm.popData();
@@ -191,7 +191,7 @@ Evaluate the argument in the current environment and return the result.`);
         vm.pushCommand("jeb:lookup");
         vm.pushCommand("jeb:eval");
         return NOTHING;
-    }, `["$", [<name+defvar>, <properties...:sameline>]]
+    }, `["$", [<name+defvar>, <properties...>]]
 ["$", <name+defvar>]
 
 Look up the variable with this name in the current environment, and return the value, or throw a \`reference_error\` if it is not defined anywhere.
@@ -261,8 +261,8 @@ If \`properties\` are given, they index the variable like Javascript square brac
         }
         return NOTHING;
     }, `["set", <name>, <value>]
-["set", [<name>, <properties...:sameline>], <value>]
-["set", [<object>, <properties...:sameline>], <value>]
+["set", [<name>, <properties...>], <value>]
+["set", [<object>, <properties...>], <value>]
 
 Set the value of the variable in the environment in which it is defined. If it wasn't defined anywhere, throw a \`reference_error\`.
 If \`properties\` are given, the \`name\` will be looked up instead, and the properties will be used to index the object, and the last one will be used to set the property.`);
@@ -455,12 +455,12 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
                 }
             }
             return new Lambda(isMacro, isImplicit, undefined, required, optional, rest, body, vm.currentEnv, docstring);
-        }, `["${name}", [<parameters...:sameline+lambda>], <body...>]
-["${name}", [<parameters...:sameline+lambda>, true], <body...>]
-["${name}", [<parameters...:sameline+lambda>], <docstring+docstring>, <body...>]
-["${name}", true, [<parameters...:sameline+lambda>], <body...>]
-["${name}", true, [<parameters...:sameline+lambda>, true], <body...>]
-["${name}", true, [<parameters...:sameline+lambda>], <docstring+docstring>, <body...>]
+        }, `["${name}", [<parameters...+lambda>], <body...>]
+["${name}", [<parameters...+lambda>, true], <body...>]
+["${name}", [<parameters...+lambda>], <docstring+docstring>, <body...>]
+["${name}", true, [<parameters...+lambda>], <body...>]
+["${name}", true, [<parameters...+lambda>, true], <body...>]
+["${name}", true, [<parameters...+lambda>], <docstring+docstring>, <body...>]
 
 Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}
 If the last element of the argument list is the Boolean \`true\` the last named argument before it becomes a rest argument, that will be an array at runtime filled with all the arguments given after it.
@@ -574,10 +574,10 @@ The second form, where the first argument is a string, allows the lambda body to
         }
         return NOTHING;
     }, `["define", <varname+defvar>, <value>]
-["define", [<name+defun>, <params...:sameline+lambda>], <docstring:newline+docstring>, <body...>]
-["define", [<name+defun>, <params...:sameline+lambda>], <body...>]
-["define", true, [<name+defmacro>, <params...:sameline+lambda>], <docstring:newline+docstring>, <body...>]
-["define", true, [<name+defmacro>, <params...:sameline+lambda>], <body...>]
+["define", [<name+defun>, <params...+lambda>], <docstring:newline+docstring>, <body...>]
+["define", [<name+defun>, <params...+lambda>], <body...>]
+["define", true, [<name+defmacro>, <params...+lambda>], <docstring:newline+docstring>, <body...>]
+["define", true, [<name+defmacro>, <params...+lambda>], <body...>]
 
 Defines a new variable in the current scope.
 The first form is a straight \`name=value\`.
@@ -600,27 +600,27 @@ The third form (with \`true\`) expands to a [[macro]] in the same way.`);
             for (var i = 1; i < a.length; i++) {
                 const res = vm.math.call(operation, acc, a[i]);
                 if (!res.ok) {
-                    vm.pushCommand("jeb:throw", "jeb:type_error", "math error: " + res.value, {
+                    vm.pushCommand("jeb:throw", "jeb:type_error", "math error: " + res.error, {
                         return: vm.cc(),
                     });
                     return NOTHING;
                 }
-                acc = res.value;
+                acc = res.data;
             }
             return acc;
         }, `["${operator}", <numeric values...>]
 
 Math`);
-        vm.math.overload(operation, [["number"], ["number"]], (a, b) => ok(numnum(a, b)));
-        vm.math.overload(operation, [["bigint"], ["bigint"]], (a, b) => ok(bigbig(a, b)));
-        vm.math.overload(operation, [["bigint"], ["number"]], (a, b) => ok(bignum(a, b)));
-        vm.math.overload(operation, [["number"], ["bigint"]], (a, b) => ok(numbig(a, b)));
-        vm.math.overload(operation, [["number"]], a => ok(num(a)));
-        vm.math.overload(operation, [["bigint"]], a => ok(big(a)));
+        vm.math.overload(operation, [["number"], ["number"]], (a, b) => Ok(numnum(a, b)));
+        vm.math.overload(operation, [["bigint"], ["bigint"]], (a, b) => Ok(bigbig(a, b)));
+        vm.math.overload(operation, [["bigint"], ["number"]], (a, b) => Ok(bignum(a, b)));
+        vm.math.overload(operation, [["number"], ["bigint"]], (a, b) => Ok(numbig(a, b)));
+        vm.math.overload(operation, [["number"]], a => Ok(num(a)));
+        vm.math.overload(operation, [["bigint"]], a => Ok(big(a)));
     }
     const addNumbers = numberOp(add);
     mathHelper("+", "add", 0, addNumbers, addNumbers, addNumbers, addNumbers, id, id);
-    vm.math.overload("add", [["string"], ["string"]], (a, b) => ok(a + b));
+    vm.math.overload("add", [["string"], ["string"]], (a, b) => Ok(a + b));
     const subtractNumbers = numberOp((a, b) => a - b);
     mathHelper("-", "sub", 0, subtractNumbers, subtractNumbers, subtractNumbers, subtractNumbers, a => -a, a => -a);
     const multiplyNumbers = numberOp((a, b) => a * b);
@@ -651,9 +651,9 @@ Comparison`);
         comparisonHelper(name, bits);
     }
     vm.math.overload("cmp", [["number", "bigint"], ["number", "bigint"], ["number"]], (a, b, c) => {
-        if (a == b) return ok(!!(c & 4));
-        if (a < b) return ok(!!(c & 2));
-        if (a > b) return ok(!!(c & 1));
+        if (a == b) return Ok(!!(c & 4));
+        if (a < b) return Ok(!!(c & 2));
+        if (a > b) return Ok(!!(c & 1));
         throw "unreachable";
     });
 
@@ -676,7 +676,7 @@ Boolean inverse`);
             ], args[0]]);
             vm.pushCommand("jeb:eval", true);
             return NOTHING;
-        }, `["${name}", <values...:sameline>]
+        }, `["${name}", <values...>]
 
 Boolean ${name.toUpperCase()} (short-circuits)`);
     }
@@ -715,15 +715,14 @@ Concatenates the lists, and returns a new list`)
 
 Prevents its argument from being evaluated.`);
     alias(vm, "quote", "'");
-    defineBuiltin(vm, QUASIQUOTE_NAME, 1, true, true, (args, vm) => {
-        const result = processQuasiquote(vm, args[0], 1);
-        if (result.ok) {
-            return result.value;
-        }
-        vm.pushCommand("jeb:throw", "jeb:value_error", result.value, {
-            return: vm.cc(),
-        });
-    }, `["quasiquote", <value>]
+    defineBuiltin(vm, QUASIQUOTE_NAME, 1, true, true, (args, vm) =>
+        processQuasiquote(vm, args[0], 1).else(error => {
+            vm.pushCommand("jeb:throw", "jeb:value_error", error, {
+                return: vm.cc(),
+            });
+            return NOTHING;
+        }),
+        `["quasiquote", <value>]
 ["~", <value>]
 
 Prevents its argument from being evaluated, but walks the elements and replaces [[${UNQUOTE_NAME}]] and [[${UNQUOTE_SPLICING_NAME}]] with the results of evaluating their arguments. The argument to [[${UNQUOTE_SPLICING_NAME}]] must be a list.`);
@@ -886,8 +885,8 @@ This is analogous to Javascript's proposed pipe operator, specifically the Hack 
                     [UNQUOTE_NAME, ["$", "value"]]]]]],
         ["define", true, ["reset", "name", "value"],
             `["reset", <name>, <value>]
-["reset", [<name>, <properties...:sameline>], <value>]
-["reset", [<object>, <properties...:sameline>], <value>]
+["reset", [<name>, <properties...>], <value>]
+["reset", [<object>, <properties...>], <value>]
 
 Analogous to [[set]], except the result of the expression is the *old* value of \`name\`, not the new one.
 The \`value\` expression will have access to the old value in the variable \`_\`.`,
@@ -936,52 +935,52 @@ const UNQUOTE_NAME = "unquote";
 const UNQUOTE_SPLICING_NAME = "unquoteSplicing";
 
 // MARK: processQuasiquote
-const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any> => {
+const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any, string> => {
     // atoms
     if (!isArray(form)) {
         if (typeof form !== "object" || form === null) {
-            return ok(form);
+            return Ok(form);
         } else {
             const newObj: Record<string, any> = {};
             for (var [key, value] of Object.entries(form)) {
                 const processedValue = processQuasiquote(vm, value, depth);
                 if (!processedValue.ok) return processedValue;
-                newObj[key] = processedValue.value;
+                newObj[key] = processedValue.data;
             }
-            return ok(newObj);
+            return Ok(newObj);
         }
     }
-    if (form.length === 0) return ok(["quote", []]);
+    if (form.length === 0) return Ok(["quote", []]);
 
     const head = form[0], tail = form.slice(1);
 
     const same = (x: string, y: string) => {
         const v1 = vm.getVar(x);
         const v2 = vm.getVar(y);
-        return v1.ok === v2.ok && v1.value === v2.value;
+        return v1.ok ? (v2.ok && v1.data === v2.data) : !v2.ok;
     }
 
     // ,x
     if (same(head, UNQUOTE_NAME)) {
-        if (form.length !== 2) return err("expected argument to " + UNQUOTE_NAME);
-        return ok(depth === 1 ? tail[0] : ["list", UNQUOTE_NAME, processQuasiquote(vm, tail[0], depth - 1)]);
+        if (form.length !== 2) return Err("expected argument to " + UNQUOTE_NAME);
+        return Ok(depth === 1 ? tail[0] : ["list", UNQUOTE_NAME, processQuasiquote(vm, tail[0], depth - 1)]);
     }
     // ,@x
     if (same(head, UNQUOTE_SPLICING_NAME)) {
-        if (depth !== 1) return ok(["list", UNQUOTE_SPLICING_NAME, processQuasiquote(vm, tail[0], depth - 1)]);
-        return err(UNQUOTE_SPLICING_NAME + " outside of list");
+        if (depth !== 1) return Ok(["list", UNQUOTE_SPLICING_NAME, processQuasiquote(vm, tail[0], depth - 1)]);
+        return Err(UNQUOTE_SPLICING_NAME + " outside of list");
     }
     // nested `
     if (same(head, QUASIQUOTE_NAME)) {
-        if (form.length !== 2) return err("expected argument to " + QUASIQUOTE_NAME);
-        return ok(["list", QUASIQUOTE_NAME, processQuasiquote(vm, tail[0], depth + 1)]);
+        if (form.length !== 2) return Err("expected argument to " + QUASIQUOTE_NAME);
+        return Ok(["list", QUASIQUOTE_NAME, processQuasiquote(vm, tail[0], depth + 1)]);
     }
 
     // list – collect chunks, splice where needed
     const parts: any[] = [];
     const buffer: any[] = [];
 
-    var flushFail: Result<any> | undefined;
+    var flushFail: Result<any, string> | undefined;
     const flush = () => {
         if (buffer.length) {
             const part = ["list"];
@@ -991,7 +990,7 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any> => 
                     flushFail = x;
                     return;
                 }
-                part.push(x.value);
+                part.push(x.data);
             }
             parts.push(part);
             buffer.length = 0;
@@ -1003,7 +1002,7 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any> => 
             buffer.push(el);
         }
         else if (same(el[0], UNQUOTE_SPLICING_NAME)) {
-            if (el.length !== 2) return err("expected argument to " + UNQUOTE_SPLICING_NAME);
+            if (el.length !== 2) return Err("expected argument to " + UNQUOTE_SPLICING_NAME);
             flush();
             if (flushFail) return flushFail;
             parts.push(el[1]); // ,@x → will be spliced by concat
@@ -1014,8 +1013,8 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any> => 
     flush();
     if (flushFail) return flushFail;
 
-    if (parts.length === 0) return ok(["quote", []]);
-    if (parts.length === 1) return ok(parts[0]);
+    if (parts.length === 0) return Ok(["quote", []]);
+    if (parts.length === 1) return Ok(parts[0]);
     // (concat part1 part2...)
-    return ok(["concat"].concat(parts));
+    return Ok(["concat"].concat(parts));
 }
