@@ -191,8 +191,8 @@ Evaluate the argument in the current environment and return the result.`);
         vm.pushCommand("jeb:lookup");
         vm.pushCommand("jeb:eval");
         return NOTHING;
-    }, `["$", [<name+defvar>, <properties...>]]
-["$", <name+defvar>]
+    }, `["$", [<name:defvar>, <properties...>]]
+["$", <name:defvar>]
 
 Look up the variable with this name in the current environment, and return the value, or throw a \`reference_error\` if it is not defined anywhere.
 If \`properties\` are given, they index the variable like Javascript square brackets.`);
@@ -455,12 +455,12 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
                 }
             }
             return new Lambda(isMacro, isImplicit, undefined, required, optional, rest, body, vm.currentEnv, docstring);
-        }, `["${name}", [<parameters...+lambda>], <body...>]
-["${name}", [<parameters...+lambda>, true], <body...>]
-["${name}", [<parameters...+lambda>], <docstring+docstring>, <body...>]
-["${name}", true, [<parameters...+lambda>], <body...>]
-["${name}", true, [<parameters...+lambda>, true], <body...>]
-["${name}", true, [<parameters...+lambda>], <docstring+docstring>, <body...>]
+        }, `["${name}", [<parameters...:lambda>], <body...>]
+["${name}", [<parameters...:lambda>, true], <body...>]
+["${name}", [<parameters...:lambda>], <docstring:docstring>, <body...>]
+["${name}", true, [<parameters...:lambda>], <body...>]
+["${name}", true, [<parameters...:lambda>, true], <body...>]
+["${name}", true, [<parameters...:lambda>], <docstring:docstring>, <body...>]
 
 Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}
 If the last element of the argument list is the Boolean \`true\` the last named argument before it becomes a rest argument, that will be an array at runtime filled with all the arguments given after it.
@@ -536,8 +536,8 @@ Runs each of the body statements in order, and returns the result from the last 
         }
         vm.pushCommand("jeb:eval");
         return NOTHING;
-    }, `["let", [<pairs...:eachline+let>], <body...>]
-["let", <loopname+defvar>, [<pairs...:eachline+let>], <body...>]
+    }, `["let", [<pairs...:let>], <body...>]
+["let", <loopname:defvar>, [<pairs...:let>], <body...>]
 
 Each one of the \`pairs\` is a 2-tuple \`[*name*, *expression*]\`. Each of the expressions will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.
 The second form, where the first argument is a string, allows the lambda body to recursively call itself with new values for each of the variables.`);
@@ -573,11 +573,11 @@ The second form, where the first argument is a string, allows the lambda body to
             vm.pushCommand("jeb:throw", "jeb:syntax_error", "invalid define syntax", {});
         }
         return NOTHING;
-    }, `["define", <varname+defvar>, <value>]
-["define", [<name+defun>, <params...+lambda>], <docstring:newline+docstring>, <body...>]
-["define", [<name+defun>, <params...+lambda>], <body...>]
-["define", true, [<name+defmacro>, <params...+lambda>], <docstring:newline+docstring>, <body...>]
-["define", true, [<name+defmacro>, <params...+lambda>], <body...>]
+    }, `["define", <varname:defvar>, <value>]
+["define", [<name:defun>, <params...:lambda>], <docstring:docstringnewline>, <body...>]
+["define", [<name:defun>, <params...:lambda>], <body...>]
+["define", true, [<name:defmacro>, <params...:lambda>], <docstring:docstringnewline>, <body...>]
+["define", true, [<name:defmacro>, <params...:lambda>], <body...>]
 
 Defines a new variable in the current scope.
 The first form is a straight \`name=value\`.
@@ -710,8 +710,8 @@ Returns a copy of the list without the first element`);
 Concatenates the lists, and returns a new list`)
 
     // MARK: metaprogramming
-    defineBuiltin(vm, "quote", 1, true, false, a => a[0], `["quote", <value>]
-["'", <value+quoted>]
+    defineBuiltin(vm, "quote", 1, true, false, a => a[0], `["quote", <value:quoted>]
+["'", <value:quoted>]
 
 Prevents its argument from being evaluated.`);
     alias(vm, "quote", "'");
@@ -781,8 +781,8 @@ Dumps the value to string using \`JSON.stringify()\`, and returns the serialized
     // MARK: JSON based standard library!
     const standardLibrary = ["begin",
         ["define", true, ["comment", "items", true],
-            `["comment", <items...+comment>]
-["#;", <items...+comment>]
+            `["comment", <items...:comment>]
+["#;", <items...:comment>]
 
 Skips evaluating the items and returns null immediately.`,
             null],

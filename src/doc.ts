@@ -97,7 +97,6 @@ export class HeaderForm {
         public readonly spec: any[],
         public readonly placeholders: Map<string, string>,
         public readonly actions: Map<string, string>,
-        public readonly flags: Map<string, string>,
     ) { }
     matches(data: any): boolean {
         const recur = (form: any, spec: any, shouldCareAboutFirst: boolean): boolean => {
@@ -105,7 +104,7 @@ export class HeaderForm {
             if (!isArray(form)) return false;
             if (form.length < spec.length) return false;
             const bodyThing = last(spec);
-            if (!(this.placeholders.get(bodyThing)?.endsWith("...")) && form.length > spec.length) return false;
+            if (form.length > spec.length && !(this.placeholders.get(bodyThing)?.endsWith("..."))) return false;
             var i = 0;
             for (; i < form.length; i++) {
                 if (i < 1 && !shouldCareAboutFirst) continue;
@@ -120,12 +119,10 @@ export class HeaderForm {
 const parseHeader = (header: string): [node: DocNode | undefined, form: HeaderForm | undefined, rest: string | undefined] => {
     const wildcardMap = new Map<string, string>();
     const actionMap = new Map<string, string>();
-    const flagMap = new Map<string, string>();
-    var header2 = header.replaceAll(/<([^<>]+?)(:[^<>]+?)?(\+[^<>]+?)?>/g, (_, wildcard, action, flag) => {
+    var header2 = header.replaceAll(/<([^<>]+?)(:[^<>]+?)?>/g, (_, wildcard, action) => {
         const gensym = `__${wildcard}_${Math.random().toString(36).slice(2, 18)}`;
         wildcardMap.set(gensym, wildcard);
         if (action) actionMap.set(wildcard, action.slice(1));
-        if (flag) flagMap.set(wildcard, flag.slice(1));
         return stringify(gensym);
     });
     try { header2 = parse(header2); } catch { return [, , header]; }
@@ -140,5 +137,5 @@ const parseHeader = (header: string): [node: DocNode | undefined, form: HeaderFo
             return String(item);
         }
     }
-    return [walk(header2), new HeaderForm(header2 as any, wildcardMap, actionMap, flagMap), ,];
+    return [walk(header2), new HeaderForm(header2 as any, wildcardMap, actionMap), ,];
 }
