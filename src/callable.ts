@@ -9,10 +9,7 @@ const setPrototypeOf = Object.setPrototypeOf;
  * Callable hack from stackoverflow.com/a/78553691. Subclasses of this
  * are actually instances of `Function`, so `typeof this === "function"`.
  */
-export abstract class CallableClass extends Object {
-    static {
-        setPrototypeOf(this, class { constructor(self: any) { return self; } });
-    }
+export abstract class CallableClass extends class { constructor(self: any) { return self; } } {
 
     constructor() {
         const self = setPrototypeOf(
@@ -26,11 +23,11 @@ export abstract class CallableClass extends Object {
     /**
      * Called when the object is invoked as a function (i.e. `this(...)`)
      */
-    protected abstract __call__(...args: any[]): any;
+    abstract __call__(...args: any[]): any;
     /**
      * Called when the object is invoked as a class constructor (i.e. `new this(...)`)
      */
-    protected abstract __new__(...args: any[]): any;
+    abstract __new__(...args: any[]): any;
     private bind(thisArg: any, ...argv: any[]) {
         return this;
     }
@@ -39,12 +36,12 @@ export abstract class CallableClass extends Object {
 
 /**
  * Wrapper for a Javascript function that can be called by the JEB runtime.
- * It has access to the VM so it can push opcodes to implement more than
- * just computation.
+ * The Javascript function has access to the VM so it can push opcodes to
+ * implement more than just computation.
  *
- * If it returns the special value {@link NOTHING}, no value will be pushed as
- * the result of the function call. Otherwise, the resturn value is pushed (even
- * if it's `undefined`).
+ * If the Javascript function returns the special value {@link NOTHING}, no
+ * value will be pushed as the result of the function call. Otherwise, the
+ * resturn value is pushed (even if it's `undefined`).
  */
 export class BuiltinFunction implements HasDocstring {
     constructor(

@@ -18,6 +18,9 @@ import { alias, argsHelper, defineApplier, defineBuiltin, defineOpcode, implicit
 // MARK: loadBuiltins()
 /**
  * Install the built-in functions and opcodes to the builtins scope of the given VM.
+ *
+ * Usually you don't need to do this, since the {@link JebVM} constructor calls this automatically,
+ * but it might be needed if the VM state gets corrupted, or you mess with {@link JebVM.builtinsEnv} directly.
  */
 export const loadBuiltins = (vm: JebVM) => {
 

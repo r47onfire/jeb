@@ -115,15 +115,31 @@ export class JebVM {
     pushCommand(name: string, ...args: any[]) {
         this.commandStack = llPush(this.commandStack, [name, ...args]);
     }
+    /**
+     * Gets the variable name in the current environment
+     * @see {Env.get}
+     */
     getVar(name: string) {
         return this.currentEnv.get(name);
     }
+    /**
+     * Sets the variable name in the current environment
+     * @see {Env.set}
+     */
     setVar(name: string, value: any) {
         return this.currentEnv.set(name, value);
     }
+    /**
+     * Defines the variable name in the current environment
+     * @see {Env.add}
+     */
     addVar(name: string, value: any) {
         this.currentEnv.add(name, value);
     }
+    /**
+     * Defines the constant name in the current environment
+     * @see {Env.addConst}
+     */
     addConst(name: string, value: any) {
         this.currentEnv.addConst(name, value);
     }

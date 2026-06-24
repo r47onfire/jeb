@@ -77,10 +77,10 @@ export const defineApplier = (vm: JebVM, apply: Applier<any>) => {
 
 /**
  * Copies the value of a builtin value to the new name in the builtins scope.
- * @param name1 Source (should already be defined)
- * @param name2 Target (will be defined to be the same as the source's value)
+ * @param srcName Source (should already be defined)
+ * @param dstName Target (will be defined to be the same as the source's value)
  */
-export const alias = (vm: JebVM, name1: string, name2: string) => {
+export const alias = (vm: JebVM, srcName: string, dstName: string) => {
     const env = vm.builtinsEnv;
-    env.addConst(name2, env.get(name1).throw(`Alias source ${stringify(name1)} doesn't exist`));
+    env.addConst(dstName, env.get(srcName).throw(`Alias source ${stringify(srcName)} doesn't exist`));
 };
