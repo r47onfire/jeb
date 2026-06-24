@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { stringify } from "lib0/json";
-import { defineBuiltin, JebVM, Lambda } from "../src";
+import { defineBuiltin, JebVM } from "../src";
 
 const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) => {
     const vm = new JebVM();
@@ -215,8 +215,7 @@ describe("with / dynamic-wind", () => {
     });
 
     testTest("continuation re-enters with", (vm, out) => {
-        expect(run(vm, ["begin",
-            ["define", "k", null],
+        expect(run(vm, ["let", [["k", null]],
             makeWith("enter", "exit",
                 [["lambda", [], "", ["set", "k", ["$", "return"]]]],
                 ["print", "inside"]),
@@ -481,16 +480,14 @@ describe("self-defined macros", () => {
         expect(out).toEqual(["nothing to see here", "we didn't get an error"]);
     });
     testTest("with-baffle 1", vm => {
-        expect(() => run(vm, ["begin",
-            ["define", "x", null],
+        expect(() => run(vm, ["let", [["x", null]],
             ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]],
             ["with-baffle",
                 ["x", null]]
         ])).toThrow("tried to jump out of a 'with-baffle' block");
     });
     testTest("with-baffle 2", vm => {
-        expect(() => run(vm, ["begin",
-            ["define", "x", null],
+        expect(() => run(vm, ["let", [["x", null]],
             ["with-baffle",
                 ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]],
             ["x", null]
@@ -503,8 +500,7 @@ describe("self-defined macros", () => {
         expect(vm.popData()).toEqual(123);
     });
     testTest("reset", (vm, out) => {
-        expect(run(vm, ["begin",
-            ["define", "x", 0],
+        expect(run(vm, ["let", [["x", 0]],
             ["print", ["reset", "x", 10]],
             ["print", ["$", "x"]],
             ["print", ["reset", "x", ["+", 1, ["$", "_"]]]],

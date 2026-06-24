@@ -2,20 +2,40 @@ import { isArray, last } from "lib0/array";
 import { isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
 
+/**
+ * Formatting tag for a documentation entry.
+ * i = italics, b = bold, p = parameter name, code = inline code, ref = reference to another function/macro
+ */
 export type DocNodeType = "i" | "b" | "p" | "code" | "ref";
 
+/**
+ * Documentation tree document
+ */
 export type DocNode = string | [DocNodeType, ...DocNode[]];
 
+/**
+ * Parsed documentation data for something (e.g. builtin function, lambda)
+ */
 export interface Doc {
+    /** Parsed header documentation, in a structured format, for e.g. autoformatting */
     headerData: HeaderForm[];
+    /** Rendered header data */
     headers: DocNode[];
+    /** Rendered body documentation data. each outer list is a single paragraph */
     body: DocNode[][];
 }
 
+/**
+ * interface for a thing that has a docstring.
+ */
 export interface HasDocstring {
     readonly doc: string;
 }
 
+/**
+ * Parse the documentation string into {@link Doc} data
+ * @returns the doc data, or empty doc data if it didn't parse right
+ */
 export const parseDoc = (docstring: string): Doc => {
     const doc: Doc = { headerData: [], headers: [], body: [] };
     docstring = docstring.split("\n").map(s => s.trimEnd()).join("\n");
@@ -43,6 +63,12 @@ const parseInline = (s: string): DocNode[] => {
         if (t) last(stack)!.push(t);
     };
 
+    const startNode = (t: DocNodeType) => {
+        const n: DocNode = [t];
+        last(stack)!.push(n);
+        stack.push(n);
+    };
+
     while (i < s.length) {
         // escaped character
         if (s.startsWith("\\", i)) {
@@ -63,7 +89,7 @@ const parseInline = (s: string): DocNode[] => {
         if (s.startsWith("**", i)) {
             const top = last(stack)! as DocNode;
             if (isArray(top) && top[0] === "b") stack.pop();
-            else { const n: DocNode = ["b"]; last(stack)!.push(n); stack.push(n); }
+            else startNode("b");
             i += 2;
             continue;
         }
@@ -71,7 +97,7 @@ const parseInline = (s: string): DocNode[] => {
         if (s.startsWith("*", i)) {
             const top = last(stack)! as DocNode;
             if (isArray(top) && top[0] === "i") stack.pop();
-            else { const n: DocNode = ["i"]; last(stack)!.push(n); stack.push(n); }
+            else startNode("i");
             i++;
             continue;
         }
@@ -79,7 +105,7 @@ const parseInline = (s: string): DocNode[] => {
         if (s.startsWith("`", i)) {
             const top = last(stack)! as DocNode;
             if (isArray(top) && top[0] === "code") stack.pop();
-            else { const n: DocNode = ["code"]; last(stack)!.push(n); stack.push(n); }
+            else startNode("code");
             i++;
             continue;
         }
@@ -90,30 +116,6 @@ const parseInline = (s: string): DocNode[] => {
         i = end;
     }
     return root.slice(1) as DocNode[];
-}
-
-export class HeaderForm {
-    constructor(
-        public readonly spec: any[],
-        public readonly placeholders: Map<string, string>,
-        public readonly actions: Map<string, string>,
-    ) { }
-    matches(data: any): boolean {
-        const recur = (form: any, spec: any, shouldCareAboutFirst: boolean): boolean => {
-            if (!isArray(spec)) return this.placeholders.has(spec) || form === spec;
-            if (!isArray(form)) return false;
-            if (form.length < spec.length) return false;
-            const bodyThing = last(spec);
-            if (form.length > spec.length && !(this.placeholders.get(bodyThing)?.endsWith("..."))) return false;
-            var i = 0;
-            for (; i < form.length; i++) {
-                if (i < 1 && !shouldCareAboutFirst) continue;
-                if (!recur(form[i], spec[i] ?? bodyThing, true)) return false;
-            }
-            return true;
-        };
-        return recur(data, this.spec, false);
-    }
 }
 
 const parseHeader = (header: string): [node: DocNode | undefined, form: HeaderForm | undefined, rest: string | undefined] => {
@@ -138,4 +140,34 @@ const parseHeader = (header: string): [node: DocNode | undefined, form: HeaderFo
         }
     }
     return [walk(header2), new HeaderForm(header2 as any, wildcardMap, actionMap), ,];
+}
+
+/**
+ * Structural form of a particular way to call a function or macro
+ */
+export class HeaderForm {
+    constructor(
+        public readonly spec: any[],
+        public readonly placeholders: Map<string, string>,
+        public readonly actions: Map<string, string>,
+    ) { }
+    /**
+     * Checks if this form matches the way it's being called
+     * @param data Call code to check - first item (the function itself) is ignored
+     */
+    matches(data: any): boolean {
+        const recur = (form: any, spec: any, shouldCareAboutFirst: boolean): boolean => {
+            if (!isArray(spec)) return this.placeholders.has(spec) || form === spec;
+            if (!isArray(form)) return false;
+            if (form.length < spec.length) return false;
+            const bodyThing = last(spec);
+            if (form.length > spec.length && !(this.placeholders.get(bodyThing)?.endsWith("..."))) return false;
+            for (var i = 0; i < form.length; i++) {
+                if (i < 1 && !shouldCareAboutFirst) continue;
+                if (!recur(form[i], spec[i] ?? bodyThing, true)) return false;
+            }
+            return true;
+        };
+        return recur(data, this.spec, false);
+    }
 }

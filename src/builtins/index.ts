@@ -16,6 +16,9 @@ import { alias, argsHelper, defineApplier, defineBuiltin, defineOpcode, implicit
 
 // TODO: split this all up
 // MARK: loadBuiltins()
+/**
+ * Install the built-in functions and opcodes to the builtins scope of the given VM.
+ */
 export const loadBuiltins = (vm: JebVM) => {
 
 
@@ -201,23 +204,27 @@ If \`properties\` are given, they index the variable like Javascript square brac
         const name: string = args[0];
         const didSet = vm.setVar(name, value);
         if (!didSet) {
-            vm.pushCommand("jeb:throw", "jeb:reference_error", `variable ${stringify(name)} not found`, {
-                define: vm.cc(["store", name]),
-            });
+            if (didSet === undefined) {
+                vm.pushCommand("jeb:throw", "jeb:reference_error", `variable ${stringify(name)} not found`, {
+                    define: vm.cc(["jeb:store", name]),
+                });
+            } else {
+                vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(name)} is a constant`, {});
+            }
             return;
         }
         if (value instanceof Lambda && value.name === undefined) value.name = name;
     });
-    defineOpcode(vm, "jeb:define", (vm, args) => {
+    defineOpcode(vm, "jeb:const", (vm, args) => {
         const value = vm.peekData();
         const name: string = args[0];
-        vm.defineVar(name, value);
+        vm.constantVar(name, value);
         if (value instanceof Lambda && value.name === undefined) value.name = name;
     });
     defineOpcode(vm, "jeb:set_prop", (vm, args) => {
         const name = vm.popData();
         const obj = vm.popData();
-        if ((obj ?? null) === null) {
+        if (undefinedToNull(obj) === null) {
             const propHint = args[0] as string ?? "unknown expression";
             vm.pushCommand("jeb:throw", "jeb:type_error", `can't set property ${stringify(name)} on ${obj} (evaluating ${propHint})`, {});
             return;
@@ -417,8 +424,7 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
         }
         if (!lambda.isImplicit) callEnv.define("return", vm.cc());
         vm.currentEnv = callEnv;
-        implicitBegin(vm, lambda.body);
-        return NOTHING;
+        return implicitBegin(vm, lambda.body);
     });
     const lambdaHelper = (name: string, isMacro: boolean, kind: string, extra: string) => {
         defineBuiltin(vm, name, { min: 2, max: Infinity }, true, false, (args, vm) => {
@@ -510,10 +516,8 @@ If the first element is \`true\` it is removed and the lambda is flagged as an i
 Evaluates \`condition\`, and then chooses one of the two branches depending on whether the condition was truthy or falsy. The false branch can be omitted; if there is no false branch and the condition is falsy, the return value is \`null\`.`);
 
     // MARK: Scheme analogs
-    defineBuiltin(vm, "begin", null, true, false, (args, vm) => {
-        implicitBegin(vm, args);
-        return NOTHING;
-    }, `["begin", <statements...>]
+    defineBuiltin(vm, "begin", null, true, false, (args, vm) => implicitBegin(vm, args),
+        `["begin", <statements...>]
 
 Runs each of the body statements in order, and returns the result from the last one. If there are no body statements, the result is \`null\`.`);
 
@@ -550,13 +554,13 @@ The second form, where the first argument is a string, allows the lambda body to
             const funcName = name2[0] as string;
             const params = name2.slice(1) as string[];
             const body = args.slice(2);
-            vm.pushCommand("jeb:define", funcName);
+            vm.pushCommand("jeb:const", funcName);
             vm.pushCommand("jeb:eval");
             vm.pushData(["macro", params, ...body]);
         }
         else if (isString(name)) {
             // variable definition: (define x 10)
-            vm.pushCommand("jeb:define", name);
+            vm.pushCommand("jeb:const", name);
             vm.pushCommand("jeb:eval");
             vm.pushData(args[1]);
         }
@@ -565,7 +569,7 @@ The second form, where the first argument is a string, allows the lambda body to
             const funcName = name[0] as string;
             const params = name.slice(1) as string[];
             const body = args.slice(1);
-            vm.pushCommand("jeb:define", funcName);
+            vm.pushCommand("jeb:const", funcName);
             vm.pushCommand("jeb:eval");
             vm.pushData(["lambda", params, ...body]);
         }
@@ -579,7 +583,7 @@ The second form, where the first argument is a string, allows the lambda body to
 ["define", true, [<name:defmacro>, <params...:lambda>], <docstring:docstringnewline>, <body...>]
 ["define", true, [<name:defmacro>, <params...:lambda>], <body...>]
 
-Defines a new variable in the current scope.
+Defines a new constant in the current scope.
 The first form is a straight \`name=value\`.
 The second one expands into a [[lambda]] with the specified name, docstring, parameters, and body (allowing for both rest parameters and the docstring).
 The third form (with \`true\`) expands to a [[macro]] in the same way.`);

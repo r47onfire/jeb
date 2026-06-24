@@ -1,5 +1,5 @@
-import { Result } from "ts-res";
-import { NOTHING } from ".";
+import { Result, Err, Ok } from "ts-res";
+import { NOTHING } from "./builtins/utils";
 import { JebVM } from "./vm";
 
 const STACKFRAME_JOINER = "<-";
@@ -46,17 +46,54 @@ const compressStack = (parts: string[]): string => {
     }
     return parts.join(STACKFRAME_JOINER);
 }
+/**
+ * Formats the stack nicely and then throws the error
+ * @param type type string for the error
+ * @param message message of the error
+ * @param stack list of stack entries as strings
+ */
 export const jsError = (type: string, message: string, stack: string[]): never => {
     throw new Error(`(${type}) ${message}\nVM stack: ${compressStack(stack)}`);
 }
+/**
+ * Runs the function, and if it throws an error, pushes that error to be caught by JEB
+ * code and returns {@link NOTHING}, otherwise returns the function result.
+ * @param vm VM we're running in
+ * @param kind Kind of JEB error a thrown error causes
+ * @param f The function to catch errors from
+ * @returns The result of the function or {@link NOTHING} if the function threw
+ * @example
+ * ```
+ * defineBuiltin(vm, "test", null, false, false,
+ *     (vm, args) => wrapThrowToError(vm, "test:testError",
+ *         () => doSomethingThatMayThrow(vm, args[0])));
+ * ```
+ */
 export const wrapThrowToError = <T>(vm: JebVM, kind: string, f: () => T) => {
     try {
         return f();
     } catch (e) {
-        vm.pushCommand("jeb:throw", kind, String(e), {});
+        vm.pushCommand("jeb:throw", kind, String(e), {
+            return: vm.cc(),
+        });
         return NOTHING;
     }
 }
+/**
+ * Runs the function, and if it returns a {@link Err} result, queues the error to be
+ * caught by JEB code and returns {@link NOTHING}, otherwise if it's an {@link Ok}
+ * just returns the result.
+ * @param vm VM we're running in
+ * @param kind Kind of JEB error an {@link Err} causes
+ * @param result The result to look at
+ * @returns The result of the function or {@link NOTHING} if the function threw
+ * @example
+ * ```
+ * defineBuiltin(vm, "test", null, false, false,
+ *     (vm, args) => resultToError(vm, "test:testError",
+ *         doSomethingThatReturnsAResult(vm, args[0])));
+ * ```
+ */
 export const resultToError = <T>(vm: JebVM, kind: string, result: Result<T, any>) => {
     if (result.ok) {
         return result.data;

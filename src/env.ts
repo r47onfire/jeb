@@ -8,6 +8,7 @@ const hasOwn = Object.hasOwn;
  */
 
 export class Env {
+    readonly constants: Record<string, true> = {};
     constructor(
         readonly bindings: Record<string, any> = {},
         readonly parents: readonly Env[] = []
@@ -27,24 +28,34 @@ export class Env {
         return Err();
     }
     /**
-     * Defines the value in this scope
+     * Defines the value in this scope (always succeeds)
      */
     define(name: string, value: any) {
         this.bindings[name] = value;
     }
     /**
-     * Finds the scope in which this value is defined, and sets it there.
-     * Returns true if it was set, or false if it wasn't found.
+     * Defines the constant in this scope (always succeeds)
      */
-    set(name: string, value: any) {
+    constant(name: string, value: any) {
+        this.define(name, value);
+        this.constants[name] = true;
+    }
+    /**
+     * Finds the scope in which this value is defined, and sets it there.
+     * Returns true if it was set, false if it's a constant and can't be changed,
+     * or undefined if it wasn't defined anywhere.
+     */
+    set(name: string, value: any): boolean | undefined {
         if (hasOwn(this.bindings, name)) {
+            if (this.constants[name]) return false;
             this.bindings[name] = value;
             return true;
         }
         for (var i = 0; i < this.parents.length; i++) {
-            if (this.parents[i]!.set(name, value)) return true;
+            const result = this.parents[i]!.set(name, value);
+            if (result !== undefined) return result;
         }
-        return false;
+        return undefined;
     }
     /**
      * Generates a random symbol that isn't set anywhere already.
@@ -55,6 +66,9 @@ export class Env {
             if (!this.get(name).ok) return name;
         }
     }
+    /**
+     * returns a list of all the names visible here (direct and inherited)
+     */
     getVisibleNames(): string[] {
         return keys(this.bindings).concat(...this.parents.map(p => p.getVisibleNames()));
     }

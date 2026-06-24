@@ -5,7 +5,16 @@ import { jsError } from "./errors";
 import { Linked, LinkedList, llLength, llPop, llPopN, llPush, llPushArray } from "./linked_list";
 import { Arithmetic, Type, TypeFor } from "./overload";
 
+/**
+ * Used to specify the number of arguments that a function can be called with.
+ * A single number means min = max = that number, and null means min = 0, max = Infinity.
+ */
+export type Arity = { min: number, max: number } | number | null;
+
 // MARK: class Applier
+/**
+ * Utility object that handles when an object of the specified type is called.
+ */
 
 export abstract class Applier<T> {
     constructor(
@@ -31,9 +40,8 @@ export abstract class Applier<T> {
     abstract getNameOf(func: TypeFor<T>): string | undefined;
     /**
      * Gets the minimum and maximum arguments for the function call, this is checked before {@link apply} is called.
-     * A single number means min = max = that number, and null means min = 0, max = Infinity.
      */
-    abstract getArity(func: TypeFor<T>): { min: number; max: number; } | number | null;
+    abstract getArity(func: TypeFor<T>): Arity;
     /**
      * Returns true if the functor being called is a macro, and the result should be evaluated again in its caller's scope.
      */
@@ -41,14 +49,23 @@ export abstract class Applier<T> {
 }
 // MARK: class JebVM
 
-export type Command = [string, ...any[]];
+/**
+ * Data for the command
+ */
+export type Command = [opcode: string, ...immediateArgs: any[]];
 export interface StackCount extends Linked<string> {
     readonly count: number;
     readonly isTailCalled: boolean;
 }
 
+/**
+ * Function that implements an opcode for the VM by pushing instructions or pushing and popping data.
+ */
 export type OpcodeFunction<T extends JebVM> = (vm: T, args: any[]) => void;
 
+/**
+ * Base VM for running JEB code
+ */
 export class JebVM {
     /** current environment */
     currentEnv!: Env;
@@ -62,7 +79,9 @@ export class JebVM {
     paused = false;
     /** callstack entries */
     tracebackStack!: StackCount | null;
+    /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
+    /** environment that module-level globals live in */
     globalEnv = this.createEnv(this.builtinsEnv);
     opcodeTable: Record<string, OpcodeFunction<this>> = {};
     applyTable: Applier<any>[] = [];
@@ -81,7 +100,7 @@ export class JebVM {
         this.#checkStack(n);
         const { values, rest } = llPopN(this.dataStack!, n);
         this.dataStack = rest;
-        return values;
+        return values.reverse();
     }
     popData() {
         this.#checkStack(1);
@@ -105,12 +124,23 @@ export class JebVM {
     defineVar(name: string, value: any) {
         this.currentEnv.define(name, value);
     }
+    constantVar(name: string, value: any) {
+        this.currentEnv.constant(name, value);
+    }
     #popCommand() {
         if (llLength(this.commandStack) === 0) throw new Error("Opcode stack underflow");
         const { value, rest } = llPop(this.commandStack!);
         this.commandStack = rest;
         return value;
     }
+    /**
+     * Runs one opcode.
+     * @returns true if progress was made, false if there's nothing left to do
+     * @example
+     * ```ts
+     * while (vm.step()); // Steps as far as possible until there's nothing left to do
+     * ```
+     */
     step() {
         if (this.paused) return false;
         if (llLength(this.commandStack) === 0) return false;
@@ -121,23 +151,44 @@ export class JebVM {
         return true;
     }
 
+    /**
+     * Starts running the code
+     * @param code Code to run
+     * @throws if the VM is already running (i.e. there are commands on the command stack)
+     */
     start(code: any) {
         if (llLength(this.commandStack) > 0) throw new Error("VM is already running");
         this.pushData(code);
         this.pushCommand("jeb:eval");
     }
+    /**
+     * Silently stops running the code, by resetting all stacks state back to the initial empty state.
+     * Does not clear the global or builtins env.
+     */
     reset() {
         this.commandStack = this.dataStack = this.tracebackStack = null;
         this.curDynamicWind = new DynamicWind(this.currentEnv = this.createEnv(this.globalEnv));
     }
+    /**
+     * Gets the length of the command stack.
+     */
     get recursionDepth() {
         return llLength(this.commandStack);
     }
+    /**
+     * If the {@link recursionDepth} is larger than the given length, adds an error to the command stack
+     * to signal to the running program that it's recursing too much
+     * @param length Maximum length before an error is added
+     */
     checkRecursion(length: number) {
         if (this.recursionDepth > length) {
             this.pushCommand("jeb:throw", "jeb:recursion_error", "too much recursion", {});
         }
     }
+    /**
+     * Returns the names of the functions in the call stack, with innermost first
+     * @returns A list of strings for each call frame
+     */
     // TODO: don't expand the repeats! it should be able to take advantage of them to compress faster
     tracebackArray() {
         var stack = this.tracebackStack;
@@ -148,6 +199,11 @@ export class JebVM {
         }
         return parts;
     }
+    /**
+     * Adds a function call entry to the traceback stack
+     * @param func Name of the function that is now being called
+     * @param tailcallHint True if the function was tail-called
+     */
     tracebackPush(func: string, tailcallHint: boolean) {
         const top = this.tracebackStack;
         if (top && top.value === func && top.isTailCalled === tailcallHint) {
@@ -167,6 +223,9 @@ export class JebVM {
             };
         }
     }
+    /**
+     * Drops all the tail-call entries off the stack, and then one more
+     */
     tracebackPop() {
         var cur = this.tracebackStack;
         if (!cur) throw new Error("Traceback stack underflow");
@@ -198,7 +257,6 @@ export class JebVM {
         return new DynamicWind(
             this.currentEnv,
             this.curDynamicWind,
-            null,
             this.commandStack,
             this.dataStack,
         );

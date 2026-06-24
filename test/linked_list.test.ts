@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test";
-import { LinkedList, llPushArray, llToArray } from "../src";
+import { LinkedList, llPopN, llPushArray } from "../src";
 
 test("linked list from array to array roundtrips", () => {
-    expect(llToArray(llPushArray(null, [1, 2, 3]))).toEqual([1, 2, 3]);
+    expect(llPopN(llPushArray(null, [1, 2, 3]), Infinity).values).toEqual([1, 2, 3]);
 });
 
 test("linked list from array to array roundtrips", () => {
