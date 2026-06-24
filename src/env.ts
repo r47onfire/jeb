@@ -30,14 +30,14 @@ export class Env {
     /**
      * Defines the value in this scope (always succeeds)
      */
-    define(name: string, value: any) {
+    add(name: string, value: any) {
         this.bindings[name] = value;
     }
     /**
      * Defines the constant in this scope (always succeeds)
      */
-    constant(name: string, value: any) {
-        this.define(name, value);
+    addConst(name: string, value: any) {
+        this.add(name, value);
         this.constants[name] = true;
     }
     /**

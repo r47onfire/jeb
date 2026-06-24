@@ -218,7 +218,7 @@ If \`properties\` are given, they index the variable like Javascript square brac
     defineOpcode(vm, "jeb:const", (vm, args) => {
         const value = vm.peekData();
         const name: string = args[0];
-        vm.constantVar(name, value);
+        vm.addConst(name, value);
         if (value instanceof Lambda && value.name === undefined) value.name = name;
     });
     defineOpcode(vm, "jeb:set_prop", (vm, args) => {
@@ -414,15 +414,15 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
         const callEnv = vm.createEnv(lambda.closureEnv);
         const argv = vm.popNData(argc).reverse();
         for (var n = 0; n < nRequired; n++) {
-            callEnv.define(required[n]!, argv[n]);
+            callEnv.add(required[n]!, argv[n]);
         }
         for (var n = 0; n < nOpt; n++) {
-            callEnv.define(optional[n]![0], argv[nRequired + n]);
+            callEnv.add(optional[n]![0], argv[nRequired + n]);
         }
         if (rest) {
-            callEnv.define(rest, argv.slice(nRequired + nOpt));
+            callEnv.add(rest, argv.slice(nRequired + nOpt));
         }
-        if (!lambda.isImplicit) callEnv.define("return", vm.cc());
+        if (!lambda.isImplicit) callEnv.add("return", vm.cc());
         vm.currentEnv = callEnv;
         return implicitBegin(vm, lambda.body);
     });

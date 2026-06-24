@@ -55,7 +55,7 @@ export const NOTHING: unique symbol = Symbol("nothing");
  * e.g. an FFI callback).
  */
 export const defineBuiltin = <T extends JebVM>(vm: T, name: string, arity: Arity, isSpecial: boolean, resultIsMacro: boolean, fn: (args: any[], vm: T) => any, doc: string) => {
-    vm.builtinsEnv.constant(name, new BuiltinFunction(name, arity, isSpecial, resultIsMacro, fn as any, doc));
+    vm.builtinsEnv.addConst(name, new BuiltinFunction(name, arity, isSpecial, resultIsMacro, fn as any, doc));
 };
 
 /**
@@ -82,5 +82,5 @@ export const defineApplier = (vm: JebVM, apply: Applier<any>) => {
  */
 export const alias = (vm: JebVM, name1: string, name2: string) => {
     const env = vm.builtinsEnv;
-    env.constant(name2, env.get(name1).throw(`Alias source ${stringify(name1)} doesn't exist`));
+    env.addConst(name2, env.get(name1).throw(`Alias source ${stringify(name1)} doesn't exist`));
 };

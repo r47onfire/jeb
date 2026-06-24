@@ -121,11 +121,11 @@ export class JebVM {
     setVar(name: string, value: any) {
         return this.currentEnv.set(name, value);
     }
-    defineVar(name: string, value: any) {
-        this.currentEnv.define(name, value);
+    addVar(name: string, value: any) {
+        this.currentEnv.add(name, value);
     }
-    constantVar(name: string, value: any) {
-        this.currentEnv.constant(name, value);
+    addConst(name: string, value: any) {
+        this.currentEnv.addConst(name, value);
     }
     #popCommand() {
         if (llLength(this.commandStack) === 0) throw new Error("Opcode stack underflow");
