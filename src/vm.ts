@@ -24,6 +24,10 @@ export abstract class Applier<T> {
         public readonly type: Type
     ) { }
     /**
+     * Documentation string for this applier type
+     */
+    abstract doc: string;
+    /**
      * Performs the application
      * @param func The thing in function position that is being applied.
      * @param alreadyEvaluated True if the arguments provided are from a synthetic/implicit application, and should not be re-evaluated, even if it's not a macro

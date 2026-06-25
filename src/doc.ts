@@ -1,9 +1,10 @@
 import { isArray, last } from "lib0/array";
 import { isString } from "lib0/function";
-import { parse, stringify } from "lib0/json";
+import { stringify } from "lib0/json";
 
 /**
- * Formatting tag for a documentation entry.
+ * Documentation tree markup node
+ *
  * * i = italics
  * * b = bold
  * * p = paragraph
@@ -11,33 +12,54 @@ import { parse, stringify } from "lib0/json";
  * * u = unordered list (bullets)
  * * o = ordered list (numbers)
  * * l = list item
- * * param = parameter placeholder
- * * ref = reference to another function/macro
+ * * r = reference to another function/macro
  */
-export type DocNodeType =
-    | "i"
-    | "b"
-    | "p"
-    | "c"
-    | "u"
-    | "o"
-    | "l"
-    | "param"
-    | "ref";
+export type DocNode =
+    | string
+    | ["i", ...DocNode[]]
+    | ["b", ...DocNode[]]
+    | ["p", ...DocNode[]]
+    | ["c", ...DocNode[]]
+    | ["u", ...DocNode[]]
+    | ["o", ...DocNode[]]
+    | ["l", index: number | null, ...DocNode[]]
+    | ["r", code: string]
+    | ["r", display: string, group: string | undefined, path: string];
 
 /**
- * Documentation tree document
+ * Documentation metadata tags, from header
  */
-export type DocNode = string | [DocNodeType, ...DocNode[]];
+export interface DocMetadata {
+    tag: string;
+    type?: string;
+    name?: string;
+    default?: string;
+    flags?: [];
+    groups?: DocMetadata[];
+    description?: DocNode[];
+}
+
+// TODO: rewrite this so that the parser gets the subtags, and can look at / process them
+
+/**
+ * Metadata parser that takes the lines on and after the tag and parses it into a {@link DocMetadata}
+ */
+export type DocMetadataParser = (tag: string, lines: string[]) => Omit<DocMetadata, "groups">;
+
+/**
+ * Parser for a blank tag that only serves as a flag and carries no content.
+ */
+export const EmptyTag: DocMetadataParser = (tag, lines) => {
+    if (lines.length) throw new Error(`${stringify(tag)} tag is just a flag and should have no content`);
+    return { tag };
+}
 
 /**
  * Parsed documentation data for something (e.g. builtin function, lambda)
  */
 export interface Doc {
-    /** Parsed header documentation, in a structured format, for e.g. autoformatting */
-    headerData: HeaderForm[];
     /** Rendered header data */
-    headers: DocNode[];
+    meta: DocMetadata[];
     /** Rendered body documentation data. each outer list is a single paragraph */
     body: DocNode[];
 }
@@ -51,24 +73,15 @@ export interface HasDocstring {
 
 /**
  * Parse the documentation string into {@link Doc} data
- * @returns the doc data, or empty doc data if it didn't parse right
+ * @returns the doc data, or undefined if it didn't parse right
  */
-export const parseDoc = (docstring: string): Doc => {
-    const doc: Doc = { headerData: [], headers: [], body: [] };
+export const parseDoc = (docstring: string, parsers: Record<string, DocMetadataParser>): Doc | undefined => {
     docstring = docstring.split("\n").map(s => s.trimEnd()).join("\n");
-    if (!docstring) return doc;
-    const [head, ...body] = docstring.split("\n\n");
-    const paragraphs = body.flatMap(l => l.split("\n"));
-    const headlines = head!.split("\n");
-    var i = 0;
-    headlines.forEach(h => {
-        const [header, jsonHeader, rest] = parseHeader(h);
-        if (rest) paragraphs.splice(i++, 0, rest);
-        if (header) doc.headers.push(header);
-        if (jsonHeader) doc.headerData.push(jsonHeader);
-    });
-    doc.body = parseParagraphs(paragraphs);
-    return doc;
+    if (!docstring) return undefined;
+    const lines = docstring!.split("\n");
+    const { 0: meta, 1: summaryLines } = parseHeaderAndSummary(lines, parsers);
+    const body = parseParagraphs(summaryLines);
+    return { meta, body };
 }
 
 const enum ParagraphState {
@@ -77,24 +90,29 @@ const enum ParagraphState {
     BULLETED_LIST
 }
 
-const parseParagraphs = (lines: string[]): DocNode[] => {
+/**
+ * Parses the lines and creates ordered and unordered lists for groups
+ * of lines with bullets or number and creates paragraphs for all other lines
+ */
+export const parseParagraphs = (lines: string[]): DocNode[] => {
     var state: ParagraphState = ParagraphState.PARAGRAPH;
     const items: DocNode[] = [];
     var currentList: DocNode | undefined, match: RegExpExecArray | null;
-    for (var line of lines) {
+    for (var i = 0; i < lines.length; i++) {
+        const line = lines[i]!;
         if (line.startsWith("* ")) {
             if (state !== ParagraphState.BULLETED_LIST) {
                 currentList = ["u"];
                 items.push(currentList!);
             }
-            (currentList as DocNode[])!.push(["l", ...parseInline(line.slice(2))]);
+            (currentList as DocNode[])!.push(["l", null, ...parseInline(line.slice(2))]);
             state = ParagraphState.BULLETED_LIST;
         } else if ((match = /^\d*\.\s/.exec(line)) !== null) {
             if (state !== ParagraphState.NUMBERED_LIST) {
                 currentList = ["o"];
                 items.push(currentList!);
             }
-            (currentList as DocNode[])!.push(["l", ...parseInline(line.slice(match[0].length))]);
+            (currentList as DocNode[])!.push(["l", parseInt(match[0]), ...parseInline(line.slice(match[0].length))]);
             state = ParagraphState.NUMBERED_LIST;
         } else {
             items.push(["p", ...parseInline(line)]);
@@ -104,19 +122,80 @@ const parseParagraphs = (lines: string[]): DocNode[] => {
     return items;
 }
 
-const parseInline = (s: string): DocNode[] => {
-    const root: DocNode = ["" as DocNodeType];
+/**
+ * Parses the hiearchal metadata tags from the lines and returns the tree of {@link DocMetadata} nodes
+ * as well as all the lines that were untagged or tagged with `""` as the global summary
+ */
+export const parseHeaderAndSummary = (lines: string[], parsers: Record<string, DocMetadataParser>): [DocMetadata[], string[]] => {
+    var currentLevel = 1;
+    const tags: DocMetadata[] = [];
+    const summaryLines: string[] = [];
+    var currentArray = tags;
+    const stack: DocMetadata[][] = [];
+    var tagLinesBuffer: string[] = [];
+    var firstLine: string;
+    var accumulatingTagLevel = 1;
+    var accumulatingTagName = "";
+    const flush = () => {
+        if (accumulatingTagName === "" && accumulatingTagLevel === 1) {
+            summaryLines.push(...tagLinesBuffer);
+            tagLinesBuffer = [];
+            return;
+        }
+        const parser = parsers[accumulatingTagName];
+        if (!parser) throw new Error("unknown tag " + stringify(accumulatingTagName));
+        if (accumulatingTagLevel > currentLevel) {
+            currentLevel++;
+            if (accumulatingTagLevel !== currentLevel)
+                throw new Error(`can only jump one level at a time (was at level ${currentLevel - 1} but jumped up to level ${accumulatingTagLevel}): ${stringify(firstLine)}`);
+            const item = last(currentArray);
+            stack.push(currentArray);
+            currentArray = item.groups ??= [];
+        } else while (currentLevel > accumulatingTagLevel) {
+            currentArray = stack.pop()!;
+            currentLevel--;
+        }
+        currentArray.push(parser(accumulatingTagName, tagLinesBuffer));
+        tagLinesBuffer = [];
+    }
+    for (var i = 0; i < lines.length; i++) {
+        const line = lines[i]!;
+        const match = /^(\.+)(\w+)(.*)$/.exec(line);
+        if (!match) {
+            tagLinesBuffer.push(line);
+            continue;
+        }
+        flush();
+        const dots = match[1]!, tag = match[2]!, rest = match[3]!;
+        firstLine = line;
+        accumulatingTagLevel = dots.length;
+        accumulatingTagName = tag;
+        const trimmed = rest.trimStart();
+        if (trimmed) tagLinesBuffer.push(trimmed);
+    }
+    flush();
+    return [tags, summaryLines];
+}
+
+export const parseInline = (s: string): DocNode[] => {
+    const root = [0] as any as DocNode[];
     const stack: DocNode[][] = [root];
     var i = 0;
 
     const pushText = (t: string) => {
-        if (t) last(stack)!.push(t);
+        if (t) {
+            const a = last(stack);
+            if (a.length < 2 || !isString(last(a))) {
+                a.push(t);
+            } else {
+                a.push(a.pop() + t);
+            }
+        }
     };
-
-    const startNode = (t: DocNodeType) => {
+    const startNode = (t: Exclude<Exclude<DocNode, string>[0], "r" | "l">) => {
         const n: DocNode = [t];
         last(stack)!.push(n);
-        stack.push(n);
+        stack.push(n as DocNode[]);
     };
 
     while (i < s.length) {
@@ -127,10 +206,18 @@ const parseInline = (s: string): DocNode[] => {
             continue;
         }
         // [[ref]]
+        // [[ref#link]]
+        // [[ref#group:link]]
         if (s.startsWith("[[", i)) {
             const j = s.indexOf("]]", i);
             if (j !== -1) {
-                last(stack)!.push(["ref", s.slice(i + 2, j)]);
+                const full = s.slice(i + 2, j);
+                const match = /^(.+?)#(?:(.+?):)?(.+)$/.exec(full);
+                if (!match) {
+                    last(stack).push(["r", full]);
+                } else {
+                    last(stack).push(["r", match[1]!, match[2]!, match[3]!]);
+                }
                 i = j + 2;
                 continue;
             }
@@ -166,58 +253,4 @@ const parseInline = (s: string): DocNode[] => {
         i = end;
     }
     return root.slice(1) as DocNode[];
-}
-
-const parseHeader = (header: string): [node: DocNode | undefined, form: HeaderForm | undefined, rest: string | undefined] => {
-    const wildcardMap = new Map<string, string>();
-    const actionMap = new Map<string, string>();
-    var header2 = header.replaceAll(/<([^<>]+?)(:[^<>]+?)?>/g, (_, wildcard, action) => {
-        const gensym = `__${wildcard}_${Math.random().toString(36).slice(2, 18)}`;
-        wildcardMap.set(gensym, wildcard);
-        if (action) actionMap.set(wildcard, action.slice(1));
-        return stringify(gensym);
-    });
-    try { header2 = parse(header2); } catch { return [, , header]; }
-    const walk = (item: any): DocNode => {
-        if (isArray(item)) {
-            return ["c", "[", ...item.flatMap((x, i) => i > 0 ? [", ", walk(x)] : [walk(x)]), "]"];
-        } else if (wildcardMap.has(item)) {
-            return ["param", wildcardMap.get(item)!];
-        } else if (isString(item)) {
-            return stringify(item);
-        } else {
-            return String(item);
-        }
-    }
-    return [walk(header2), new HeaderForm(header2 as any, wildcardMap, actionMap), ,];
-}
-
-/**
- * Structural form of a particular way to call a function or macro
- */
-export class HeaderForm {
-    constructor(
-        public readonly spec: any[],
-        public readonly placeholders: Map<string, string>,
-        public readonly actions: Map<string, string>,
-    ) { }
-    /**
-     * Checks if this form matches the way it's being called
-     * @param data Call code to check - first item (the function itself) is ignored
-     */
-    matches(data: any): boolean {
-        const recur = (form: any, spec: any, shouldCareAboutFirst: boolean): boolean => {
-            if (!isArray(spec)) return this.placeholders.has(spec) || form === spec;
-            if (!isArray(form)) return false;
-            if (form.length < spec.length) return false;
-            const bodyThing = last(spec);
-            if (form.length > spec.length && !(this.placeholders.get(bodyThing)?.endsWith("..."))) return false;
-            for (var i = 0; i < form.length; i++) {
-                if (i < 1 && !shouldCareAboutFirst) continue;
-                if (!recur(form[i], spec[i] ?? bodyThing, true)) return false;
-            }
-            return true;
-        };
-        return recur(data, this.spec, false);
-    }
 }
