@@ -64,8 +64,8 @@ export const defineBuiltin = <T extends JebVM>(vm: T, name: string, arity: Arity
  * close over the one that is passed to the `vm` parameter of `defineOpcode` (since this opcode may be reused for a sub-VM for
  * e.g. an FFI callback).
  */
-export const defineOpcode = <T extends JebVM>(vm: T, name: string, fn: OpcodeFunction<T>) => {
-    vm.opcodeTable[name] = fn;
+export const defineOpcode = <T extends JebVM>(vm: T, name: string, fn: OpcodeFunction<T>, doc: string | null) => {
+    vm.opcodeTable[name] = [fn, doc];
 };
 
 /**

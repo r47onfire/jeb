@@ -119,7 +119,7 @@ export class Lambda extends CallableClass implements HasDocstring {
         public readonly doc: string,
     ) { super(); }
     /**
-     * JEB lambda are currently not callable via javascript.
+     * JEB lambdas are currently not callable via javascript.
      */
     __call__(): never {
         throw new Error("Cannot call JEB lambda.");

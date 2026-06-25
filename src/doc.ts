@@ -4,9 +4,26 @@ import { parse, stringify } from "lib0/json";
 
 /**
  * Formatting tag for a documentation entry.
- * i = italics, b = bold, p = parameter name, code = inline code, ref = reference to another function/macro
+ * * i = italics
+ * * b = bold
+ * * p = paragraph
+ * * c = inline code
+ * * u = unordered list (bullets)
+ * * o = ordered list (numbers)
+ * * l = list item
+ * * param = parameter placeholder
+ * * ref = reference to another function/macro
  */
-export type DocNodeType = "i" | "b" | "p" | "code" | "ref";
+export type DocNodeType =
+    | "i"
+    | "b"
+    | "p"
+    | "c"
+    | "u"
+    | "o"
+    | "l"
+    | "param"
+    | "ref";
 
 /**
  * Documentation tree document
@@ -22,7 +39,7 @@ export interface Doc {
     /** Rendered header data */
     headers: DocNode[];
     /** Rendered body documentation data. each outer list is a single paragraph */
-    body: DocNode[][];
+    body: DocNode[];
 }
 
 /**
@@ -50,8 +67,41 @@ export const parseDoc = (docstring: string): Doc => {
         if (header) doc.headers.push(header);
         if (jsonHeader) doc.headerData.push(jsonHeader);
     });
-    doc.body = paragraphs.map(parseInline);
+    doc.body = parseParagraphs(paragraphs);
     return doc;
+}
+
+const enum ParagraphState {
+    PARAGRAPH,
+    NUMBERED_LIST,
+    BULLETED_LIST
+}
+
+const parseParagraphs = (lines: string[]): DocNode[] => {
+    var state: ParagraphState = ParagraphState.PARAGRAPH;
+    const items: DocNode[] = [];
+    var currentList: DocNode | undefined, match: RegExpExecArray | null;
+    for (var line of lines) {
+        if (line.startsWith("* ")) {
+            if (state !== ParagraphState.BULLETED_LIST) {
+                currentList = ["u"];
+                items.push(currentList!);
+            }
+            (currentList as DocNode[])!.push(["l", ...parseInline(line.slice(2))]);
+            state = ParagraphState.BULLETED_LIST;
+        } else if ((match = /^\d*\.\s/.exec(line)) !== null) {
+            if (state !== ParagraphState.NUMBERED_LIST) {
+                currentList = ["o"];
+                items.push(currentList!);
+            }
+            (currentList as DocNode[])!.push(["l", ...parseInline(line.slice(match[0].length))]);
+            state = ParagraphState.NUMBERED_LIST;
+        } else {
+            items.push(["p", ...parseInline(line)]);
+            state = ParagraphState.PARAGRAPH;
+        }
+    }
+    return items;
 }
 
 const parseInline = (s: string): DocNode[] => {
@@ -104,8 +154,8 @@ const parseInline = (s: string): DocNode[] => {
         // `code`
         if (s.startsWith("`", i)) {
             const top = last(stack)! as DocNode;
-            if (isArray(top) && top[0] === "code") stack.pop();
-            else startNode("code");
+            if (isArray(top) && top[0] === "c") stack.pop();
+            else startNode("c");
             i++;
             continue;
         }
@@ -130,9 +180,9 @@ const parseHeader = (header: string): [node: DocNode | undefined, form: HeaderFo
     try { header2 = parse(header2); } catch { return [, , header]; }
     const walk = (item: any): DocNode => {
         if (isArray(item)) {
-            return ["code", "[", ...item.flatMap((x, i) => i > 0 ? [", ", walk(x)] : [walk(x)]), "]"];
+            return ["c", "[", ...item.flatMap((x, i) => i > 0 ? [", ", walk(x)] : [walk(x)]), "]"];
         } else if (wildcardMap.has(item)) {
-            return ["p", wildcardMap.get(item)!];
+            return ["param", wildcardMap.get(item)!];
         } else if (isString(item)) {
             return stringify(item);
         } else {

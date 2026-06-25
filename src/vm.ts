@@ -83,7 +83,7 @@ export class JebVM {
     builtinsEnv = this.createEnv();
     /** environment that module-level globals live in */
     globalEnv = this.createEnv(this.builtinsEnv);
-    opcodeTable: Record<string, OpcodeFunction<this>> = {};
+    opcodeTable: Record<string, [impl: OpcodeFunction<this>, doc: string | null]> = {};
     applyTable: Applier<any>[] = [];
 
     constructor(public math = new Arithmetic) {
@@ -161,9 +161,9 @@ export class JebVM {
         if (this.paused) return false;
         if (llLength(this.commandStack) === 0) return false;
         const command = this.#popCommand();
-        const opcodeFunction = this.opcodeTable[command[0]];
-        if (!opcodeFunction) throw new Error(`Unknown opcode: ${command[0]}`);
-        opcodeFunction(this, command.slice(1));
+        const opcode = this.opcodeTable[command[0]];
+        if (!opcode) throw new Error(`Unknown opcode: ${command[0]}`);
+        opcode[0](this, command.slice(1));
         return true;
     }
 

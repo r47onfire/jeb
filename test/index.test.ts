@@ -314,16 +314,27 @@ describe("metaprogramming", () => {
             stringify(["foo", "bar", 4, 5, 6]),
         ]);
     });
-    testTest("bad quasiquote 1", vm => {
-        expect(() => run(vm, ["~", [[",@", 1], 2]])).toThrow("not an array to concat");
-    });
-    testTest("bad quasiquote 2", vm => {
+    testTest("bad unquote 1", vm => {
         expect(() => run(vm, ["~", [","]])).toThrow("expected argument to unquote");
     });
-    testTest("bad unquote", vm => {
+    testTest("bad unquote 2", vm => {
         expect(() => run(vm, [",", 1])).toThrow("unquote not valid outside of quasiquote");
     });
-    testTest("bad unquoteSplicing", vm => {
+    testTest("bad unquoteSplicing 1", vm => {
+        try {
+            // @ts-expect-error
+            [...1];
+        } catch (e) {
+            expect(() => run(vm, ["~", [[",@", 1], 2]])).toThrow(String(e));
+        }
+    });
+    testTest("bad unquoteSplicing 2", vm => {
+        expect(() => run(vm, ["~", [[",@"]]])).toThrow("expected argument to unquoteSplicing");
+    });
+    testTest("bad unquoteSplicing 3", vm => {
+        expect(() => run(vm, ["~", [",@"]])).toThrow("unquoteSplicing outside of list");
+    });
+    testTest("bad unquoteSplicing 4", vm => {
         expect(() => run(vm, [",@", 1])).toThrow("unquoteSplicing not valid outside of quasiquote");
     });
 });
@@ -336,7 +347,7 @@ describe("lambdas", () => {
         ])).toBeTrue();
         expect(out).toEqual(["hello", "goodbye"]);
     });
-    testTest("lambda validation", (vm, out) => {
+    testTest("lambda validation", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["foo", ["a", 1, 2, 3]], ["print", ["$", "a"]]],
         ])).toThrow("invalid optional argument");

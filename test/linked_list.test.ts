@@ -5,7 +5,7 @@ test("linked list from array to array roundtrips", () => {
     expect(llPopN(llPushArray(null, [1, 2, 3]), Infinity).values).toEqual([1, 2, 3]);
 });
 
-test("linked list from array to array roundtrips", () => {
+test("linked list from array has first element the same as first element of array", () => {
     var list: LinkedList<number> = llPushArray(null, [1, 2, 3]);
     expect(list).not.toBeNull();
     expect(list!.value).toEqual(1);

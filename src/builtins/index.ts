@@ -20,17 +20,22 @@ import { alias, argsHelper, defineApplier, defineBuiltin, defineOpcode, implicit
  * Install the built-in functions and opcodes to the builtins scope of the given VM.
  *
  * Usually you don't need to do this, since the {@link JebVM} constructor calls this automatically,
- * but it might be needed if the VM state gets corrupted, or you mess with {@link JebVM.builtinsEnv} directly.
+ * but it might be needed if the VM state gets corrupted, or you mess with {@link JebVM#builtinsEnv} directly.
  */
 export const loadBuiltins = (vm: JebVM) => {
 
 
     // MARK: op: traceback push/pop
-    defineOpcode(vm, "jeb:tb_pop", vm => vm.tracebackPop());
-    defineOpcode(vm, "jeb:tb_push", (vm, args) => vm.tracebackPush(args[0], args[1]));
+    defineOpcode(vm, "jeb:tb_pop", vm => vm.tracebackPop(),
+        `["jeb:tb_pop"]
+
+Pops the top of the traceback stack, including all tailcall entries if there are some.`);
+    defineOpcode(vm, "jeb:tb_push", (vm, args) => vm.tracebackPush(args[0], args[1]),
+        `["jeb:tb_push", <function>, <tailcall?>]
+
+Pushes the function to the traceback stack`);
 
     // MARK: op: stack shuffle
-    // N/[0, 1, 2, 3, ..., N-1] = identity, 2/[1, 0] = swap, 1/[] = drop, 1/[0, 0] = dup, N/[1, 2, 3, 4, ..., N-1, 0] = N-tuck, etc.
     defineOpcode(vm, "jeb:shuffle", (vm, args) => {
         const n = args[0] as number;
         const indices = args[1] as number[];
@@ -38,7 +43,15 @@ export const loadBuiltins = (vm: JebVM) => {
         for (var i = 0; i < indices.length; i++) {
             vm.pushData(items[indices[i]!]!);
         }
-    });
+    }, `["jeb:shuffle", <count>, <indices>]
+
+Pops \`count\` items off the stack, and then pushes the items back on in the order defined by \`indices\`.
+Expamples:
+* \`N/[0, 1, 2, 3, ..., N-1]\` = identity
+* \`2/[1, 0]\` = swap
+* \`1/[]\` = drop
+* \`1/[0, 0]\` = dup
+* \`N/[1, 2, 3, 4, ..., N-1, 0]\` = N-tuck`);
 
     // MARK: eval
     defineOpcode(vm, "jeb:eval", (vm, args) => {
@@ -65,12 +78,12 @@ export const loadBuiltins = (vm: JebVM) => {
                 vm.pushCommand("jeb:eval");
             }
         }
-    });
-    defineBuiltin(vm, "eval", 1, false, false, (args, vm) => {
-        vm.pushCommand("jeb:eval");
-        vm.pushData(args[0]);
-        return NOTHING;
-    }, `["eval", <argument>]
+    },
+        `["jeb:eval", <tailcall?>]
+
+Evaluates the top item of the stack. An array gets interpreted as a call and passed to [[jeb:apply]], an object has all its properties evaluated and reassembled, and anything else is treated as a literal and left as-is.`);
+    defineBuiltin(vm, "eval", 1, false, true, args => args[0],
+        `["eval", <argument>]
 
 Evaluate the argument in the current environment and return the result.`);
 
@@ -107,7 +120,13 @@ Evaluate the argument in the current environment and return the result.`);
             return;
         }
         applier.apply(func, alreadyEvaluated, tailcallHint, values, vm);
-    });
+    },
+        `["jeb:apply", <expressions>, false, <tailcall?>]
+["jeb:apply", <values>, true, <tailcall?>]
+
+Pops the top value from the stack and calls it with the provided arguments.
+If the 2nd parameter (\`alreadyEvaluated\`) is false, the arguments are interpreted as unevaluated expressions and the applier for the function or macro can choose to evaluate or not evaluate them.
+If \`alreadyEvaluated\` is true, they are interpreted as values and the applier should not evaluate them, even if it isn't a macro.`);
     // MARK: string applier
     defineApplier(vm, new class extends Applier<"string"> {
         constructor() { super("string"); }
@@ -142,7 +161,7 @@ Evaluate the argument in the current environment and return the result.`);
         if (result !== NOTHING) {
             vm.pushData(result);
         }
-    });
+    }, null);
 
     // MARK: variables
     defineOpcode(vm, "jeb:lookup", (vm, args) => {
@@ -156,13 +175,17 @@ Evaluate the argument in the current environment and return the result.`);
             return;
         }
         vm.pushData(variable.data);
-    });
+    },
+        `["jeb:lookup", <functionHint>]
+
+Pops the name off the top of the stack, looks it up in the current environment, and returns the value.
+If the name doesn't exist, this opcode won't return. \`functionHint\` is used to create the error message if it doesn't exist.`);
     defineOpcode(vm, "jeb:get_prop", (vm, args) => {
         const name = vm.popData();
         const obj = vm.popData();
         if ((obj ?? null) === null) {
             const propHint = args[0] as string ?? "unknown expression";
-            vm.pushCommand("jeb:throw", "jeb:type_error", `can't get property ${stringify(name)} of ${obj} (evaluating ${propHint})`, {});
+            vm.pushCommand("jeb:throw", "jeb:type_error", `can't get property ${stringify(name)} of ${obj} (evaluating "${propHint}")`, {});
             return;
         }
         const should_bind = args[1] as boolean;
@@ -171,7 +194,11 @@ Evaluate the argument in the current environment and return the result.`);
             value = value.bind(obj);
         }
         vm.pushData(value);
-    });
+    },
+        `["jeb:get_prop", <propHint>, <shouldBind>]
+
+Pops name, then object off the stack, and then pushes \`obj[name]\`. If \`obj[name]\` is a function and \`shouldBind\` is true, then \`obj[name].bind(obj)\` is pushed instead.
+The \`propHint\` is used to construct the error message if the obj is null or undefined.`);
     defineBuiltin(vm, "$", 1, true, false, (args, vm) => {
         const name = args[0] as string | any[];
         if (!isArray(name)) {
@@ -217,13 +244,21 @@ If \`properties\` are given, they index the variable like Javascript square brac
             return;
         }
         if (value instanceof Lambda && value.name === undefined) value.name = name;
-    });
+    },
+        `["jeb:store", <name>]
+
+Looks up where \`name\` is stored (in the current scope or one of its parents) and then sets it to the top of the stack (without modifying the stack).
+If the value is a yet-unnamed lambda or macro, also sets the value's name to \`name\`.`);
     defineOpcode(vm, "jeb:const", (vm, args) => {
         const value = vm.peekData();
         const name: string = args[0];
         vm.addConst(name, value);
         if (value instanceof Lambda && value.name === undefined) value.name = name;
-    });
+    },
+        `["jeb:const", <name>]
+
+Defines \`name\` to be a constant in the current scope with the value being the top of the stack (without modifying the stack).
+If the value is a yet-unnamed lambda or macro, also sets the value's name to \`name\`.`);
     defineOpcode(vm, "jeb:set_prop", (vm, args) => {
         const name = vm.popData();
         const obj = vm.popData();
@@ -233,7 +268,11 @@ If \`properties\` are given, they index the variable like Javascript square brac
             return;
         }
         wrapThrowToError(vm, "jeb:type_error", () => obj[name] = vm.peekData());
-    });
+    },
+        `["jeb:set_prop", <propHint>]
+
+Pops name, then object off the stack, then sets \`obj[name] = topOfStack\`.
+The \`propHint\` is used to construct the error message if the obj is null or undefined.`);
     defineBuiltin(vm, "set", 2, true, false, (args, vm) => {
         const name = args[0] as string | any[];
         if (!isArray(name)) {
@@ -274,14 +313,14 @@ If \`properties\` are given, they index the variable like Javascript square brac
 ["set", [<name>, <properties...>], <value>]
 ["set", [<object>, <properties...>], <value>]
 
-Set the value of the variable in the environment in which it is defined. If it wasn't defined anywhere, throw a \`reference_error\`.
+Set the value of the variable in the environment in which it is defined. If it wasn't defined anywhere, throw a \`jeb:reference_error\`.
 If \`properties\` are given, the \`name\` will be looked up instead, and the properties will be used to index the object, and the last one will be used to set the property.`);
 
     // MARK: error handling
     defineOpcode(vm, "jeb:throw", (vm, args) => {
         const type = args[0] as string;
-        const error = args[1] as string;
-        const ctx = args[2] as Record<string, any>;
+        const message = args[1] as string;
+        const restarts = args[2] as Record<string, any>;
         if (vm.curDynamicWind.parent) {
             // call exit handler with error details
             // if it returns true, it means the error was handled and we can continue execution
@@ -289,17 +328,21 @@ If \`properties\` are given, the \`name\` will be looked up instead, and the pro
             vm.curDynamicWind = dw.parent!;
             dw.restore(vm);
             if (dw.handler?.exit) {
-                vm.pushCommand("jeb:if", null, ["jeb:throw", type, error, ctx], true);
-                vm.pushCommand("jeb:apply", [false, type, error, ctx], true);
+                vm.pushCommand("jeb:if", null, ["jeb:throw", type, message, restarts], true);
+                vm.pushCommand("jeb:apply", [false, type, message, restarts], true);
                 vm.pushData(dw.handler?.exit);
             } else {
-                vm.pushCommand("jeb:throw", type, error, ctx);
+                vm.pushCommand("jeb:throw", type, message, restarts);
             }
             return;
         }
         // if there's nothing to catch the error, just throw it back to JavaScript
-        vm.fatalError(type, error);
-    });
+        vm.fatalError(type, message);
+    },
+        `["jeb:throw", <type>, <message>, <restarts>]
+
+Triggers an error with the specified type, error, and restarts.
+This opcode does not return.`);
     defineBuiltin(vm, "error", 3, false, false, (args, vm) => {
         const type = args[0] as string;
         const error = args[1] as string;
@@ -354,11 +397,11 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         if (name !== null) vm.pushCommand("jeb:store", name);
         vm.pushCommand("jeb:apply", [false], true);
         vm.pushData(context.enter);
-    });
+    }, null);
 
     defineOpcode(vm, "jeb:with/install", (vm, args) => {
         vm.curDynamicWind = args[0] as DynamicWind;
-    });
+    }, null);
 
     defineOpcode(vm, "jeb:with/teardown", vm => {
         if (!vm.curDynamicWind.parent) throw new Error("Dynamic wind stack underflow");
@@ -369,7 +412,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         vm.pushCommand("jeb:shuffle", 1, []);
         vm.pushCommand("jeb:apply", [false, null, null, null], true);
         vm.pushData(dw.handler.exit);
-    });
+    }, null);
 
     // MARK: JS objects
     defineBuiltin(vm, "nil?", 1, false, false, args => undefinedToNull(args[0]) === null, `["nil?", <value>]
@@ -399,7 +442,7 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
     });
     defineOpcode(vm, "jeb:apply/resetEnv", (vm, args) => {
         vm.currentEnv = args[0] as Env;
-    });
+    }, null);
     defineOpcode(vm, "jeb:exec/lambda", (vm, args) => {
         const lambda = args[0] as Lambda;
         const argc = args[1] as number;
@@ -428,7 +471,7 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
         if (!lambda.isImplicit) callEnv.add("return", vm.cc());
         vm.currentEnv = callEnv;
         return implicitBegin(vm, lambda.body);
-    });
+    }, null);
     const lambdaHelper = (name: string, isMacro: boolean, kind: string, extra: string) => {
         defineBuiltin(vm, name, { min: 2, max: Infinity }, true, false, (args, vm) => {
             var isImplicit = false;
@@ -496,15 +539,19 @@ If the first element is \`true\` it is removed and the lambda is flagged as an i
         const condition = vm.popData();
         const then = args[0];
         const else_ = args[1];
-        const isOpcode = args[2] || false;
-        if (isOpcode) {
+        const isAsm = args[2] || false;
+        if (isAsm) {
             // @ts-ignore
             if (condition) { if (then) vm.pushCommand(...then); } else if (else_) vm.pushCommand(...else_);
         } else {
             vm.pushData(condition ? then : else_);
             vm.pushCommand("jeb:eval", true);
         }
-    });
+    },
+        `["jeb:if", <then>, <else>, <isAsm?>]
+
+Pops the top stack value, and if it's truthy, evaluates \`then\`, and if it's falsy, evaluates \`else\`.
+If \`isAsm\` is true, the \`then\` and \`else\` are interpreted as individual opcodes and the selected one is executed directly instead if it is not null.`);
 
     defineBuiltin(vm, "if", { min: 2, max: 3 }, true, false, (args, vm) => {
         const condition = args[0];
@@ -599,6 +646,7 @@ The third form (with \`true\`) expands to a [[macro]] in the same way.`);
         bigbig: (x: bigint, y: bigint) => any,
         num: (x: number) => any,
         big: (x: bigint) => any,
+        doc: string,
     ) => {
         defineBuiltin(vm, operator, null, false, false, (a, vm) => {
             if (a.length === 0) return identity;
@@ -615,9 +663,9 @@ The third form (with \`true\`) expands to a [[macro]] in the same way.`);
                 acc = res.data;
             }
             return acc;
-        }, `["${operator}", <numeric values...>]
+        }, `["${operator}", <values...>]
 
-Math`);
+${doc}`);
         vm.math.overload(operation, [["number"], ["number"]], (a, b) => Ok(numnum(a, b)));
         vm.math.overload(operation, [["bigint"], ["bigint"]], (a, b) => Ok(bigbig(a, b)));
         vm.math.overload(operation, [["bigint"], ["number"]], (a, b) => Ok(bignum(a, b)));
@@ -626,36 +674,65 @@ Math`);
         vm.math.overload(operation, [["bigint"]], a => Ok(big(a)));
     }
     const addNumbers = numberOp(add);
-    mathHelper("+", "add", 0, addNumbers, addNumbers, addNumbers, addNumbers, id, id);
+    mathHelper("+", "add", 0, addNumbers, addNumbers, addNumbers, addNumbers, id, id, "Adds numbers or concatenates strings.");
     vm.math.overload("add", [["string"], ["string"]], (a, b) => Ok(a + b));
     const subtractNumbers = numberOp((a, b) => a - b);
-    mathHelper("-", "sub", 0, subtractNumbers, subtractNumbers, subtractNumbers, subtractNumbers, a => -a, a => -a);
+    mathHelper("-", "sub", 0, subtractNumbers, subtractNumbers, subtractNumbers, subtractNumbers, a => -a, a => -a, "Subtracts numbers.\nIn the case of one number, returns the additive inverse (i.e. the negative).");
     const multiplyNumbers = numberOp((a, b) => a * b);
-    mathHelper("*", "mul", 1, multiplyNumbers, multiplyNumbers, multiplyNumbers, multiplyNumbers, id, id);
+    mathHelper("*", "mul", 1, multiplyNumbers, multiplyNumbers, multiplyNumbers, multiplyNumbers, id, id, "Multiplies numbers.\nThe special case of `string * number` or `number * string` results in repeating the string N times");
+    const repeat = (a: string, b: number): Result<string, string> => {
+        if (b < 0) return Err("Cannot repeat a negative number of times");
+        if ((b | 0) !== b) return Err("Cannot repeat a non-integer number of times");
+        return Ok(a.repeat(b));
+    };
+    vm.math.overload("mul", [["string"], ["number"]], (a, b) => repeat(a, b));
+    vm.math.overload("mul", [["number"], ["string"]], (a, b) => repeat(b, a));
     const divideNumbers = (a: number | bigint, b: number | bigint) => float(a) / float(b);
-    mathHelper("/", "div", NaN, divideNumbers, divideNumbers, divideNumbers, divideNumbers, a => 1 / a, a => 1n / a);
+    mathHelper("/", "div", NaN, divideNumbers, divideNumbers, divideNumbers, divideNumbers, a => 1 / a, a => 1 / float(a), "Divides numbers.\nIn the case of one number, returns the multiplicative inverse (i.e. the reciprocal).");
     const moduloNumbers = numberOp((a, b) => a % b);
-    mathHelper("%", "mod", NaN, moduloNumbers, moduloNumbers, moduloNumbers, moduloNumbers, _ => NaN, _ => NaN);
+    mathHelper("%", "mod", NaN, moduloNumbers, moduloNumbers, moduloNumbers, moduloNumbers, _ => NaN, _ => NaN, "Computes the modulo of two numbers.");
     const powNumbers = numberOp((a, b) => a ** b);
-    mathHelper("pow", "pow", NaN, powNumbers, powNumbers, powNumbers, powNumbers, _ => NaN, _ => NaN);
+    mathHelper("pow", "pow", NaN, powNumbers, powNumbers, powNumbers, powNumbers, _ => NaN, _ => NaN, "Computes the power of numbers.\nHowever, this function still folds from the right like the other math functions, so unlike how power is notated mathematically (where `a^b^c^d^e` means `a^(b^(c^(d^e)))`), `[\"pow\", a, b, c, d, e]` is interpreted as `(((a^b)^c)^d)^e`.");
     const bitAndNumbers = numberOp((a, b) => a & b);
-    mathHelper("bit-and", "bitAnd", -1, bitAndNumbers, bitAndNumbers, bitAndNumbers, bitAndNumbers, id, id);
+    mathHelper("bit-and", "bitAnd", -1, bitAndNumbers, bitAndNumbers, bitAndNumbers, bitAndNumbers, id, id, "Computes the bitwise AND of all numbers.");
     const bitOrNumbers = numberOp((a, b) => a | b);
-    mathHelper("bit-or", "bitOr", 0, bitOrNumbers, bitOrNumbers, bitOrNumbers, bitOrNumbers, id, id);
+    mathHelper("bit-or", "bitOr", 0, bitOrNumbers, bitOrNumbers, bitOrNumbers, bitOrNumbers, id, id, "Computes the bitwise OR of all numbers.");
     const bitXorNumbers = numberOp((a, b) => a ^ b);
-    mathHelper("bit-xor", "bitXor", 0, bitXorNumbers, bitXorNumbers, bitXorNumbers, bitXorNumbers, id, id);
+    mathHelper("bit-xor", "bitXor", 0, bitXorNumbers, bitXorNumbers, bitXorNumbers, bitXorNumbers, id, id, "Computes the bitwise XOR of all numbers.");
     defineBuiltin(vm, "bit-inv", 1, false, false, a => ~a[0], `["bit-inv", <number>]
 
-Math`);
+Computes the two's complement signed bitwise inverse of the number.`);
 
     // comparisons
-    const comparisonHelper = (op: string, bits: number) => {
-        defineBuiltin(vm, op, 2, false, false, (args, vm) => resultToError(vm, "jeb:type_error", vm.math.call("cmp", args[0], args[1], bits)), `["${op}", <number1>, <number2>]
+    const comparisonHelper = (op: string, bits: number, doc: string) => {
+        defineBuiltin(vm, op, null, false, false, (a, vm) => {
+            if (a.length < 2) return true;
+            for (var i = 1; i < a.length; i++) {
+                const res = vm.math.call("cmp", a[i - 1], a[i], bits);
+                if (!res.ok) {
+                    vm.pushCommand("jeb:throw", "jeb:type_error", "comparison error: " + res.error, {
+                        return: vm.cc(),
+                    });
+                    return NOTHING;
+                }
+                if (!res.data) return false;
+            }
+            return true;
+        },
+            `["${op}", <numbers...>]
 
-Comparison`);
+${doc}`);
     }
-    for (var [name, bits] of ([["=", 4], ["!=", 3], ["<", 2], [">", 1], ["<=", 6], [">=", 5]] as [string, number][])) {
-        comparisonHelper(name, bits);
+    const compDocHelper = (phrase: string) => `True if the sequence of numbers is strictly ${phrase} when read from left to right.`;
+    for (var [name, bits, doc] of ([
+        ["=", 4, "True if all of the numbers are equal."],
+        ["!=", 3, "True if no adjacent pair of numbers are equal."],
+        ["<", 2, compDocHelper("increasing")],
+        [">", 1, compDocHelper("decreasing")],
+        ["<=", 6, compDocHelper("nondecreasing")],
+        [">=", 5, compDocHelper("nonincreasing")],
+    ] as [string, number, string][])) {
+        comparisonHelper(name, bits, doc);
     }
     vm.math.overload("cmp", [["number", "bigint"], ["number", "bigint"], ["number"]], (a, b, c) => {
         if (a == b) return Ok(!!(c & 4));
@@ -667,7 +744,7 @@ Comparison`);
     // MARK: booleans
     defineBuiltin(vm, "not", 1, false, false, args => !args[0], `["not", <value>]
 
-Boolean inverse`);
+Boolean inverse. True if \`value\` is falsy (false, zero, undefined, null, or empty string), false otherwise.`);
     const booleanHelper = (name: string, shortCircuitOn: boolean) => {
         defineBuiltin(vm, name, null, true, true, (args: any[], vm: JebVM) => {
             if (args.length === 0) {
@@ -703,18 +780,17 @@ Returns a copy of the list without the first element`);
     defineBuiltin(vm, "concat", null, false, false, args => {
         const out: any[] = [];
         for (var arg of args) {
-            if (!isArray(arg)) {
-                vm.pushCommand("jeb:throw", "jeb:type_error", "not an array to concat", {
-                    return: vm.cc()
-                });
+            try {
+                out.push(...arg);
+            } catch (e) {
+                vm.pushCommand("jeb:throw", "jeb:type_error", String(e), {});
                 return NOTHING;
             }
-            out.push(...arg);
         }
         return out;
     }, `["concat", <lists...>]
 
-Concatenates the lists, and returns a new list`)
+Concatenates the lists, and returns a new list. If an argument is not a list, the value is coerced to a list using the Javascript \`...\` spread operator.`)
 
     // MARK: metaprogramming
     defineBuiltin(vm, "quote", 1, true, false, a => a[0], `["quote", <value:quoted>]
@@ -740,24 +816,28 @@ Prevents its argument from being evaluated, but walks the elements and replaces 
     }), NOTHING), `["${UNQUOTE_NAME}", <value>]
 [",", <value>]
 
-Marks a value to be interpolated inside a [[${QUASIQUOTE_NAME}]]. This is not valid outside of a [[${QUASIQUOTE_NAME}]] and will throw an error if called as a normal function.`);
+Marks a value to be interpolated inside a [[${QUASIQUOTE_NAME}]].
+This is not valid outside of a [[${QUASIQUOTE_NAME}]] and will throw an error if called as a normal function.`);
     defineBuiltin(vm, UNQUOTE_SPLICING_NAME, 1, false, false, (_, vm) => (vm.pushCommand("jeb:throw", "jeb:syntax_error", UNQUOTE_SPLICING_NAME + " not valid outside of quasiquote", {
         return: vm.cc(),
     }), NOTHING), `["${UNQUOTE_SPLICING_NAME}", <value>]
 [",@", <value>]
 
-Marks a list to be interpolated via splicing inside a [[${QUASIQUOTE_NAME}]]. This is not valid outside of a [[${QUASIQUOTE_NAME}]] and will throw an error if called as a normal function.`);
+Marks a list to be interpolated via splicing inside a [[${QUASIQUOTE_NAME}]].
+This is not valid outside of a [[${QUASIQUOTE_NAME}]] and will throw an error if called as a normal function.`);
     alias(vm, UNQUOTE_NAME, ",");
     alias(vm, UNQUOTE_SPLICING_NAME, ",@");
 
     defineBuiltin(vm, "parseJSON", 1, false, false, (args, vm) => wrapThrowToError(vm, "jeb:value_error", () => parse(args[0])),
         `["parseJSON", <string>]
 
-Parses the string using \`JSON.parse()\`, and returns the result. Will throw a \`jeb:value_error\` if it couldn't be parsed.`);
+Parses the string using \`JSON.parse()\`, and returns the result.
+Will throw a \`jeb:value_error\` if it couldn't be parsed.`);
     defineBuiltin(vm, "dumpJSON", 1, false, false, (args, vm) => wrapThrowToError(vm, "jeb:value_error", () => stringify(args[0])),
         `["dumpJSON", <value>]
 
-Dumps the value to string using \`JSON.stringify()\`, and returns the serialized JSON. Will throw a \`jeb:value_error\` if there is something that can't be serialized, such as a function or circular reference.`);
+Dumps the value to string using \`JSON.stringify()\`, and returns the serialized JSON.
+Will throw a \`jeb:value_error\` if there is something that can't be serialized, such as a function or circular reference.`);
 
     // MARK: FFI calling
     defineApplier(vm, new class extends Applier<"function"> {
@@ -783,7 +863,7 @@ Dumps the value to string using \`JSON.stringify()\`, and returns the serialized
         const argv = vm.popNData(argc).reverse();
         const result = wrapThrowToError(vm, "jeb:value_error", () => f.apply(null, argv));
         if (result !== NOTHING) vm.pushData(result);
-    });
+    }, null);
 
     // MARK: JSON based standard library!
     const standardLibrary = ["begin",
@@ -929,7 +1009,7 @@ Return a new list with the result of applying the function to each element of th
                 ["list"]]],
     ];
 
-    vm.currentEnv = vm.globalEnv;
+    vm.currentEnv = vm.builtinsEnv;
     vm.start(standardLibrary);
     while (vm.step());
     if (vm.paused) throw new Error("Invalid state while setting up stdlib");
@@ -961,7 +1041,8 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any, str
 
     const head = form[0], tail = form.slice(1);
 
-    const same = (x: string, y: string) => {
+    const same = (x: any, y: string) => {
+        if (!isString(x)) return false;
         const v1 = vm.getVar(x);
         const v2 = vm.getVar(y);
         return v1.ok ? (v2.ok && v1.data === v2.data) : !v2.ok;
