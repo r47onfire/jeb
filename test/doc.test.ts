@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isString } from "lib0/function.js";
-import { DocMetadata, DocMetadataParser, DocNode, EmptyTag, FunctionOrMacroParsers, JebVM, OpcodeParsers, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs } from "../src";
+import { DocMetadata, DocMetadataParser, DocNode, EmptyTag, FunctionOrMacroParsers, JebVM, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs } from "../src";
 
 describe("inline parsing", () => {
     test.each<[string, string, DocNode[]]>([
@@ -49,6 +49,20 @@ describe("tag parsing ok", () => {
         ["blank tag to reset", [".a", ". b", "c"], { a: EmptyTag }, [{ tag: "a" }], ["b", "c"]]
     ])("%s", (_, lines, parsers, expectedMeta, expectedRest) => {
         expect(parseHeaderAndSummary(lines, parsers)).toEqual([expectedMeta, expectedRest]);
+    });
+    describe("param tag", () => {
+        test.each<[string, string, DocMetadata]>([
+            ["simple param", ".t {a} b - c", { tag: "t", type: "a", name: "b", flags: [], default: undefined, description: [["p", "c"]] }],
+            ["optional param", ".t {a} [b=c] - d", { tag: "t", type: "a", name: "b", flags: [], default: "c", description: [["p", "d"]] }],
+            ["rest param", ".t {a} b...", { tag: "t", type: "a", name: "b", flags: ["rest"], default: undefined, description: [] }],
+            ["complex type", ".t {(a: b) => c} d - e", { tag: "t", type: "(a: b) => c", name: "d", flags: [], default: undefined, description: [["p", "e"]] }],
+            ["union type", ".t {a | [b, c]} d - e", { tag: "t", type: "a | [b, c]", name: "d", flags: [], default: undefined, description: [["p", "e"]] }],
+            ["quoted default", ".t {a} [b=\"c\"] - d", { tag: "t", type: "a", name: "b", flags: [], default: "\"c\"", description: [["p", "d"]] }],
+            ["name without dash", ".t {a} b c", { tag: "t", type: "a", name: "b", flags: [], default: undefined, description: [["p", "c"]] }],
+            ["optional type", ".t a - b", { tag: "t", type: undefined, name: "a", flags: [], default: undefined, description: [["p", "b"]] }],
+        ])("%s", (_, line, expectedMeta) => {
+            expect(parseHeaderAndSummary([line], { t: ParamTag })).toEqual([[expectedMeta], []]);
+        });
     });
 });
 describe("tag parsing failures", () => {

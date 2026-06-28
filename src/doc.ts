@@ -90,38 +90,106 @@ export const deprecateTag = (newName: string, parser: DocMetadataParser): DocMet
     };
 }
 
+const parseDelimited = (tag: string, s: string, open: string, close: string): [content: string, rest: string] => {
+    if (s.startsWith(open)) {
+        var depth = 0;
+        var inString: string | false = false;
+        for (var i = 0; i < s.length; i++) {
+            const ch = s[i]!;
+            if (inString) {
+                if (ch === "\\") {
+                    i++; // Skip next character
+                } else if (ch === inString) {
+                    inString = false;
+                }
+            }
+            else if (/['"`]/.test(ch)) {
+                inString = ch;
+            }
+            else if (ch === open) {
+                depth++;
+            }
+            else if (ch === close) {
+                if (--depth === 0) {
+                    return [s.slice(1, i), s.slice(i + 1)];
+                }
+            }
+        }
+    }
+    throw new Error(`Malformed ${stringify(tag)} tag: ${stringify(s)}`);
+};
+
+const parseOptionalType = (tag: string, input: string): [type: string | undefined, rest: string] => {
+    const trimmed = input.trimStart();
+    return trimmed.startsWith("{") ? parseDelimited(tag, trimmed, "{", "}") : [, trimmed];
+};
+
+const parseNameAndDefault = (input: string, tag: string, firstLine: string): [name: string, default_: string | undefined, rest: string] => {
+    var rest = input.trimStart();
+    var rawName = undefined;
+    var default_ = undefined;
+    if (rest.startsWith("[")) {
+        const { 0: content, 1: afterName } = parseDelimited(tag, rest, "[", "]");
+        rest = afterName.trimStart();
+        const { 0: namePart, 1: defaultPart } = content.trim().split("=", 2) as [string, string | undefined];
+        rawName = namePart.trim();
+        default_ = defaultPart?.trim();
+    } else {
+        const match = /^([^\s-]+)(.*)$/.exec(rest);
+        if (!match) throw new Error(`Malformed ${stringify(tag)} tag: ${stringify(firstLine)}`);
+        rawName = match[1]!;
+        rest = match[2]!.trimStart();
+    }
+    return [rawName, default_, rest];
+};
+
+const trimDash = (s: string) => s.replace(/^\s*-\s*/, "").trimStart();
+
 /**
  * Parser for a param tag (pretty common) with the form `{type} name - description` or `{type} [name=default] - description`
  */
-// TODO: this gets very confused on complex / function expressions on the {type}
-export const ParamTag: DocMetadataParser = firstLineRegex(/^\s*(\{(.+?)\}\s+)?((@?\S+?(\.{3})?)|\[(@?\S+?(\.{3})?)\s*=\s*(.+?)\])(\s+-\s*)?/, match => {
-    const { 2: type, 4: name, 6: name2, 8: default_ } = match;
-    var fullName = name2 ?? name!;
+export const ParamTag: DocMetadataParser = (lines, tag) => {
+    const firstLine = lines[0] ?? "";
+    const restLines = lines.slice(1);
+    const { 0: type, 1: remainingAfterType } = parseOptionalType(tag, firstLine);
+    const { 0: rawName, 1: default_, 2: rest } = parseNameAndDefault(remainingAfterType, tag, firstLine);
+
+    if (!rawName) throw new Error(`Missing name on ${stringify(tag)} tag: ${stringify(firstLine)}`);
+
     const flags: string[] = [];
-    if (fullName.startsWith("@")) {
-        flags.push("lazy");
-        fullName = fullName.slice(1);
-    }
-    if (fullName.endsWith("...")) {
+    var name = rawName;
+    if (name.endsWith("...")) {
         flags.push("rest");
-        fullName = fullName.slice(0, fullName.length - 3);
+        name = name.slice(0, -3);
     }
+    if (name.startsWith("@")) {
+        flags.push("lazy");
+        name = name.slice(1);
+    }
+
     return {
-        type,
-        name: fullName,
+        tag,
+        name,
+        default: default_,
         flags,
-        default: default_
+        type,
+        description: parseParagraphs(rest ? [trimDash(rest), ...restLines] : restLines),
     };
-});
+};
 
 /**
  * Parser for a returns tag (pretty common) with the form `{type} - description`
  */
-export const ReturnsTag: DocMetadataParser = firstLineRegex(/^\s*(\{(.+?)\}\s+)?\s*(-\s*)?/, match => {
+export const ReturnsTag: DocMetadataParser = (lines, tag) => {
+    const firstLine = lines[0] ?? "";
+    const restLines = lines.slice(1);
+    const { 0: type, 1: rest } = parseOptionalType(tag, firstLine);
     return {
-        type: match[2],
+        tag,
+        type,
+        description: parseParagraphs(rest ? [trimDash(rest), ...restLines] : restLines),
     };
-});
+};
 
 /**
  * Parser for a throws tag for throwing errors
@@ -168,7 +236,7 @@ export const OpcodeParsers: Record<string, DocMetadataParser> = {
 export const FuncOrMacroTag: DocMetadataParser = (lines, tag) => {
     return {
         tag,
-        name: ["p", lines[0]!.split(/\s+\|\s+/).map(part => ["c", part])],
+        name: ["p", ...lines[0]!.split(/\s+\|\s+/).map(part => ["c", part] as DocNode)],
         description: parseParagraphs(lines.slice(1)),
     }
 };
@@ -180,9 +248,11 @@ export const FunctionOrMacroParsers: Record<string, DocMetadataParser> = {
     func: FuncOrMacroTag,
     macro: FuncOrMacroTag,
     function: deprecateTag("func", FuncOrMacroTag),
+    // code block gets a special var injected
     injected: ParamTag,
     // Param of function or macro
     param: ParamTag,
+    // param that is a variable name gets assigned this value
     receives: ReturnsTag,
     // Property (for object types)
     prop: ParamTag,

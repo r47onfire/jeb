@@ -945,7 +945,7 @@ If an argument is not a list, the value is coerced to a list using the Javascrip
         ["define", "#;", ["$", "comment"]],
         ["define", true, ["uncomment", "items", true],
             `.macro (uncomment items...) | (!; items...) | !;(items...)
-..param {any} items
+..param {code} items
 . Evaluates the items as with [[begin]].`,
             [QUASIQUOTE_NAME, ["begin", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]]],
         ["define", "!;", ["$", "uncomment"]],
@@ -983,9 +983,9 @@ Continuations can be used for very complex control structures and can be incredi
             `.macro (try body handlers)
 ..param {code} body - single statement that forms the body. If you need more than one statement, use [[begin]].
 ..param {object} handlers
-...prop {(message: string, context: object) => any} (name) - called for the error with \`type\` equal to \`name\` (where \`name\` is the property name of the object).
-...prop {(type: string, message: string, context: object) => any} "*" - called if an error is thrown, but no specific handler matched it
-...prop {() => any} else - called if no error is thrown
+...prop {(message: string, context: object) => ignored} (name) - called for the error with \`type\` equal to \`name\` (where \`name\` is the property name of the object).
+...prop {(type: string, message: string, context: object) => ignored} * - called if an error is thrown, but no specific handler matched it
+...prop {() => ignored} else - called if no error is thrown
 . Catches and handles errors.
 During evaluation of the body, if an error is thrown, the error's \`type\` (as returned by [[with]]) will be checked to see if it's in the handlers, and if it is, the handler is called with the \`message\` and \`context\` of the error.
 If no handler directly matches, the special catch-all handler \`"\\*"\` is tried.
@@ -1039,7 +1039,7 @@ In both cases if the handler exists, \`true\` is returned to [[with]] to stop pr
             `.macro (|> value expressions...)
 ..param {any} value
 ..param {code} expressions...
-...injected {any} "#"
+...injected {any} #
 . Pipes the \`value\` as the variable \`#\` into the next expression, and then the result of it becomes the next \`#\`, etc. until all expressions have been evaluated.
 This is analogous to Javascript's proposed pipe operator, specifically the Hack style but using \`#\` for the placeholder instead of \`%\`.`,
             ["if", ["zero?", ["length", ["$", "items"]]],
