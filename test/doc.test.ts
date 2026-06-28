@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { DocMetadata, DocMetadataParser, DocNode, EmptyTag, parseHeader, parseInline, parseParagraphs } from "../src";
+import { isString } from "lib0/function.js";
+import { DocMetadata, DocMetadataParser, DocNode, EmptyTag, FunctionOrMacroParsers, JebVM, OpcodeParsers, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs } from "../src";
 
 describe("inline parsing", () => {
     test.each<[string, string, DocNode[]]>([
@@ -18,6 +19,7 @@ describe("inline parsing", () => {
         ["ref parse 3", "[[ref#group:path]]", [["r", "ref", "group", "path"]]],
         ["ref parse 4", "[[ref:ref]]", [["r", "ref:ref"]]],
         ["ref parse 5", "[[ref:name#group:path#hash]]", [["r", "ref:name", "group", "path#hash"]]],
+        ["ref parse inside code", "`(a[[b]])`", [["c", "(a", ["r", "b"], ")"]]],
     ])("%s", (_, input, expected) => {
         expect(parseInline(input)).toEqual(expected);
     });
@@ -44,8 +46,9 @@ describe("tag parsing ok", () => {
         ["no tags", ["a", "b"], {}, [], ["a", "b"]],
         ["single flag tag", [".a", ".b"], { a: EmptyTag, b: EmptyTag }, [{ tag: "a" }, { tag: "b" }], []],
         ["nested tag", [".a", "..b", ".c"], { a: EmptyTag, b: EmptyTag, c: EmptyTag }, [{ tag: "a", groups: [{ tag: "b" }] }, { tag: "c" }], []],
+        ["blank tag to reset", [".a", ". b", "c"], { a: EmptyTag }, [{ tag: "a" }], ["b", "c"]]
     ])("%s", (_, lines, parsers, expectedMeta, expectedRest) => {
-        expect(parseHeader(lines, parsers)).toEqual([expectedMeta, expectedRest]);
+        expect(parseHeaderAndSummary(lines, parsers)).toEqual([expectedMeta, expectedRest]);
     });
 });
 describe("tag parsing failures", () => {
@@ -54,6 +57,30 @@ describe("tag parsing failures", () => {
         ["flag tags with content", [".abc test"], { abc: EmptyTag }, "is just a flag and should have no content"],
         [">1 jump in indentation", [".abc", "...abc"], { abc: EmptyTag }, "can only jump one level at a time"],
     ])("%s", (_, lines, parsers, expectedError) => {
-        expect(() => parseHeader(lines, parsers)).toThrow(expectedError);
+        expect(() => parseHeaderAndSummary(lines, parsers)).toThrow(expectedError);
     });
 });
+
+describe("all builtin opcodes can be parsed", () => {
+    test.each<[string, string]>(Object.entries(new JebVM().opcodeTable).flatMap(([name, [, doc]]) => doc ? [[name, doc]] : []))("%s", (_, doc) => {
+        const parsed = parseDoc(doc, OpcodeParsers);
+        expect(parsed).toBeDefined();
+        expect(parsed!.meta.length).toBeGreaterThan(0);
+    });
+});
+describe("all builtin functions/macros can be parsed", () => {
+    test.each<[string, string]>(Object.entries(new JebVM().builtinsEnv.bindings).flatMap(([name, item]) => isString(item?.doc) ? [[name, item.doc as string]] : []))("%s", (_, doc) => {
+        const parsed = parseDoc(doc, FunctionOrMacroParsers);
+        expect(parsed).toBeDefined();
+        expect(parsed!.meta.length).toBeGreaterThan(0);
+        // console.log(JSON.stringify(parsed!.meta, null, 2));
+    });
+});
+
+// describe("all builtin appliers can be parsed", () => {
+//     test.each<[string, string]>(new JebVM().applyTable.map(({ type, doc }) => [typeof type === "function" ? type.name : (type + ""), doc]))("%s", (_, doc) => {
+//         const parsed = parseDoc(doc, ApplierParsers);
+//         expect(parsed).toBeDefined();
+//         expect(parsed!.meta.length).toBeGreaterThan(0);
+//     });
+// });

@@ -32,9 +32,9 @@ export type DocNode =
 export interface DocMetadata {
     tag: string;
     type?: string;
-    name?: string;
+    name?: DocNode;
     default?: string;
-    flags?: [];
+    flags?: string[];
     groups?: DocMetadata[];
     description?: DocNode[];
 }
@@ -44,14 +44,153 @@ export interface DocMetadata {
 /**
  * Metadata parser that takes the lines on and after the tag and parses it into a {@link DocMetadata}
  */
-export type DocMetadataParser = (tag: string, lines: string[]) => Omit<DocMetadata, "groups">;
+export type DocMetadataParser = (lines: string[], tag: string) => Omit<DocMetadata, "groups">;
 
 /**
  * Parser for a blank tag that only serves as a flag and carries no content.
  */
-export const EmptyTag: DocMetadataParser = (tag, lines) => {
-    if (lines.length) throw new Error(`${stringify(tag)} tag is just a flag and should have no content`);
+export const EmptyTag: DocMetadataParser = (lines, tag) => {
+    if (lines.length) throw new Error(`${stringify(tag)} tag is just a flag and should have no content (received ${stringify(lines)})`);
     return { tag };
+}
+
+/**
+ * Creates a {@link DocMetadataParser} that asserts that there is tag content, and that the first line matches the given regex.
+ * The regex match is passed to the callback, and all remaining lines (including the rest of the first line if the
+ * regex didn't match all of it) are passed to {@link parseParagraphs} to form the tag description.
+ * @param regex Regex to match on the first line. It should be anchored to the start using `^`.
+ * @param process The callback that will be called on a successful match and return the partial DocMetadata.
+ * @returns The new parser
+ */
+export const firstLineRegex = (regex: RegExp, process: (match: RegExpExecArray) => Omit<DocMetadata, "tag" | "groups" | "description">): DocMetadataParser => {
+    return (lines, tag) => {
+        const firstLine = lines[0] ?? "", restLines = lines.slice(1);
+        const match = regex.exec(firstLine);
+        if (!match) throw new Error(lines.length ? `Malformed ${stringify(tag)} tag: ${stringify(firstLine)}` : `${stringify(tag)} tag requires content`);
+        const e = firstLine.slice(match[0].length);
+        return {
+            tag,
+            description: parseParagraphs(e.length ? [e].concat(restLines) : restLines),
+            ...process(match),
+        };
+    }
+}
+
+/**
+ * Wraps the parser to print a warning (`console.warn()`) that the tag name is not recommended or deprecated.
+ * The behavior is the same as the given parser (the parameters are just passed directly).
+ * @param newName The preferred name that should be used instead
+ * @param parser The implementation of the parser
+ * @returns the wrapped parser
+ */
+export const deprecateTag = (newName: string, parser: DocMetadataParser): DocMetadataParser => {
+    return (lines, tag) => {
+        console.warn(`${stringify(tag)} is deprecated, use ${stringify(newName)} instead`);
+        return parser(lines, tag);
+    };
+}
+
+/**
+ * Parser for a param tag (pretty common) with the form `{type} name - description` or `{type} [name=default] - description`
+ */
+// TODO: this gets very confused on complex / function expressions on the {type}
+export const ParamTag: DocMetadataParser = firstLineRegex(/^\s*(\{(.+?)\}\s+)?((@?\S+?(\.{3})?)|\[(@?\S+?(\.{3})?)\s*=\s*(.+?)\])(\s+-\s*)?/, match => {
+    const { 2: type, 4: name, 6: name2, 8: default_ } = match;
+    var fullName = name2 ?? name!;
+    const flags: string[] = [];
+    if (fullName.startsWith("@")) {
+        flags.push("lazy");
+        fullName = fullName.slice(1);
+    }
+    if (fullName.endsWith("...")) {
+        flags.push("rest");
+        fullName = fullName.slice(0, fullName.length - 3);
+    }
+    return {
+        type,
+        name: fullName,
+        flags,
+        default: default_
+    };
+});
+
+/**
+ * Parser for a returns tag (pretty common) with the form `{type} - description`
+ */
+export const ReturnsTag: DocMetadataParser = firstLineRegex(/^\s*(\{(.+?)\}\s+)?\s*(-\s*)?/, match => {
+    return {
+        type: match[2],
+    };
+});
+
+/**
+ * Parser for a throws tag for throwing errors
+ */
+export const ThrowsTag: DocMetadataParser = firstLineRegex(/^\s*(\S+)\s*(-\s*)?/, match => {
+    return {
+        type: match[1],
+        flags: ["error"],
+    }
+});
+
+const parameterChunks = (s: string): DocNode[] => [...s.matchAll(/\w+|(\(.+?\))/g).map(part => ["i", part[1] ? part[0] : ["c", part[0]]] as DocNode)];
+
+/**
+ * Metadata parsers used for the JEB stack machine opcode docstrings
+ */
+export const OpcodeParsers: Record<string, DocMetadataParser> = {
+    // Immediate arguments documentation names
+    imm: firstLineRegex(/^.*$/, match => {
+        return { name: ["p", ...parameterChunks(match[0]! ?? "")] };
+    }),
+    // Param of immediate (should be level 2)
+    param: ParamTag,
+    // Property (for object types)
+    prop: ParamTag,
+    // Stack-effect diagram
+    sed(lines, tag) {
+        if (lines.length !== 1) throw new Error("Expected 1 line to sed tag for opcode");
+        const line = lines[0]!;
+        const parts = line.split("--");
+        if (parts.length !== 2) throw new Error("Expected -- to separate 2 halves in sed tag for opcode");
+        return {
+            tag,
+            description: [...parameterChunks(parts[0]!), "--", ...parameterChunks(parts[1]!)],
+        };
+    },
+    // errors thrown
+    throws: ThrowsTag,
+}
+
+/**
+ * Metadata parser for the func or macro tags
+ */
+export const FuncOrMacroTag: DocMetadataParser = (lines, tag) => {
+    return {
+        tag,
+        name: ["p", lines[0]!.split(/\s+\|\s+/).map(part => ["c", part])],
+        description: parseParagraphs(lines.slice(1)),
+    }
+};
+
+/**
+ * Metadata parsers used for the high(er)-level JEB function or macro docstrings
+ */
+export const FunctionOrMacroParsers: Record<string, DocMetadataParser> = {
+    func: FuncOrMacroTag,
+    macro: FuncOrMacroTag,
+    function: deprecateTag("func", FuncOrMacroTag),
+    injected: ParamTag,
+    // Param of function or macro
+    param: ParamTag,
+    receives: ReturnsTag,
+    // Property (for object types)
+    prop: ParamTag,
+    // errors thrown
+    throws: ThrowsTag,
+    // Returns value
+    return: deprecateTag("returns", ReturnsTag),
+    returns: ReturnsTag,
 }
 
 /**
@@ -155,12 +294,12 @@ export const parseHeaderAndSummary = (lines: string[], parsers: Record<string, D
             currentArray = stack.pop()!;
             currentLevel--;
         }
-        currentArray.push(parser(accumulatingTagName, tagLinesBuffer));
+        currentArray.push(parser(tagLinesBuffer, accumulatingTagName));
         tagLinesBuffer = [];
     }
     for (var i = 0; i < lines.length; i++) {
         const line = lines[i]!;
-        const match = /^(\.+)(\w+)(.*)$/.exec(line);
+        const match = /^(\.+)(\w*)(.*)$/.exec(line);
         if (!match) {
             tagLinesBuffer.push(line);
             continue;

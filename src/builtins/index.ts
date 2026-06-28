@@ -27,13 +27,14 @@ export const loadBuiltins = (vm: JebVM) => {
 
     // MARK: op: traceback push/pop
     defineOpcode(vm, "jeb:tb_pop", vm => vm.tracebackPop(),
-        `["jeb:tb_pop"]
-
-Pops the top of the traceback stack, including all tailcall entries if there are some.`);
+        `.imm
+.sed --
+. Pops the top of the traceback stack, including all tailcall entries if there are some.`);
     defineOpcode(vm, "jeb:tb_push", (vm, args) => vm.tracebackPush(args[0], args[1]),
-        `["jeb:tb_push", <function>, <tailcall?>]
-
-Pushes the function to the traceback stack`);
+        `.imm function tailcall
+..param {string} function
+..param {boolean} [tailcall=false]
+. Pushes the function to the traceback stack`);
 
     // MARK: op: stack shuffle
     defineOpcode(vm, "jeb:shuffle", (vm, args) => {
@@ -43,10 +44,11 @@ Pushes the function to the traceback stack`);
         for (var i = 0; i < indices.length; i++) {
             vm.pushData(items[indices[i]!]!);
         }
-    }, `["jeb:shuffle", <count>, <indices>]
-
-Pops \`count\` items off the stack, and then pushes the items back on in the order defined by \`indices\`.
-Expamples:
+    }, `.imm count indices
+.param {number} count
+.param {number[]} indices
+. Pops \`count\` items off the stack, and then pushes the items back on in the order defined by \`indices\`.
+Examples:
 * \`N/[0, 1, 2, 3, ..., N-1]\` = identity
 * \`2/[1, 0]\` = swap
 * \`1/[]\` = drop
@@ -56,7 +58,7 @@ Expamples:
     // MARK: eval
     defineOpcode(vm, "jeb:eval", (vm, args) => {
         const code = vm.popData();
-        const tailcallHint = args[0] || false;
+        const tailcallHint = args[0];
         if (isArray(code)) {
             vm.pushCommand("jeb:apply", code.slice(1), false, tailcallHint);
             vm.pushCommand("jeb:eval");
@@ -79,21 +81,23 @@ Expamples:
             }
         }
     },
-        `["jeb:eval", <tailcall?>]
-
-Evaluates the top item of the stack. An array gets interpreted as a call and passed to [[jeb:apply]], an object has all its properties evaluated and reassembled, and anything else is treated as a literal and left as-is.`);
+        `.imm tailcall
+.param {boolean?} [tailcall=false]
+.sed value -- evaled
+. Evaluates the top item of the stack. An array gets interpreted as a call and passed to [[jeb:apply]], an object has all its properties evaluated and reassembled, and anything else is treated as a literal and left as-is.`);
     defineBuiltin(vm, "eval", 1, false, true, args => args[0],
-        `["eval", <argument>]
-
-Evaluate the argument in the current environment and return the result.`);
+        `.func (eval arg)
+..param {any} arg
+.returns {any}
+. Evaluates \`arg\` in the current environment.`);
 
     // MARK: apply
     defineOpcode(vm, "jeb:apply", (vm, args) => {
         const func = vm.popData();
         const values = args[0];
         const argc = values.length;
-        const alreadyEvaluated = args[1] || false;
-        const tailcallHint = args[2] || false;
+        const alreadyEvaluated = args[1];
+        const tailcallHint = args[2];
         const applier = vm.applyTable.find(a => typeMatches(func, a.type));
         if (!applier) {
             const typename = func === null ? "null" : isArray(func) ? "array" : typeof func;
@@ -121,11 +125,19 @@ Evaluate the argument in the current environment and return the result.`);
         }
         applier.apply(func, alreadyEvaluated, tailcallHint, values, vm);
     },
-        `["jeb:apply", <expressions>, false, <tailcall?>]
-["jeb:apply", <values>, true, <tailcall?>]
-
-Pops the top value from the stack and calls it with the provided arguments.
-If the 2nd parameter (\`alreadyEvaluated\`) is false, the arguments are interpreted as unevaluated expressions and the applier for the function or macro can choose to evaluate or not evaluate them.
+        `.imm expressions alreadyEvaluated tailcall
+..param {code} expressions
+..param {false} alreadyEvaluated
+..param {boolean?} [tailcall=false]
+.imm values alreadyEvaluated tailcall
+..param {data} values
+..param {true} alreadyEvaluated
+..param {boolean?} [tailcall=false]
+.sed functor -- result
+.throws jeb:type_error - when the object is not callable
+.throws jeb:value_error - when the argument count is wrong
+. Pops the top value from the stack and calls it with the provided arguments.
+If the \`alreadyEvaluated\` is false, the arguments are interpreted as unevaluated expressions and the applier for the function or macro can choose to evaluate or not evaluate them.
 If \`alreadyEvaluated\` is true, they are interpreted as values and the applier should not evaluate them, even if it isn't a macro.`);
     // MARK: string applier
     defineApplier(vm, new class extends Applier<"string"> {
@@ -167,7 +179,7 @@ If \`alreadyEvaluated\` is true, they are interpreted as values and the applier 
     defineOpcode(vm, "jeb:lookup", (vm, args) => {
         const name = vm.popData();
         const variable = vm.getVar(name);
-        const functionHint = args[0] ?? false;
+        const functionHint = args[0];
         if (!variable.ok) {
             vm.pushCommand("jeb:throw", "jeb:reference_error", `${functionHint ? "function" : "variable"} ${stringify(name)} not found`, {
                 define: vm.cc(["store", name]),
@@ -176,9 +188,11 @@ If \`alreadyEvaluated\` is true, they are interpreted as values and the applier 
         }
         vm.pushData(variable.data);
     },
-        `["jeb:lookup", <functionHint>]
-
-Pops the name off the top of the stack, looks it up in the current environment, and returns the value.
+        `.imm functionHint
+.param {boolean?} [functionHint=false]
+.sed name -- value
+.throws jeb:reference_error - when the name is not defined anywhere
+. Pops the name off the top of the stack, looks it up in the current environment, and returns the value.
 If the name doesn't exist, this opcode won't return. \`functionHint\` is used to create the error message if it doesn't exist.`);
     defineOpcode(vm, "jeb:get_prop", (vm, args) => {
         const name = vm.popData();
@@ -195,9 +209,11 @@ If the name doesn't exist, this opcode won't return. \`functionHint\` is used to
         }
         vm.pushData(value);
     },
-        `["jeb:get_prop", <propHint>, <shouldBind>]
-
-Pops name, then object off the stack, and then pushes \`obj[name]\`. If \`obj[name]\` is a function and \`shouldBind\` is true, then \`obj[name].bind(obj)\` is pushed instead.
+        `.imm propHint shouldBind
+.param {string?} [propHint="unknown expression"]
+.param {boolean?} [shouldBind=false]
+.throws jeb:type_error - when the object is null or undefined
+. Pops \`name\`, then \`obj\` off the stack, and then pushes \`obj[name]\`. If \`obj[name]\` is a function and \`shouldBind\` is true, then \`obj[name].bind(obj)\` is pushed instead.
 The \`propHint\` is used to construct the error message if the obj is null or undefined.`);
     defineBuiltin(vm, "$", 1, true, false, (args, vm) => {
         const name = args[0] as string | any[];
@@ -224,11 +240,16 @@ The \`propHint\` is used to construct the error message if the obj is null or un
         vm.pushCommand("jeb:lookup");
         vm.pushCommand("jeb:eval");
         return NOTHING;
-    }, `["$", [<name:defvar>, <properties...>]]
-["$", <name:defvar>]
-
-Look up the variable with this name in the current environment, and return the value, or throw a \`reference_error\` if it is not defined anywhere.
-If \`properties\` are given, they index the variable like Javascript square brackets.`);
+    }, `.macro ($ (name properties...))
+The \`properties\` index the variable like Javascript square brackets.
+..param {string} name - can be an expression; it is evaluated
+..param {string} properties...
+..throws jeb:value_error - if there are no \`properties\`
+.func ($ name)
+..param {string} name
+.throws jeb:reference_error - if the name is not defined anywhere
+.returns {any}
+. Look up the variable with this name in the current environment.`);
     defineOpcode(vm, "jeb:store", (vm, args) => {
         const value = vm.peekData();
         const name: string = args[0];
@@ -245,9 +266,12 @@ If \`properties\` are given, they index the variable like Javascript square brac
         }
         if (value instanceof Lambda && value.name === undefined) value.name = name;
     },
-        `["jeb:store", <name>]
-
-Looks up where \`name\` is stored (in the current scope or one of its parents) and then sets it to the top of the stack (without modifying the stack).
+        `.imm name
+.param {string} name
+.sed value -- value
+.throws jeb:reference_error - if the variable wasn't defined anywhere
+.throws jeb:type_error - if the variable is a constant
+. Looks up where \`name\` is stored (in the current scope or one of its parents) and then sets it.
 If the value is a yet-unnamed lambda or macro, also sets the value's name to \`name\`.`);
     defineOpcode(vm, "jeb:const", (vm, args) => {
         const value = vm.peekData();
@@ -255,9 +279,10 @@ If the value is a yet-unnamed lambda or macro, also sets the value's name to \`n
         vm.addConst(name, value);
         if (value instanceof Lambda && value.name === undefined) value.name = name;
     },
-        `["jeb:const", <name>]
-
-Defines \`name\` to be a constant in the current scope with the value being the top of the stack (without modifying the stack).
+        `.imm name
+.param {string} name
+.sed value -- value
+. Defines \`name\` to be a constant in the current scope.
 If the value is a yet-unnamed lambda or macro, also sets the value's name to \`name\`.`);
     defineOpcode(vm, "jeb:set_prop", (vm, args) => {
         const name = vm.popData();
@@ -269,10 +294,12 @@ If the value is a yet-unnamed lambda or macro, also sets the value's name to \`n
         }
         wrapThrowToError(vm, "jeb:type_error", () => obj[name] = vm.peekData());
     },
-        `["jeb:set_prop", <propHint>]
-
-Pops name, then object off the stack, then sets \`obj[name] = topOfStack\`.
-The \`propHint\` is used to construct the error message if the obj is null or undefined.`);
+        `.imm propHint
+.param {string} [propHint="unknown expression"]
+.sed value obj name -- value
+.throws jeb:type_error - if obj is null or undefined.
+The \`propHint\` is used to construct the error message.
+. Sets \`obj[name] = value\`.`);
     defineBuiltin(vm, "set", 2, true, false, (args, vm) => {
         const name = args[0] as string | any[];
         if (!isArray(name)) {
@@ -305,16 +332,22 @@ The \`propHint\` is used to construct the error message if the obj is null or un
                 vm.pushCommand("jeb:eval");
                 vm.pushCommand("jeb:shuffle", 2, [1, 0]);
             }
-            vm.pushCommand(isString(name[0]) ? "jeb:lookup" : "jeb:eval");
+            vm.pushCommand("jeb:lookup");
             vm.pushData(name[0]);
         }
         return NOTHING;
-    }, `["set", <name>, <value>]
-["set", [<name>, <properties...>], <value>]
-["set", [<object>, <properties...>], <value>]
-
-Set the value of the variable in the environment in which it is defined. If it wasn't defined anywhere, throw a \`jeb:reference_error\`.
-If \`properties\` are given, the \`name\` will be looked up instead, and the properties will be used to index the object, and the last one will be used to set the property.`);
+    }, `.macro (set name value)
+..param {string} name
+..param {T} value
+.macro (set (name properties...) value)
+The properties will be used to index the object, and the last one will be used to set the property.
+..param {string} name
+..param {string} properties...
+..param {T} value
+..throws jeb:value_error - if the array of names is malformed
+.throws jeb:reference_error - if the value is not defined anywhere
+.returns {T}
+. Set the value of the variable in the environment in which it is defined, and returns the value.`);
 
     // MARK: error handling
     defineOpcode(vm, "jeb:throw", (vm, args) => {
@@ -339,25 +372,30 @@ If \`properties\` are given, the \`name\` will be looked up instead, and the pro
         // if there's nothing to catch the error, just throw it back to JavaScript
         vm.fatalError(type, message);
     },
-        `["jeb:throw", <type>, <message>, <restarts>]
-
-Triggers an error with the specified type, error, and restarts.
-This opcode does not return.`);
+        `.imm type message context
+.param {string} type
+.param {string} message
+.param {object} context
+.sed -- (does not return)
+. Triggers an error with the specified type, error, and context.`);
     defineBuiltin(vm, "error", 3, false, false, (args, vm) => {
         const type = args[0] as string;
         const error = args[1] as string;
-        const ctx = args[2] as Record<string, Continuation>;
+        const ctx = args[2] as object;
         vm.pushCommand("jeb:throw", type, error, ctx);
         return NOTHING;
-    }, `["error", <type>, <message>, <context>]
-
-Throw an error with the specified type, message, and context value. If we're inside a \`with\` block, it will trigger the \`exit\` handler of the context object to possibly handle the error. If the error is not handled, it will be thrown as a Javascript error, causing the program to halt.
+    }, `.func (error type message context)
+..param {string} type
+..param {string} message
+..param {object} context
+.returns {never}
+. Throw an error with the specified type, message, and context value. If we're inside a [[with]] block, it will trigger the \`exit\` handler of the context object to possibly handle the error. If the error is not handled, it will be thrown as a Javascript error, causing the program to halt.
 \`type\` is recommended to be a namespaced string, such as \`foo:bar\`, to prevent collisions.`);
     // MARK: with
     defineBuiltin(vm, "with", { min: 2, max: Infinity }, true, false, (args, vm) => {
         const binding = args[0];
         if (!isString(binding) && binding !== null) {
-            vm.pushCommand("jeb:throw", "jeb:type_error", "expected variable name or null as first argument to 'with'", {});
+            vm.pushCommand("jeb:throw", "jeb:type_error", "expected variable name or null as first argument to \"with\"", {});
             return;
         }
         const context = args[1];
@@ -372,12 +410,18 @@ Throw an error with the specified type, message, and context value. If we're ins
         vm.pushCommand("jeb:eval");
         vm.pushData(context);
         return NOTHING;
-    }, `["with", <varname>, <context>, <body...>]
-
-Used to manage error handling, contextual resources, and continuation tracking. The \`context\` should be an object with \`enter\` and/or \`exit\` properties, which are callable functions.
-When entering the block, the \`enter\` hook will be called with one parameter, \`true\` or \`false\` to indicate if the entry is due to a continuation or not. The first time the block is entered, the return value of the \`enter\` hook will be bound to the \`varname\`.
-When exiting the block, the \`exit\` hook will be called with four parameters - \`continuation\`, \`type\`, \`message\`, and \`context\`. \`continuation\` is as with the \`enter\` handler (indicating if the block exit is due to a continuation or not), and \`type\`, \`message\`, and \`context\` will be \`null\` if there is no error being handled, or non-\`null\` if there is an error in progess. The \`exit\` handler can return \`true\` to indicate that it has handled the error, and prevent it from propagating up the call stack.
-Some errors also include a *restart* as part of their \`context\` - this will be a continuation that when invoked, will jump back to the site of the error and resume execution with the substituted value.`);
+    }, `.macro (with varname context body...)
+..param {string | null} varname
+...receives {T} - Return value of the \`enter\` handler (if present)
+..param {object} handlers
+...prop {(continuation: boolean) => T} [enter=null]
+When entering the block, the \`enter\` hook will be called with \`true\` or \`false\` to indicate if the entry is due to a continuation or not. The first time the block is entered, the return value of the \`enter\` hook will be bound to the \`varname\`.
+...prop {(continuation: boolean, type: string | null, message: string | null, context: object | null) => boolean} exit
+When exiting the block, the \`exit\` hook will be called. \`continuation\` is as with the \`enter\` handler (indicating if the block exit is due to a continuation or not), and \`type\`, \`message\`, and \`context\` will be \`null\` if there is no error being handled, or non-\`null\` if there is an error in progess. The \`exit\` handler can return \`true\` to indicate that it has handled the error, and prevent it from propagating up the call stack.
+Some errors also include a *restart* as part of their \`context\` - this will be a continuation that when invoked, will jump back to the expression that caused the error and resume execution with the substituted value.
+..param {code} body...
+.throws jeb:type_error - if \`varname\` is null or \`handlers\` is not an object.
+. Used to manage error handling, contextual resources, and continuation tracking.`);
 
     defineOpcode(vm, "jeb:with/setup", (vm, args) => {
         // we just got the before and after handlers evaluated
@@ -415,9 +459,11 @@ Some errors also include a *restart* as part of their \`context\` - this will be
     }, null);
 
     // MARK: JS objects
-    defineBuiltin(vm, "nil?", 1, false, false, args => undefinedToNull(args[0]) === null, `["nil?", <value>]
-
-Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any other value (including \`false\`, \`""\`, or \`[]\`) is considered not-null, even though it might be falsy.`);
+    defineBuiltin(vm, "nil?", 1, false, false, args => undefinedToNull(args[0]) === null,
+        `.func (nil? value)
+..param {any} value
+.returns {boolean}
+. \`true\` if the object is Javascript \`undefined\` or \`null\`. Any other value (including \`false\`, \`""\`, or \`[]\`) is considered not-null, even though it might still be falsy.`);
 
     // MARK: lambda applier
     defineApplier(vm, new class extends Applier<Lambda> {
@@ -428,7 +474,7 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
             if (!lambda.isImplicit) vm.pushCommand("jeb:tb_push", this.getNameOf(lambda), tailcallHint);
             argsHelper(vm, args, !lambda.isMacro && !alreadyEvaluated);
         }
-        getNameOf = (lambda: Lambda) => lambda.isImplicit ? undefined : lambda.name ?? "[lambda]";
+        getNameOf = (lambda: Lambda) => lambda.isImplicit ? undefined : lambda.name ?? (lambda.isMacro ? "[macro]" : "[lambda]");
         getArity(lambda: Lambda) {
             const required = lambda.args.length;
             const optional = lambda.optArgs.length;
@@ -507,18 +553,17 @@ Returns \`true\` if the object is Javascript \`undefined\` or \`null\`. Any othe
                 }
             }
             return new Lambda(isMacro, isImplicit, undefined, required, optional, rest, body, vm.currentEnv, docstring);
-        }, `["${name}", [<parameters...:lambda>], <body...>]
-["${name}", [<parameters...:lambda>, true], <body...>]
-["${name}", [<parameters...:lambda>], <docstring:docstring>, <body...>]
-["${name}", true, [<parameters...:lambda>], <body...>]
-["${name}", true, [<parameters...:lambda>, true], <body...>]
-["${name}", true, [<parameters...:lambda>], <docstring:docstring>, <body...>]
-
-Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}
-If the last element of the argument list is the Boolean \`true\` the last named argument before it becomes a rest argument, that will be an array at runtime filled with all the arguments given after it.
-If the \`param\` in the parameters list is a 2-tuple \`[*name*, *default*]\`, then the parameter is optional, and if it is not provided then the value of \`default\` is evaluated in a dynamic environment of both the environment in which the ${name} was defined, as well as the environment from which it was called.
-If the first element of \`body\` is a string and there is something additional after it (so that it would otherwise be a no-op), the string is used as the documentation string.
-If the first element is \`true\` it is removed and the lambda is flagged as an implicit lambda, where the special \`return\` continuation is not injected.`);
+        },
+            `.macro (${kind} (parameters...) body...) | (${kind} (parameters... #t) body...) | (${kind} #t (parameters...) docstring body...)
+The form with \`#t\` right after the \`${kind}\` defines it as an implicit ${kind}, where the special \`return\` continuation is not injected and the call will not show up in the traceback of an error (it would normally show as \`[${kind}]\` unless assigned to a name).
+..param {string | [string, code]} parameters - list of parameter names
+If the param is a 2-tuple \`[*name*, *default*]\`, then the parameter is optional, and if it is not provided in a call, then the value of \`default\` is evaluated in a dynamic environment of both the environment in which the ${name} was defined, as well as the environment from which it was called.
+The form with \`#t\` at the end of the parameters list defines the last parameter name to be a rest parameter that will be an array at runtime filled with all the arguments given after it. It cannot have a default since defining it as a rest parameter implicitly defines the default as \`[]\`.
+..param {string} docstring - Defines the documentation string for this ${kind}. The first element of the body will only be interpreted as a docstring if there is at least one statement after it (rendering the string otherwise pointless).
+..param {code} body... - Statements to be executed in sequence (as with [[begin]]) to calculate the return value of the ${name}.
+...injected {Continuation} return - if the first element after the \`${kind}\` is not \`#t\`, a continuation jumping back to where the ${kind} was called from is injected into the \`return\` variable.
+.returns {Lambda}
+. Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}`);
     }
     lambdaHelper("lambda", false, "function", "");
     lambdaHelper("macro", true, "macro", "\nA macro differs from a normal function in that its arguments are passed in *before* being evaluated, so the macro body has access to the actual code passed in; additionally, the return value of the macro is expected to be code as well, and is evaluated again the the scope that the macro was called from.");
@@ -539,7 +584,7 @@ If the first element is \`true\` it is removed and the lambda is flagged as an i
         const condition = vm.popData();
         const then = args[0];
         const else_ = args[1];
-        const isAsm = args[2] || false;
+        const isAsm = args[2];
         if (isAsm) {
             // @ts-ignore
             if (condition) { if (then) vm.pushCommand(...then); } else if (else_) vm.pushCommand(...else_);
@@ -548,11 +593,20 @@ If the first element is \`true\` it is removed and the lambda is flagged as an i
             vm.pushCommand("jeb:eval", true);
         }
     },
-        `["jeb:if", <then>, <else>, <isAsm?>]
-
+        `.imm then else isAsm
 Pops the top stack value, and if it's truthy, evaluates \`then\`, and if it's falsy, evaluates \`else\`.
-If \`isAsm\` is true, the \`then\` and \`else\` are interpreted as individual opcodes and the selected one is executed directly instead if it is not null.`);
+..param {false?} isAsm
+..param {code | null} then
+..param {code | null} else
+..sed condition -- result
+.imm then else isAsm
+Pops the top stack value, and if it's truthy, queues \`then\` to be executed as a command, and if it's falsy queues \`else\`.
+..param {true} isAsm
+..param {Command | null} then
+..param {Command | null} else
+..sed condition -- ???`);
 
+    // MARK: Scheme analogs
     defineBuiltin(vm, "if", { min: 2, max: 3 }, true, false, (args, vm) => {
         const condition = args[0];
         const then = args[1];
@@ -561,15 +615,17 @@ If \`isAsm\` is true, the \`then\` and \`else\` are interpreted as individual op
         vm.pushCommand("jeb:eval");
         vm.pushData(condition);
         return NOTHING;
-    }, `["if", <condition>, <code if true:newline>, <code if false>]
+    }, `.macro (if cond then else)
+..param {code} cond - condition; always evaluated
+..param {code} then - case to be evaluated if \`cond\` is truthy
+..param {code} [else=null] - case to be evaluated if \`cond\` is falsy
+.returns {any}`);
 
-Evaluates \`condition\`, and then chooses one of the two branches depending on whether the condition was truthy or falsy. The false branch can be omitted; if there is no false branch and the condition is falsy, the return value is \`null\`.`);
-
-    // MARK: Scheme analogs
     defineBuiltin(vm, "begin", null, true, false, (args, vm) => implicitBegin(vm, args),
-        `["begin", <statements...>]
-
-Runs each of the body statements in order, and returns the result from the last one. If there are no body statements, the result is \`null\`.`);
+        `.macro (begin body...)
+..param {code} body...
+.returns {any | null} - null if \`body\` is empty, otherwise returns the result of the last body statement
+. Runs each of the body statements in order.`);
 
     defineBuiltin(vm, "let", null, true, false, (args, vm) => {
         if (isString(args[0])) {
@@ -590,11 +646,13 @@ Runs each of the body statements in order, and returns the result from the last 
         }
         vm.pushCommand("jeb:eval");
         return NOTHING;
-    }, `["let", [<pairs...:let>], <body...>]
-["let", <loopname:defvar>, [<pairs...:let>], <body...>]
-
-Each one of the \`pairs\` is a 2-tuple \`[*name*, *expression*]\`. Each of the expressions will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.
-The second form, where the first argument is a string, allows the lambda body to recursively call itself with new values for each of the variables.`);
+    }, `.macro (let pairs body...)
+.macro (let loopname pairs body...)
+..param {string} loopname - variable name in which a reference to the entire \`let\` is put. \`let\` just expands to a [[lambda]] expression, and the loopname variable allows \`body\` to recursively call that lambda.
+...receives {(...names: (typeof pairs)[number][1]) => any}
+.param {[name: string, expression: code][]} pairs
+.param {code} body...
+. Each of the pairs' *expression*s will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.`);
 
     defineBuiltin(vm, "define", null, true, false, (args, vm) => {
         const name = args[0] as string | string[];
@@ -627,16 +685,22 @@ The second form, where the first argument is a string, allows the lambda body to
             vm.pushCommand("jeb:throw", "jeb:syntax_error", "invalid define syntax", {});
         }
         return NOTHING;
-    }, `["define", <varname:defvar>, <value>]
-["define", [<name:defun>, <params...:lambda>], <docstring:docstringnewline>, <body...>]
-["define", [<name:defun>, <params...:lambda>], <body...>]
-["define", true, [<name:defmacro>, <params...:lambda>], <docstring:docstringnewline>, <body...>]
-["define", true, [<name:defmacro>, <params...:lambda>], <body...>]
-
-Defines a new constant in the current scope.
-The first form is a straight \`name=value\`.
-The second one expands into a [[lambda]] with the specified name, docstring, parameters, and body (allowing for both rest parameters and the docstring).
-The third form (with \`true\`) expands to a [[macro]] in the same way.`);
+    }, `.macro (define name value)
+Defines a simple name=value.
+..param {string} name
+...receives {T}
+..param {T} value
+.macro (define (name params...) body...)
+Expands into a [[lambda]].
+..param {string} name
+..param {...} params...
+..param {code} body...
+.macro (define #t (name params...) body...)
+Expands into a [[macro]].
+..param {string} name
+..param {...} params...
+..param {code} body...
+. Defines a new constant value in the current scope.`);
 
     // MARK: Operators
     const mathHelper = (operator: string, operation: Operation, identity: number,
@@ -663,9 +727,10 @@ The third form (with \`true\`) expands to a [[macro]] in the same way.`);
                 acc = res.data;
             }
             return acc;
-        }, `["${operator}", <values...>]
-
-${doc}`);
+        }, `.func (${operator} values...)
+..param {any} values...
+.throws jeb:type_error - if no overload was found for the given argument types
+. ${doc}`);
         vm.math.overload(operation, [["number"], ["number"]], (a, b) => Ok(numnum(a, b)));
         vm.math.overload(operation, [["bigint"], ["bigint"]], (a, b) => Ok(bigbig(a, b)));
         vm.math.overload(operation, [["bigint"], ["number"]], (a, b) => Ok(bignum(a, b)));
@@ -699,9 +764,9 @@ ${doc}`);
     mathHelper("bit-or", "bitOr", 0, bitOrNumbers, bitOrNumbers, bitOrNumbers, bitOrNumbers, id, id, "Computes the bitwise OR of all numbers.");
     const bitXorNumbers = numberOp((a, b) => a ^ b);
     mathHelper("bit-xor", "bitXor", 0, bitXorNumbers, bitXorNumbers, bitXorNumbers, bitXorNumbers, id, id, "Computes the bitwise XOR of all numbers.");
-    defineBuiltin(vm, "bit-inv", 1, false, false, a => ~a[0], `["bit-inv", <number>]
-
-Computes the two's complement signed bitwise inverse of the number.`);
+    defineBuiltin(vm, "bit-inv", 1, false, false, a => ~a[0], `.func (bit-inv number)
+..param {number} number
+. Computes the two's complement signed bitwise inverse of the number.`);
 
     // comparisons
     const comparisonHelper = (op: string, bits: number, doc: string) => {
@@ -719,9 +784,9 @@ Computes the two's complement signed bitwise inverse of the number.`);
             }
             return true;
         },
-            `["${op}", <numbers...>]
-
-${doc}`);
+            `.func (${op} numbers...)
+..param {number} numbers...
+. ${doc}`);
     }
     const compDocHelper = (phrase: string) => `True if the sequence of numbers is strictly ${phrase} when read from left to right.`;
     for (var [name, bits, doc] of ([
@@ -742,9 +807,10 @@ ${doc}`);
     });
 
     // MARK: booleans
-    defineBuiltin(vm, "not", 1, false, false, args => !args[0], `["not", <value>]
-
-Boolean inverse. True if \`value\` is falsy (false, zero, undefined, null, or empty string), false otherwise.`);
+    defineBuiltin(vm, "not", 1, false, false, args => !args[0], `.func (not value)
+..param {any} value
+.returns {boolean} - True if \`value\` is falsy (false, zero, undefined, null, or empty string), false otherwise.
+. Boolean inverse.`);
     const booleanHelper = (name: string, shortCircuitOn: boolean) => {
         defineBuiltin(vm, name, null, true, true, (args: any[], vm: JebVM) => {
             if (args.length === 0) {
@@ -760,23 +826,24 @@ Boolean inverse. True if \`value\` is falsy (false, zero, undefined, null, or em
             ], args[0]]);
             vm.pushCommand("jeb:eval", true);
             return NOTHING;
-        }, `["${name}", <values...>]
-
-Boolean ${name.toUpperCase()} (short-circuits)`);
+        }, `.func (${name} values...)
+..param {any} values...
+. Boolean ${name.toUpperCase()} (short-circuits)`);
     }
     booleanHelper("and", false);
     booleanHelper("or", true);
 
     // MARK: lists
-    defineBuiltin(vm, "list", null, false, false, a => a, `["list", <values...>]
-
-Returns the arguments in a list`);
-    defineBuiltin(vm, "head", 1, false, false, a => a[0][0], `["head", <list>]
-
-Returns the first element of the list`);
-    defineBuiltin(vm, "tail", 1, false, false, a => a[0].slice(1), `["tail", <list>]
-
-Returns a copy of the list without the first element`);
+    defineBuiltin(vm, "list", null, false, false, a => a, `.func (list values...)
+..param {T} values...
+.returns {T[]}
+. Returns the arguments in a list.`);
+    defineBuiltin(vm, "head", 1, false, false, a => a[0][0], `.func (head list)
+..param {T[]} list
+.returns {T} - The first element in the list`);
+    defineBuiltin(vm, "tail", 1, false, false, a => a[0].slice(1), `.func (tail list)
+..param {T[]} list
+..returns {T[]} - A copy of the list without the first element`);
     defineBuiltin(vm, "concat", null, false, false, args => {
         const out: any[] = [];
         for (var arg of args) {
@@ -788,15 +855,17 @@ Returns a copy of the list without the first element`);
             }
         }
         return out;
-    }, `["concat", <lists...>]
-
-Concatenates the lists, and returns a new list. If an argument is not a list, the value is coerced to a list using the Javascript \`...\` spread operator.`)
+    }, `.func (concat lists...)
+..param {T[]} lists...
+If an argument is not a list, the value is coerced to a list using the Javascript \`...\` spread operator.
+.returns {T[]}
+. Concatenates the lists, and returns a new list.`)
 
     // MARK: metaprogramming
-    defineBuiltin(vm, "quote", 1, true, false, a => a[0], `["quote", <value:quoted>]
-["'", <value:quoted>]
-
-Prevents its argument from being evaluated.`);
+    defineBuiltin(vm, "quote", 1, true, false, a => a[0], `.macro (quote expr) | (' expr) | 'expr
+..param {code} expr
+.returns {code}
+. Prevents its argument from being evaluated.`);
     alias(vm, "quote", "'");
     defineBuiltin(vm, QUASIQUOTE_NAME, 1, true, true, (args, vm) =>
         processQuasiquote(vm, args[0], 1).else(error => {
@@ -805,39 +874,39 @@ Prevents its argument from being evaluated.`);
             });
             return NOTHING;
         }),
-        `["quasiquote", <value>]
-["~", <value>]
-
-Prevents its argument from being evaluated, but walks the elements and replaces [[${UNQUOTE_NAME}]] and [[${UNQUOTE_SPLICING_NAME}]] with the results of evaluating their arguments. The argument to [[${UNQUOTE_SPLICING_NAME}]] must be a list.`);
+        `.macro (${QUASIQUOTE_NAME} value) | (~ value) | ~value
+..param {any} value
+.returns {any}
+. Prevents \`value\` from being evaluated, but walks the elements and replaces [[${UNQUOTE_NAME}]] and [[${UNQUOTE_SPLICING_NAME}]] with the results of evaluating their arguments. The argument to [[${UNQUOTE_SPLICING_NAME}]] must be a list.`);
     alias(vm, QUASIQUOTE_NAME, "~");
 
     defineBuiltin(vm, UNQUOTE_NAME, 1, false, false, (_, vm) => (vm.pushCommand("jeb:throw", "jeb:syntax_error", UNQUOTE_NAME + " not valid outside of quasiquote", {
         return: vm.cc(),
-    }), NOTHING), `["${UNQUOTE_NAME}", <value>]
-[",", <value>]
-
-Marks a value to be interpolated inside a [[${QUASIQUOTE_NAME}]].
-This is not valid outside of a [[${QUASIQUOTE_NAME}]] and will throw an error if called as a normal function.`);
+    }), NOTHING), `.macro (${UNQUOTE_NAME} value) | (, value) | ,value
+.returns {never}
+.throws jeb:syntax_error - when called as a normal function outside of a [[${QUASIQUOTE_NAME}]].
+. Marks a value to be interpolated inside a [[${QUASIQUOTE_NAME}]].`);
     defineBuiltin(vm, UNQUOTE_SPLICING_NAME, 1, false, false, (_, vm) => (vm.pushCommand("jeb:throw", "jeb:syntax_error", UNQUOTE_SPLICING_NAME + " not valid outside of quasiquote", {
         return: vm.cc(),
-    }), NOTHING), `["${UNQUOTE_SPLICING_NAME}", <value>]
-[",@", <value>]
-
-Marks a list to be interpolated via splicing inside a [[${QUASIQUOTE_NAME}]].
-This is not valid outside of a [[${QUASIQUOTE_NAME}]] and will throw an error if called as a normal function.`);
+    }), NOTHING), `.macro (${UNQUOTE_SPLICING_NAME} value) | (,@ value) | ,@value
+.returns {never}
+.throws jeb:syntax_error - when called as a normal function outside of a [[${QUASIQUOTE_NAME}]].
+. Marks a list to be interpolated via splicing inside a [[${QUASIQUOTE_NAME}]].`);
     alias(vm, UNQUOTE_NAME, ",");
     alias(vm, UNQUOTE_SPLICING_NAME, ",@");
 
     defineBuiltin(vm, "parseJSON", 1, false, false, (args, vm) => wrapThrowToError(vm, "jeb:value_error", () => parse(args[0])),
-        `["parseJSON", <string>]
-
-Parses the string using \`JSON.parse()\`, and returns the result.
-Will throw a \`jeb:value_error\` if it couldn't be parsed.`);
+        `.func (parseJSON json)
+..param {string} json
+.throws jeb:value_error - if the string is not valid JSON
+.returns {any}
+. Parses the string using \`JSON.parse()\` and returns the object.`);
     defineBuiltin(vm, "dumpJSON", 1, false, false, (args, vm) => wrapThrowToError(vm, "jeb:value_error", () => stringify(args[0])),
-        `["dumpJSON", <value>]
-
-Dumps the value to string using \`JSON.stringify()\`, and returns the serialized JSON.
-Will throw a \`jeb:value_error\` if there is something that can't be serialized, such as a function or circular reference.`);
+        `.func (dumpJSON value)
+..param {any} value
+.throws jeb:value_error - if \`value\` contains something that can't be serialized, such as a function or circular reference
+.returns {string}
+. Stringifies the object to JSON using \`JSON.stringify()\`.`);
 
     // MARK: FFI calling
     defineApplier(vm, new class extends Applier<"function"> {
@@ -868,56 +937,62 @@ Will throw a \`jeb:value_error\` if there is something that can't be serialized,
     // MARK: JSON based standard library!
     const standardLibrary = ["begin",
         ["define", true, ["comment", "items", true],
-            `["comment", <items...:comment>]
-["#;", <items...:comment>]
-
-Skips evaluating the items and returns null immediately.`,
+            `.macro (comment items...) | (#; items...) | #;(items...)
+..param {any} items
+.returns {null}
+. Skips evaluating the items and returns null immediately.`,
             null],
         ["define", "#;", ["$", "comment"]],
         ["define", true, ["uncomment", "items", true],
-            `["uncomment", <items...:newline>]
-["!;", <items...:newline>]
-
-Evaluates the items as with [[begin]].`,
-            ["define", "!;", ["$", "uncomment"]],
+            `.macro (uncomment items...) | (!; items...) | !;(items...)
+..param {any} items
+. Evaluates the items as with [[begin]].`,
             [QUASIQUOTE_NAME, ["begin", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]]],
+        ["define", "!;", ["$", "uncomment"]],
         ["define", ["call-with-current-continuation", "f"],
-            `["call-with-current-continuation", <function>]
-["call/cc", <function>]
-
-Calls the function with a *continuation*, which is a special callable object. When the continuation is called with one argument, it will not return normally, and instead jump back to the place where \`call/cc\` was created from and make the \`call/cc\` return the given value instead - *even if* the \`call/cc\` expression has already returned!
+            `.func (call-with-current-continuation f) | (call/cc f)
+..param {(k: Continuation) => any} f
+.returns {any} - possibly multiple times if the continuation is invoked later
+. Calls the function with a *continuation*, which is a special callable object. When the continuation is called with one argument, it will not return normally, and instead jump back to the place where \`call/cc\` was created from and make the \`call/cc\` return the given value instead - *even if* the \`call/cc\` expression has already returned!
 Invoking a continuation will cause the \`enter\` and \`exit\` handlers of [[with]] blocks jumped across to be triggered with \`true\` to indicate it was due to a continuation.
 Continuations can be used for very complex control structures and can be incredibly confusing to debug, so use with care.`,
             ["f", ["$", "return"]]],
         ["define", "call/cc", ["$", "call-with-current-continuation"]],
         ["define", true, ["when", "test", "body", true],
-            `["when", <condition>, <body...>]
-
-If \`condition\` is truthy, runs \`body\` as with [[begin]].
-(Equivalent to \`["[[if]]", *condition*, ["[[begin]]", *body...*]]\`.)`,
+            `.macro (when test body...)
+..param {boolean} test
+..param {code => T} body
+.returns {T | null}
+. If \`condition\` is truthy, runs \`body\` as with [[begin]].
+(Equivalent to \`([[if]] condition ([[begin]] body...))\`.)`,
             [QUASIQUOTE_NAME,
                 ["if", [UNQUOTE_NAME, ["$", "test"]],
                     ["begin", [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]]],
         ["define", true, ["unless", "test", "body", true],
-            `["unless", <condition>, <body...>]
-
-If \`condition\` is falsy, runs \`body\` as with [[begin]].
-(Equivalent to \`["[[if]]", *condition*, null, ["[[begin]]", *body...*]]\`.)`,
+            `.macro (unless test body...)
+..param {boolean} test
+..param {code => T} body
+.returns {T | null}
+. If \`condition\` is falsy, runs \`body\` as with [[begin]].
+(Equivalent to \`([[when]] ([[not]] condition) body...)\`.)`,
             [QUASIQUOTE_NAME,
                 ["if", [UNQUOTE_NAME, ["$", "test"]],
                     null,
                     ["begin", [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]]],
         ["define", true, ["try", "body", "handlers"],
-            `["try", <body>, <handlers>]
-
-Catches and handles errors. The \`handlers\` is an object mapping error type to handler function.
+            `.macro (try body handlers)
+..param {code} body - single statement that forms the body. If you need more than one statement, use [[begin]].
+..param {object} handlers
+...prop {(message: string, context: object) => any} (name) - called for the error with \`type\` equal to \`name\` (where \`name\` is the property name of the object).
+...prop {(type: string, message: string, context: object) => any} "*" - called if an error is thrown, but no specific handler matched it
+...prop {() => any} else - called if no error is thrown
+. Catches and handles errors.
 During evaluation of the body, if an error is thrown, the error's \`type\` (as returned by [[with]]) will be checked to see if it's in the handlers, and if it is, the handler is called with the \`message\` and \`context\` of the error.
-If no handler directly matches, the special catch-all handler \`"\\*"\` is tried, and if it exists, it is called with \`type\`, \`message\` and \`context\`.
-In both cases if the handler exists, \`true\` is returned to [[with]] to stop propagation of the error. If the handler wants to propagate the error, it should re-throw it using [[error]].
-If \`body\` exits cleanly with no error, the special \`"else"\` handler is called with no arguments, if present.`,
+If no handler directly matches, the special catch-all handler \`"\\*"\` is tried.
+In both cases if the handler exists, \`true\` is returned to [[with]] to stop propagation of the error. If the handler wants to propagate the error, it should re-throw it using [[error]].`,
             [QUASIQUOTE_NAME, ["let", [["handlers", [UNQUOTE_NAME, ["$", "handlers"]]]],
                 ["with", null, {
-                    exit: ["lambda", ["k", "type", "value", "ctx"],
+                    exit: ["lambda", ["k", "type", "message", "ctx"],
                         ["let",
                             [
                                 ["handler", ["$", ["handlers", ["$", "type"]]]],
@@ -928,18 +1003,19 @@ If \`body\` exits cleanly with no error, the special \`"else"\` handler is calle
                                 ["when", ["$", "elseHandler"], ["elseHandler"]],
                                 ["return", true]],
                             ["when", ["$", "handler"],
-                                ["handler", ["$", "value"], ["$", "ctx"]],
+                                ["handler", ["$", "message"], ["$", "ctx"]],
                                 ["return", true]],
                             ["when", ["$", "starHandler"],
-                                ["starHandler", ["$", "type"], ["$", "value"], ["$", "ctx"]],
+                                ["starHandler", ["$", "type"], ["$", "message"], ["$", "ctx"]],
                                 ["return", true]],
                             false]],
                 },
                     [UNQUOTE_NAME, ["$", "body"]]]]]],
         ["define", true, ["with-baffle", "body", true],
-            `["with-baffle", <body...>]
-
-Prevents continuations from jumping in or out of \`body\`; only normal control flow or exceptions can be used to enter or exit.`,
+            `.macro (with-baffle body...)
+..param {code} body... - evaluated as with [[begin]]
+.throws jeb:state_error - if a continuation tries to jump in or out.
+. Prevents continuations from jumping in or out of \`body\`; only normal control flow or exceptions can be used to enter or exit.`,
             [QUASIQUOTE_NAME, ["with", null, {
                 enter: ["lambda", ["k"],
                     ["when", ["$", "k"],
@@ -951,18 +1027,20 @@ Prevents continuations from jumping in or out of \`body\`; only normal control f
                     false]
             },
                 [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]],
-        ["define", ["length", "x"], `["length", <value>]
-
-Returns the length of the value (list or string)`,
+        ["define", ["length", "x"], `.func (length value)
+..param {any[] | string} value
+.returns {number} - the length of \`value\``,
             ["$", ["x", "length"]]],
-        ["define", ["zero?", "x"], `["length", <value>]
-
-Returns true if the value is zero.`,
+        ["define", ["zero?", "x"], `.func (zero? value)
+..param {number} value
+.returns {boolean} - true if \`value\` is zero`,
             ["=", ["$", "x"], 0]],
         ["define", true, ["|>", "value", "items", true],
-            `["|>", <value>, <expressions...>]
-
-Pipes the \`value\` as the variable \`#\` into the next expression, and then the result of it becomes the next \`#\`, etc. until all expressions have been evaluated.
+            `.macro (|> value expressions...)
+..param {any} value
+..param {code} expressions...
+...injected {any} "#"
+. Pipes the \`value\` as the variable \`#\` into the next expression, and then the result of it becomes the next \`#\`, etc. until all expressions have been evaluated.
 This is analogous to Javascript's proposed pipe operator, specifically the Hack style but using \`#\` for the placeholder instead of \`%\`.`,
             ["if", ["zero?", ["length", ["$", "items"]]],
                 ["$", "value"],
@@ -971,11 +1049,11 @@ This is analogous to Javascript's proposed pipe operator, specifically the Hack 
                         ["|>", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]],
                     [UNQUOTE_NAME, ["$", "value"]]]]]],
         ["define", true, ["reset", "name", "value"],
-            `["reset", <name>, <value>]
-["reset", [<name>, <properties...>], <value>]
-["reset", [<object>, <properties...>], <value>]
-
-Analogous to [[set]], except the result of the expression is the *old* value of \`name\`, not the new one.
+            `.macro (reset name value) | (reset (name properties...) value)
+..param value
+...injected {T} _ - old value of the \`name\` expression
+.returns {T} - old value of the \`name\` expression
+. Analogous to [[set]], except the result of the expression is the *old* value of \`name\`, not the new one.
 The \`value\` expression will have access to the old value in the variable \`_\`.`,
             [QUASIQUOTE_NAME,
                 ["let",
@@ -987,9 +1065,13 @@ The \`value\` expression will have access to the old value in the variable \`_\`
                     ["set", [UNQUOTE_NAME, ["$", "name"]], [UNQUOTE_NAME, ["$", "value"]]],
                     ["$", "_"]]]],
         ["define", ["reduce", "list", "f", "value"],
-            `["reduce", <list>, <function>, <value>]
-
-Repeatedly call the function with 2 arguments; the first one is the current \`value\` and the second is each element of \`list\` in turn. The return value will be the new \`value\` for the next element.`,
+            `.func (reduce list function value)
+..param {T[]} list
+..param {(value: R, item: T) => R} function
+..param {R} value
+.returns {R}
+. Repeatedly call the function with 2 arguments; the first one is the current \`value\` and the second is each element of \`list\` in turn. The return value will be the new \`value\` for the next element.
+When the list is empty, returns the accumulated value.`,
             // must be recursive because continuations
             // TODO: make this more tail-recursive? it seems to blow the stack for long lists
             ["if", ["zero?", ["length", ["$", "list"]]],
@@ -999,9 +1081,11 @@ Repeatedly call the function with 2 arguments; the first one is the current \`va
                     ["$", "f"],
                     ["f", ["$", "value"], ["head", ["$", "list"]]]]]],
         ["define", ["map", "list_", "f"],
-            `["map", <list>, <function>]
-
-Return a new list with the result of applying the function to each element of the list in order.`,
+            `.func (map list function)
+..param {T[]} list
+..param {(x: T) => R} function
+.returns {R[]}
+. Return a new list with the result of applying the function to each element of the list in order.`,
             ["reduce",
                 ["$", "list_"],
                 ["lambda", ["acc", "cur"],
