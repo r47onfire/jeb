@@ -55,6 +55,8 @@ describe("tag parsing ok", () => {
             ["simple param", ".t {a} b - c", { tag: "t", type: "a", name: "b", flags: [], default: undefined, description: [["p", "c"]] }],
             ["optional param", ".t {a} [b=c] - d", { tag: "t", type: "a", name: "b", flags: [], default: "c", description: [["p", "d"]] }],
             ["rest param", ".t {a} b...", { tag: "t", type: "a", name: "b", flags: ["rest"], default: undefined, description: [] }],
+            ["lazy param", ".t {a} @b", { tag: "t", type: "a", name: "b", flags: ["lazy"], default: undefined, description: [] }],
+            ["lazy rest param", ".t {a} @b...", { tag: "t", type: "a", name: "b", flags: ["lazy", "rest"], default: undefined, description: [] }],
             ["complex type", ".t {(a: b) => c} d - e", { tag: "t", type: "(a: b) => c", name: "d", flags: [], default: undefined, description: [["p", "e"]] }],
             ["union type", ".t {a | [b, c]} d - e", { tag: "t", type: "a | [b, c]", name: "d", flags: [], default: undefined, description: [["p", "e"]] }],
             ["quoted default", ".t {a} [b=\"c\"] - d", { tag: "t", type: "a", name: "b", flags: [], default: "\"c\"", description: [["p", "d"]] }],
