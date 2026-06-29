@@ -10,7 +10,7 @@ import { Continuation, DynamicWind, Windable } from "../continuation";
 import { Env } from "../env";
 import { resultToError, wrapThrowToError } from "../errors";
 import { float, numberOp } from "../math";
-import { Operation, typeMatches } from "../overload";
+import { Operation, theTypeName, typeMatches, typeOf } from "../overload";
 import { Applier, JebVM } from "../vm";
 import { alias, argsHelper, defineApplier, defineBuiltin, defineOpcode, implicitBegin, NOTHING } from "./utils";
 
@@ -126,18 +126,18 @@ Examples:
         applier.apply(func, alreadyEvaluated, tailcallHint, values, vm);
     },
         `.imm expressions alreadyEvaluated tailcall
-..param {code} expressions
+..param {code[]} expressions
 ..param {false} alreadyEvaluated
 ..param {boolean?} [tailcall=false]
 .imm values alreadyEvaluated tailcall
-..param {data} values
+..param {any[]} values
 ..param {true} alreadyEvaluated
 ..param {boolean?} [tailcall=false]
 .sed functor -- result
 .throws jeb:type_error - when the object is not callable
 .throws jeb:value_error - when the argument count is wrong
 . Pops the top value from the stack and calls it with the provided arguments.
-If the \`alreadyEvaluated\` is false, the arguments are interpreted as unevaluated expressions and the applier for the function or macro can choose to evaluate or not evaluate them.
+If \`alreadyEvaluated\` is false, the arguments are interpreted as unevaluated expressions and the applier for the function or macro can choose to evaluate or not evaluate them.
 If \`alreadyEvaluated\` is true, they are interpreted as values and the applier should not evaluate them, even if it isn't a macro.`);
     // MARK: string applier
     defineApplier(vm, new class extends Applier<"string"> {
@@ -152,6 +152,8 @@ If \`alreadyEvaluated\` is true, they are interpreted as values and the applier 
         getNameOf = () => undefined;
         getArity = () => null;
         getIsMacro = () => false;
+        doc = `Applying a string is shorthand for looking up the variable with the same name as the string and calling that instead.
+As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the former would be invalid in conventional Lisp.`;
     });
     // MARK: builtin applier
     defineApplier(vm, new class extends Applier<BuiltinFunction> {
@@ -164,6 +166,7 @@ If \`alreadyEvaluated\` is true, they are interpreted as values and the applier 
         getNameOf = (func: BuiltinFunction) => func.name;
         getArity = (func: BuiltinFunction) => func.arity;
         getIsMacro = (func: BuiltinFunction) => func.resultIsMacro;
+        doc = "Wrapper for a Javascript function that gives it a few properties to make it easier for JEB to call it.";
     });
     defineOpcode(vm, "jeb:exec/builtin", (vm, args) => {
         const func = args[0] as BuiltinFunction;
@@ -485,6 +488,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
             };
         }
         getIsMacro = (lambda: Lambda) => lambda.isMacro;
+        doc = "\"Compiled\" wrapper for a function or macro defined entirely out of JEB code (which is just JSON)."
     });
     defineOpcode(vm, "jeb:apply/resetEnv", (vm, args) => {
         vm.currentEnv = args[0] as Env;
@@ -571,13 +575,22 @@ The form with \`#t\` at the end of the parameters list defines the last paramete
     // MARK: continuation applier
     defineApplier(vm, new class extends Applier<Continuation> {
         constructor() { super(Continuation); }
-        apply(cont: Continuation, _: boolean, __: boolean, args: any[], vm: JebVM) {
-            cont.invoke(vm, args[0]);
+        apply(cont: Continuation, alreadyEvaluated: boolean, _: boolean, args: any[], vm: JebVM) {
+            vm.pushCommand("jeb:exec/cont", cont);
+            if (!alreadyEvaluated) {
+                vm.pushCommand("jeb:eval");
+            }
+            vm.pushData(args[0]);
         }
         getNameOf = () => undefined;
         getArity = () => 1;
         getIsMacro = () => false;
+        doc = "Reified GOTO which will jump back to the place it was captured from and return from there instead of returning from where it was called from like usual."
     });
+    defineOpcode(vm, "jeb:exec/cont", (vm, args) => {
+        const cont = args[0] as Continuation;
+        cont.invoke(vm, vm.popData());
+    }, null);
 
     // MARK: logic
     defineOpcode(vm, "jeb:if", (vm, args) => {
@@ -784,14 +797,14 @@ Expands into a [[macro]].
             }
             return true;
         },
-            `.func (${op} numbers...)
-..param {number} numbers...
+            `.func (${op} items...)
+..param {number | string} items...
 . ${doc}`);
     }
-    const compDocHelper = (phrase: string) => `True if the sequence of numbers is strictly ${phrase} when read from left to right.`;
+    const compDocHelper = (phrase: string) => `True if the sequence of items is strictly ${phrase} when read from left to right.`;
     for (var [name, bits, doc] of ([
-        ["=", 4, "True if all of the numbers are equal."],
-        ["!=", 3, "True if no adjacent pair of numbers are equal."],
+        ["=", 4, "True if all of the items are equal."],
+        ["!=", 3, "True if no adjacent pair of items are equal."],
         ["<", 2, compDocHelper("increasing")],
         [">", 1, compDocHelper("decreasing")],
         ["<=", 6, compDocHelper("nondecreasing")],
@@ -799,11 +812,18 @@ Expands into a [[macro]].
     ] as [string, number, string][])) {
         comparisonHelper(name, bits, doc);
     }
-    vm.math.overload("cmp", [["number", "bigint"], ["number", "bigint"], ["number"]], (a, b, c) => {
+    const compareFn = (a: any, b: any, c: number) => {
         if (a == b) return Ok(!!(c & 4));
         if (a < b) return Ok(!!(c & 2));
         if (a > b) return Ok(!!(c & 1));
         throw "unreachable";
+    };
+    vm.math.overload("cmp", [["number", "bigint"], ["number", "bigint"], ["number"]], compareFn);
+    vm.math.overload("cmp", [["string"], ["string"], ["number"]], compareFn);
+    vm.math.overload("cmp", [[null], [null], ["number"]], (a, b, c) => {
+        if (a === b) return Ok(!!(c & 4));
+        if ((!!(c & 2)) !== (!!(c & 1))) return Err(`No ordering defined for ${stringify(theTypeName(typeOf(a)))} and ${stringify(theTypeName(typeOf(b)))}`);
+        return Ok(!!(c & 1));
     });
 
     // MARK: booleans
@@ -917,20 +937,17 @@ If an argument is not a list, the value is coerced to a list using the Javascrip
             argsHelper(vm, args, !alreadyEvaluated);
         }
         getNameOf = (f: Function) => `[function ${f.name}]`;
-        getArity(f: Function) {
-            return {
-                min: 0,
-                max: f.length,
-            };
-        }
+        getArity = () => null;
         getIsMacro = (f: any) => !!f.MACRO;
+        doc = `JEB's FFI can call Javascript functions. JEB does not check the \`.length\` of the function since it is wrong in some cases.
+.throws jeb:ffi_error - if the FFI'ed function throws an error`
     });
 
     defineOpcode(vm, "jeb:exec/callFFI", (vm, args) => {
         const f = args[0] as Function;
         const argc = args[1] as number;
         const argv = vm.popNData(argc).reverse();
-        const result = wrapThrowToError(vm, "jeb:value_error", () => f.apply(null, argv));
+        const result = wrapThrowToError(vm, "jeb:ffi_error", () => f.apply(null, argv));
         if (result !== NOTHING) vm.pushData(result);
     }, null);
 

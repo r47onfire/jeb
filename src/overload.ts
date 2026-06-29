@@ -38,6 +38,10 @@ export function typeMatches(obj: any, type: Type): number {
         return obj instanceof type ? 3 : 0;
     }
 }
+
+export const theTypeName = (type: Type) => isString(type) ? type : type?.name;
+export const typeOf = (x: any): Type => { const t = typeof x; if (t === "object" && x.constructor !== Object) return x.constructor; else return t; }
+
 // MARK: Operator overloading
 /**
  * Key = operator arity (1, 2 or 3 typically)
@@ -114,7 +118,7 @@ export class Arithmetic {
                 const item = args[i];
                 const unionScoreRaw = typeUnion.map(type => {
                     const score = typeMatches(item, type);
-                    if (score > 0) typeNames[i] ??= isString(type) ? type : type?.name;
+                    if (score > 0) typeNames[i] ??= theTypeName(type);
                     return score;
                 }).reduce(add, 0);
                 return pow(unionScoreRaw, 1 / typeUnion.length);

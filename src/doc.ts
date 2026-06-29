@@ -1,6 +1,7 @@
 import { isArray, last } from "lib0/array";
 import { isString } from "lib0/function";
 import { stringify } from "lib0/json";
+import type { Applier } from "./vm";
 
 /**
  * Documentation tree markup node
@@ -172,13 +173,16 @@ export const FuncOrMacroTag: DocMetadataParser = (lines, tag) => {
     }
 };
 
+const deprecatedFunction = /* @__PURE__ */ deprecateTag("func", FuncOrMacroTag);
+const deprecatedReturn = /* @__PURE__ */ deprecateTag("returns", ReturnsTag);
+
 /**
  * Metadata parsers used for the high(er)-level JEB function or macro docstrings
  */
 export const FunctionOrMacroParsers: Record<string, DocMetadataParser> = {
     func: FuncOrMacroTag,
     macro: FuncOrMacroTag,
-    function: deprecateTag("func", FuncOrMacroTag),
+    function: deprecatedFunction,
     // code block gets a special var injected
     injected: ParamTag,
     // Param of function or macro
@@ -190,7 +194,18 @@ export const FunctionOrMacroParsers: Record<string, DocMetadataParser> = {
     // errors thrown
     throws: ThrowsTag,
     // Returns value
-    return: deprecateTag("returns", ReturnsTag),
+    return: deprecatedReturn,
+    returns: ReturnsTag,
+}
+
+/**
+ * Metadata parsers used for the {@link Applier} docstring
+ */
+export const ApplierParsers: Record<string, DocMetadataParser> = {
+    // errors thrown
+    throws: ThrowsTag,
+    // Returns value
+    return: deprecatedReturn,
     returns: ReturnsTag,
 }
 

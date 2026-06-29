@@ -38,10 +38,6 @@ export abstract class CallableClass extends class { constructor(self: any) { ret
  * Wrapper for a Javascript function that can be called by the JEB runtime.
  * The Javascript function has access to the VM so it can push opcodes to
  * implement more than just computation.
- *
- * If the Javascript function returns the special value {@link NOTHING}, no
- * value will be pushed as the result of the function call. Otherwise, the
- * resturn value is pushed (even if it's `undefined`).
  */
 export class BuiltinFunction implements HasDocstring {
     constructor(
@@ -59,7 +55,11 @@ export class BuiltinFunction implements HasDocstring {
          */
         public readonly resultIsMacro: boolean,
         /**
-         * The javascript function implementation
+         * The javascript function implementation.
+         *
+         * If the function returns the special value {@link NOTHING}, no
+         * value will be pushed as the result of the function call. Otherwise, the
+         * return value is pushed (even if it's `undefined`).
          */
         public readonly impl: (args: any[], vm: JebVM) => any,
         /**

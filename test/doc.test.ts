@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isString } from "lib0/function.js";
-import { DocMetadata, DocMetadataParser, DocNode, EmptyTag, FunctionOrMacroParsers, JebVM, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs } from "../src";
+import { ApplierParsers, DocMetadata, DocMetadataParser, DocNode, EmptyTag, FunctionOrMacroParsers, JebVM, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs } from "../src";
 
 describe("inline parsing", () => {
     test.each<[string, string, DocNode[]]>([
@@ -44,8 +44,9 @@ describe("paragraph parsing", () => {
 describe("tag parsing ok", () => {
     test.each<[string, string[], Record<string, DocMetadataParser>, DocMetadata[], string[]]>([
         ["no tags", ["a", "b"], {}, [], ["a", "b"]],
-        ["single flag tag", [".a", ".b"], { a: EmptyTag, b: EmptyTag }, [{ tag: "a" }, { tag: "b" }], []],
-        ["nested tag", [".a", "..b", ".c"], { a: EmptyTag, b: EmptyTag, c: EmptyTag }, [{ tag: "a", groups: [{ tag: "b" }] }, { tag: "c" }], []],
+        ["single flag tag", [".a", ".a"], { a: EmptyTag }, [{ tag: "a" }, { tag: "a" }], []],
+        ["nested tag", [".a", "..a", ".a"], { a: EmptyTag }, [{ tag: "a", groups: [{ tag: "a" }] }, { tag: "a" }], []],
+        ["double nested tag", [".a", "..a", "...a", ".a"], { a: EmptyTag }, [{ tag: "a", groups: [{ tag: "a", groups: [{ tag: "a" }] }] }, { tag: "a" }], []],
         ["blank tag to reset", [".a", ". b", "c"], { a: EmptyTag }, [{ tag: "a" }], ["b", "c"]]
     ])("%s", (_, lines, parsers, expectedMeta, expectedRest) => {
         expect(parseHeaderAndSummary(lines, parsers)).toEqual([expectedMeta, expectedRest]);
@@ -77,26 +78,28 @@ describe("tag parsing failures", () => {
     });
 });
 
-describe("all builtin opcodes can be parsed", () => {
-    test.each<[string, string]>(Object.entries(new JebVM().opcodeTable).flatMap(([name, [, doc]]) => doc ? [[name, doc]] : []))("%s", (_, doc) => {
-        const parsed = parseDoc(doc, OpcodeParsers);
-        expect(parsed).toBeDefined();
-        expect(parsed!.meta.length).toBeGreaterThan(0);
+describe("parse builtins docstrings", () => {
+    describe("opcodes", () => {
+        test.each<[string, string]>(Object.entries(new JebVM().opcodeTable).flatMap(([name, [, doc]]) => doc ? [[name, doc]] : []))("%s", (_, doc) => {
+            const parsed = parseDoc(doc, OpcodeParsers);
+            expect(parsed).toBeDefined();
+            expect(parsed!.meta.length).toBeGreaterThan(0);
+        });
     });
-});
-describe("all builtin functions/macros can be parsed", () => {
-    test.each<[string, string]>(Object.entries(new JebVM().builtinsEnv.bindings).flatMap(([name, item]) => isString(item?.doc) ? [[name, item.doc as string]] : []))("%s", (_, doc) => {
-        const parsed = parseDoc(doc, FunctionOrMacroParsers);
-        expect(parsed).toBeDefined();
-        expect(parsed!.meta.length).toBeGreaterThan(0);
-        // console.log(JSON.stringify(parsed!.meta, null, 2));
+    describe("functions/macros", () => {
+        test.each<[string, string]>(Object.entries(new JebVM().builtinsEnv.bindings).flatMap(([name, item]) => isString(item?.doc) ? [[name, item.doc as string]] : []))("%s", (_, doc) => {
+            const parsed = parseDoc(doc, FunctionOrMacroParsers);
+            expect(parsed).toBeDefined();
+            expect(parsed!.meta.length).toBeGreaterThan(0);
+            // console.log(JSON.stringify(parsed!.meta, null, 2));
+        });
     });
-});
 
-// describe("all builtin appliers can be parsed", () => {
-//     test.each<[string, string]>(new JebVM().applyTable.map(({ type, doc }) => [typeof type === "function" ? type.name : (type + ""), doc]))("%s", (_, doc) => {
-//         const parsed = parseDoc(doc, ApplierParsers);
-//         expect(parsed).toBeDefined();
-//         expect(parsed!.meta.length).toBeGreaterThan(0);
-//     });
-// });
+    describe("appliers", () => {
+        test.each<[string, string]>(new JebVM().applyTable.map(({ type, doc }) => [typeof type === "function" ? type.name : (type + ""), doc]))("%s", (_, doc) => {
+            const parsed = parseDoc(doc, ApplierParsers);
+            expect(parsed).toBeDefined();
+            expect(parsed!.body.length).toBeGreaterThan(0);
+        });
+    });
+});

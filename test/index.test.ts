@@ -29,7 +29,7 @@ const rawTraceback = (vm: JebVM): string[] => {
 describe("basic", () => {
     testTest("begin with no args returns null", vm => {
         expect(run(vm, ["begin"])).toBeTrue();
-        expect(vm.peekData()).toBeNull();
+        expect(vm.popData()).toBeNull();
     });
     describe("undefined", () => {
         testTest("getting variable", vm => {
@@ -54,7 +54,7 @@ describe("basic", () => {
             ["or", false, ["print", "b"]],
             ["and", 0, ["print", "a"]],
         ])).toBeTrue();
-        expect(vm.peekData()).toEqual(0);
+        expect(vm.popData()).toEqual(0);
         expect(out).toEqual(["b"]);
     });
     testTest("json error 1", vm => {
@@ -271,6 +271,17 @@ describe("with / dynamic-wind", () => {
     testTest("with requires context object", vm => {
         expect(() => run(vm, ["with", null, null, false])).toThrow("context manager should be an object")
     });
+
+    testTest("continuation can be called with computed value", vm => {
+        expect(run(vm, ["let", [["x", null]],
+            ["let", [["y", ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]]],
+                ["unless", ["=", ["$", "y"], 123],
+                    ["x", ["+", 23, 100]]],
+                ["$", "y"],
+            ]
+        ])).toBeTrue();
+        expect(vm.popData()).toEqual(123);
+    });
 });
 
 describe("metaprogramming", () => {
@@ -381,7 +392,7 @@ describe("lambdas", () => {
 });
 
 describe("recursion stress tests", () => {
-    testTest("A000142 (factorial)", (vm, out) => {
+    testTest("A000142 (factorial)", vm => {
         const x = 5000n;
         const factorial = (a: bigint): bigint => a > 1 ? a * factorial(a - 1n) : 1n;
         expect(run(vm, ["begin",
@@ -389,9 +400,9 @@ describe("recursion stress tests", () => {
                 ["if", [">", ["$", "a"], 1],
                     ["*", ["factorial", ["-", ["$", "a"], 1n]], ["$", "a"]],
                     1n]],
-            ["print", ["factorial", x]]
+            ["factorial", x]
         ], undefined, 10000000)).toBeTrue();
-        expect(out).toEqual([String(factorial(x))]);
+        expect(vm.popData()).toEqual(factorial(x));
     });
     const MEMOIZE_F = (f: (a: bigint) => bigint) => { const cache: Record<number, bigint> = {}; return (a: bigint) => (cache[a as any] ??= f(a)) }
     const MEMOIZE = ["define", ["memoize", "f"],
@@ -402,7 +413,7 @@ describe("recursion stress tests", () => {
                         ["set", ["cache", ["$", "a"]], ["f", ["$", "a"]]],
                         ["$", "cached"]]]]]
     ];
-    testTest("A000045 (Fibonacci sequence)", (vm, out) => {
+    testTest("A000045 (Fibonacci sequence)", vm => {
         const x = 5000n;
         const fibonacci = MEMOIZE_F(a => a < 2 ? a : fibonacci(a - 1n) + fibonacci(a - 2n));
         expect(run(vm, ["begin",
@@ -413,11 +424,11 @@ describe("recursion stress tests", () => {
                     ["+",
                         ["fibonacci", ["-", ["$", "a"], 1]],
                         ["fibonacci", ["-", ["$", "a"], 2]]]]]]],
-            ["print", ["fibonacci", x]]
+            ["fibonacci", x]
         ], undefined, 10000000)).toBeTrue();
-        expect(out).toEqual([String(fibonacci(x))]);
+        expect(vm.popData()).toEqual(fibonacci(x));
     });
-    testTest("A005185 (Hofstadter 'Q' sequence)", (vm, out) => {
+    testTest("A005185 (Hofstadter 'Q' sequence)",vm => {
         const x = 5000n;
         const q = MEMOIZE_F(a => a < 3 ? 1n : q(a - q(a - 1n)) + q(a - q(a - 2n)));
         expect(run(vm, ["begin",
@@ -428,11 +439,11 @@ describe("recursion stress tests", () => {
                     ["+",
                         ["q", ["-", ["$", "a"], ["q", ["-", ["$", "a"], 1]]]],
                         ["q", ["-", ["$", "a"], ["q", ["-", ["$", "a"], 2]]]]]]]]],
-            ["print", ["q", x]]
+            ["q", x]
         ], undefined, 10000000)).toBeTrue();
-        expect(out).toEqual([String(q(x))]);
+        expect(vm.popData()).toEqual(Number(q(x)));
     });
-    testTest("A063510", (vm, out) => {
+    testTest("A063510", vm => {
         const x = 1e20;
         const A063510 = (a: number): number => a < 2 ? 1 : 1 + A063510(a ** 0.5 | 0);
         expect(run(vm, ["begin",
@@ -440,9 +451,9 @@ describe("recursion stress tests", () => {
                 ["if", ["<", ["$", "a"], 2],
                     1,
                     ["+", 1, ["A063510", ["bit-or", 0, ["pow", ["$", "a"], 0.5]]]]]],
-            ["print", ["A063510", x]],
+            ["A063510", x],
         ])).toBeTrue();
-        expect(out).toEqual([String(A063510(x))]);
+        expect(vm.popData()).toEqual(A063510(x));
     });
     testTest("map and reduce", vm => {
         const x = 2000, n = 3;
@@ -533,7 +544,7 @@ describe("FFI", () => {
             ["let", [["x", { a: 7, b() { return this.a * 6; } }]],
                 [["$", ["x", "b"]]]]
         ])).toBeTrue();
-        expect(vm.peekData()).toEqual(42);
+        expect(vm.popData()).toEqual(42);
     });
     testTest("FFI function callbacks", (vm, out) => {
         const thrice = (f: (x: string) => void, x: string) => (f(x), f(x), f(x));
