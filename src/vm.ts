@@ -102,13 +102,13 @@ export class JebVM {
     }
     popNData(n: number) {
         this.#checkStack(n);
-        const { values, rest } = llPopN(this.dataStack!, n);
+        const { 0: values, 1: rest } = llPopN(this.dataStack!, n);
         this.dataStack = rest;
         return values.reverse();
     }
     popData() {
         this.#checkStack(1);
-        const { value, rest } = llPop(this.dataStack!);
+        const { 0: value, 1: rest } = llPop(this.dataStack!);
         this.dataStack = rest;
         return value;
     }
@@ -149,7 +149,7 @@ export class JebVM {
     }
     #popCommand() {
         if (llLength(this.commandStack) === 0) throw new Error("Opcode stack underflow");
-        const { value, rest } = llPop(this.commandStack!);
+        const { 0: value, 1: rest } = llPop(this.commandStack!);
         this.commandStack = rest;
         return value;
     }

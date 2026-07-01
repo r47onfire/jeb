@@ -24,8 +24,8 @@ export const llLength = (ll: LinkedList<any>): number => {
  * Takes the top item off the linked list, and returns the item as well as the rest of the list
  * @returns an object with value = the top item value, and rest = the 2nd and subsequent items list
  */
-export const llPop = <T extends Linked<any>>(ll: T): { value: T["value"]; rest: T | null; } => {
-    return { value: ll.value, rest: ll.next };
+export const llPop = <T extends Linked<any>>(ll: T): [value: T["value"], rest: T | null] => {
+    return [ll.value, ll.next];
 }
 /**
  * Pops N items off the linked list and returns them in an array, as well as the rest of the linked list.
@@ -33,14 +33,14 @@ export const llPop = <T extends Linked<any>>(ll: T): { value: T["value"]; rest: 
  * @param popAmount number of items to pop
  * @returns an object with values = the array of values, and rest = the 2nd and subsequent items list
  */
-export const llPopN = <T extends Linked<any>>(ll: T | null, popAmount: number): { values: T["value"][]; rest: T | null; } => {
+export const llPopN = <T extends Linked<any>>(ll: T | null, popAmount: number): [values: T["value"][], rest: T | null] => {
     const out: T["value"][] = [];
     for (; popAmount > 0 && ll; popAmount--) {
-        const { value, rest } = llPop(ll!);
+        const { 0: value, 1: rest } = llPop(ll!);
         out.push(value);
         ll = rest as any;
     }
-    return { values: out, rest: ll };
+    return [out, ll];
 }
 /**
  * Prepends the new items to the list in reverse order, so that the first item of the array is the new first item of the linked list, and returns the new linked list.
