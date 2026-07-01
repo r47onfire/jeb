@@ -86,7 +86,7 @@ export class JebVM {
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
     /** environment that module-level globals live in */
-    globalEnv = this.createEnv(this.builtinsEnv);
+    globalEnv = this.createEnv();
     opcodeTable: Record<string, [impl: OpcodeFunction<this>, doc: string | null]> = {};
     applyTable: Applier<any>[] = [];
 
@@ -124,7 +124,9 @@ export class JebVM {
      * @see {Env.get}
      */
     getVar(name: string) {
-        return this.currentEnv.get(name);
+        const res = this.currentEnv.get(name);
+        if (res.ok) return res;
+        return this.builtinsEnv.get(name);
     }
     /**
      * Sets the variable name in the current environment
