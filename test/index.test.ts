@@ -428,7 +428,7 @@ describe("recursion stress tests", () => {
         ], undefined, 10000000)).toBeTrue();
         expect(vm.popData()).toEqual(fibonacci(x));
     });
-    testTest("A005185 (Hofstadter 'Q' sequence)",vm => {
+    testTest("A005185 (Hofstadter 'Q' sequence)", vm => {
         const x = 5000n;
         const q = MEMOIZE_F(a => a < 3 ? 1n : q(a - q(a - 1n)) + q(a - q(a - 2n)));
         expect(run(vm, ["begin",

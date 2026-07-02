@@ -3,7 +3,6 @@ import { stringify } from "lib0/json";
 import { add, pow } from "lib0/math";
 import { Err, Ok, Result } from "ts-res";
 
-
 /**
  * thing that can be used to match a type of an object. null = wildcard, matches anything
  */

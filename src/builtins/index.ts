@@ -7,12 +7,13 @@ import { keys } from "lib0/object";
 import { Err, Ok, Result } from "ts-res";
 import { BuiltinFunction, Lambda } from "../callable";
 import { Continuation, DynamicWind, Windable } from "../continuation";
+import { Applier, Evaluator, findDispatcherForObject } from "../dispatch";
 import { Env } from "../env";
 import { resultToError, wrapThrowToError } from "../errors";
 import { float, numberOp } from "../math";
-import { Operation, theTypeName, typeMatches, typeOf } from "../overload";
-import { Applier, JebVM } from "../vm";
-import { alias, argsHelper, defineApplier, defineBuiltin, defineOpcode, implicitBegin, NOTHING } from "./utils";
+import { Operation, theTypeName, typeOf } from "../overload";
+import { JebVM } from "../vm";
+import { alias, argsHelper, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, implicitBegin, NOTHING } from "./utils";
 
 // TODO: split this all up
 // MARK: loadBuiltins()
@@ -59,14 +60,31 @@ Examples:
     defineOpcode(vm, "jeb:eval", (vm, args) => {
         const code = vm.popData();
         const tailcallHint = args[0];
-        if (isArray(code)) {
-            vm.pushCommand("jeb:apply", code.slice(1), false, tailcallHint);
-            vm.pushCommand("jeb:eval");
-            vm.pushData(code[0]);
-        } else if (typeof code !== "object" || code === null) {
+        const evaluator = findDispatcherForObject(vm.evalTable, code);
+        if (!evaluator) {
             // just use the value directly
             vm.pushData(code);
-        } else {
+            return;
+        }
+        evaluator.eval(code, tailcallHint, vm);
+    },
+        `.imm tailcall
+.param {boolean?} [tailcall=false]
+.sed value -- evaled
+. Evaluates the top item of the stack. An array gets interpreted as a call and passed to [[jeb:apply]], an object has all its properties evaluated and reassembled, and anything else is treated as a literal and left as-is.`);
+    defineBuiltin(vm, "eval", 1, false, true, args => args[0],
+        `.func (eval arg)
+..param {any} arg
+.returns {any}
+. Evaluates \`arg\` in the current environment.`);
+
+    defineEvaluator(vm, new class extends Evaluator<"object"> {
+        constructor() { super("object"); }
+        eval(code: any, _: boolean, vm: JebVM): void {
+            if (code === null) {
+                vm.pushData(null);
+                return;
+            }
             // evaluate all the properties
             const target = {};
             vm.pushData(target);
@@ -80,16 +98,25 @@ Examples:
                 vm.pushCommand("jeb:eval");
             }
         }
-    },
-        `.imm tailcall
-.param {boolean?} [tailcall=false]
-.sed value -- evaled
-. Evaluates the top item of the stack. An array gets interpreted as a call and passed to [[jeb:apply]], an object has all its properties evaluated and reassembled, and anything else is treated as a literal and left as-is.`);
-    defineBuiltin(vm, "eval", 1, false, true, args => args[0],
-        `.func (eval arg)
-..param {any} arg
-.returns {any}
-. Evaluates \`arg\` in the current environment.`);
+        doc = "Evaluates all of the property values, and then reassembles the object with the same set of keys with the evaluated values.";
+    });
+    defineEvaluator(vm, new class extends Evaluator<Array<any>> {
+        constructor() { super(Array); }
+        eval(code: any[], tailcallHint: boolean, vm: JebVM): void {
+            if (code.length > 0) {
+                vm.pushCommand("jeb:apply", code.slice(1), false, tailcallHint);
+                vm.pushCommand("jeb:eval");
+                vm.pushData(code[0]);
+            } else {
+                vm.pushCommand("jeb:throw", "jeb:value_error", "can't evaluate empty array", {
+                    return: vm.cc(),
+                });
+            }
+        }
+        doc = `Calls the first item as a function.
+.throws jeb:type_error - if the first item is not callable
+.throws jeb:value_error - if the list is empty`
+    });
 
     // MARK: apply
     defineOpcode(vm, "jeb:apply", (vm, args) => {
@@ -98,7 +125,7 @@ Examples:
         const argc = values.length;
         const alreadyEvaluated = args[1];
         const tailcallHint = args[2];
-        const applier = vm.applyTable.find(a => typeMatches(func, a.type));
+        const applier = findDispatcherForObject(vm.applyTable, func);
         if (!applier) {
             const typename = func === null ? "null" : isArray(func) ? "array" : typeof func;
             vm.pushCommand("jeb:throw", "jeb:type_error", `can't call ${typename === "object" ? (func.constructor.name ?? "object") : typename}`, {
@@ -461,7 +488,29 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         vm.pushData(dw.handler.exit);
     }, null);
 
-    // MARK: JS objects
+    // MARK: FFI
+    defineApplier(vm, new class extends Applier<"function"> {
+        constructor() { super("function"); }
+        apply(f: Function, alreadyEvaluated: boolean, tailcallHint: boolean, args: any[], vm: JebVM) {
+            vm.pushCommand("jeb:exec/callFFI", f, args.length);
+            vm.pushCommand("jeb:tb_push", this.getNameOf(f), tailcallHint);
+            argsHelper(vm, args, !alreadyEvaluated);
+        }
+        getNameOf = (f: Function) => `[function ${f.name}]`;
+        getArity = () => null;
+        getIsMacro = (f: any) => !!f.MACRO;
+        doc = `JEB's FFI can call Javascript functions. JEB does not check the \`.length\` of the function since it is wrong in some cases.
+.throws jeb:ffi_error - if the FFI'ed function throws an error`
+    });
+
+    defineOpcode(vm, "jeb:exec/callFFI", (vm, args) => {
+        const f = args[0] as Function;
+        const argc = args[1] as number;
+        const argv = vm.popNData(argc).reverse();
+        const result = wrapThrowToError(vm, "jeb:ffi_error", () => f.apply(null, argv));
+        if (result !== NOTHING) vm.pushData(result);
+    }, null);
+
     defineBuiltin(vm, "nil?", 1, false, false, args => undefinedToNull(args[0]) === null,
         `.func (nil? value)
 ..param {any} value
@@ -927,29 +976,6 @@ If an argument is not a list, the value is coerced to a list using the Javascrip
 .throws jeb:value_error - if \`value\` contains something that can't be serialized, such as a function or circular reference
 .returns {string}
 . Stringifies the object to JSON using \`JSON.stringify()\`.`);
-
-    // MARK: FFI calling
-    defineApplier(vm, new class extends Applier<"function"> {
-        constructor() { super("function"); }
-        apply(f: Function, alreadyEvaluated: boolean, tailcallHint: boolean, args: any[], vm: JebVM) {
-            vm.pushCommand("jeb:exec/callFFI", f, args.length);
-            vm.pushCommand("jeb:tb_push", this.getNameOf(f), tailcallHint);
-            argsHelper(vm, args, !alreadyEvaluated);
-        }
-        getNameOf = (f: Function) => `[function ${f.name}]`;
-        getArity = () => null;
-        getIsMacro = (f: any) => !!f.MACRO;
-        doc = `JEB's FFI can call Javascript functions. JEB does not check the \`.length\` of the function since it is wrong in some cases.
-.throws jeb:ffi_error - if the FFI'ed function throws an error`
-    });
-
-    defineOpcode(vm, "jeb:exec/callFFI", (vm, args) => {
-        const f = args[0] as Function;
-        const argc = args[1] as number;
-        const argv = vm.popNData(argc).reverse();
-        const result = wrapThrowToError(vm, "jeb:ffi_error", () => f.apply(null, argv));
-        if (result !== NOTHING) vm.pushData(result);
-    }, null);
 
     // MARK: JSON based standard library!
     const standardLibrary = ["begin",

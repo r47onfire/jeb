@@ -1,57 +1,10 @@
 import { loadBuiltins } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
+import { Accessor, Applier, Evaluator } from "./dispatch";
 import { Env } from "./env";
 import { jsError } from "./errors";
 import { Linked, LinkedList, llLength, llPop, llPopN, llPush, llPushArray } from "./linked_list";
-import { Arithmetic, Type, TypeFor } from "./overload";
-
-/**
- * Used to specify the number of arguments that a function can be called with.
- * A single number means min = max = that number, and null means min = 0, max = Infinity.
- */
-export type Arity = { min: number, max: number } | number | null;
-
-// MARK: class Applier
-/**
- * Utility object that handles when an object of the specified type is called.
- */
-
-export abstract class Applier<T> {
-    constructor(
-        /**
-         * The type that this applier works with.
-         */
-        public readonly type: Type
-    ) { }
-    /**
-     * Documentation string for this applier type
-     */
-    abstract doc: string;
-    /**
-     * Performs the application
-     * @param func The thing in function position that is being applied.
-     * @param alreadyEvaluated True if the arguments provided are from a synthetic/implicit application, and should not be re-evaluated, even if it's not a macro
-     * @param tailcallHint True if this application is a tail call.
-     * @param args The unevaluated arguments
-     * @param vm The VM to evaluate in
-     */
-    abstract apply(func: TypeFor<T>, alreadyEvaluated: boolean, tailcallHint: boolean, args: any[], vm: JebVM): void;
-    /**
-     * Gets the name of the function to appear in tracebacks, if undefined is returned it means it's a hidden callframe and won't show.
-     * Note: the apply opcode uses this to determine whether to insert a `jeb:tb_pop` opcode, but it relies on this applier's {@link apply}
-     * method to add the corresponding `jeb:tb_push` opcode.
-     */
-    abstract getNameOf(func: TypeFor<T>): string | undefined;
-    /**
-     * Gets the minimum and maximum arguments for the function call, this is checked before {@link apply} is called.
-     */
-    abstract getArity(func: TypeFor<T>): Arity;
-    /**
-     * Returns true if the functor being called is a macro, and the result should be evaluated again in its caller's scope.
-     */
-    abstract getIsMacro(func: TypeFor<T>): boolean;
-}
-// MARK: class JebVM
+import { Arithmetic } from "./overload";
 
 /**
  * Data for the command
@@ -89,6 +42,8 @@ export class JebVM {
     globalEnv = this.createEnv();
     opcodeTable: Record<string, [impl: OpcodeFunction<this>, doc: string | null]> = {};
     applyTable: Applier<any>[] = [];
+    evalTable: Evaluator<any>[] = [];
+    accessTable: Accessor<any>[] = [];
 
     constructor(public math = new Arithmetic) {
         this.reset();

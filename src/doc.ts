@@ -1,7 +1,7 @@
 import { isArray, last } from "lib0/array";
 import { isString } from "lib0/function";
 import { stringify } from "lib0/json";
-import type { Applier } from "./vm";
+import type { Applier, Evaluator, Accessor } from "./dispatch";
 
 /**
  * Documentation tree markup node
@@ -208,6 +208,16 @@ export const ApplierParsers: Record<string, DocMetadataParser> = {
     return: deprecatedReturn,
     returns: ReturnsTag,
 }
+
+/**
+ * Metadata parsers used for the {@link Evaluator} docstring
+ */
+export const EvaluatorParsers: Record<string, DocMetadataParser> = ApplierParsers;
+
+/**
+ * Metadata parsers used for the {@link Accessor} docstring
+ */
+export const AccessorParsers: Record<string, DocMetadataParser> = ApplierParsers;
 
 /**
  * Parsed documentation data for something (e.g. builtin function, lambda)

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isString } from "lib0/function.js";
-import { ApplierParsers, DocMetadata, DocMetadataParser, DocNode, EmptyTag, FunctionOrMacroParsers, JebVM, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs } from "../src";
+import { AccessorParsers, ApplierParsers, DocMetadata, DocMetadataParser, DocNode, EmptyTag, EvaluatorParsers, FunctionOrMacroParsers, JebVM, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs } from "../src";
 
 describe("inline parsing", () => {
     test.each<[string, string, DocNode[]]>([
@@ -98,6 +98,22 @@ describe("parse builtins docstrings", () => {
     describe("appliers", () => {
         test.each<[string, string]>(new JebVM().applyTable.map(({ type, doc }) => [typeof type === "function" ? type.name : (type + ""), doc]))("%s", (_, doc) => {
             const parsed = parseDoc(doc, ApplierParsers);
+            expect(parsed).toBeDefined();
+            expect(parsed!.body.length).toBeGreaterThan(0);
+        });
+    });
+
+    describe("evaluators", () => {
+        test.each<[string, string]>(new JebVM().evalTable.map(({ type, doc }) => [typeof type === "function" ? type.name : (type + ""), doc]))("%s", (_, doc) => {
+            const parsed = parseDoc(doc, EvaluatorParsers);
+            expect(parsed).toBeDefined();
+            expect(parsed!.body.length).toBeGreaterThan(0);
+        });
+    });
+
+    describe("accessors", () => {
+        test.each<[string, string]>(new JebVM().accessTable.map(({ type, doc }) => [typeof type === "function" ? type.name : (type + ""), doc]))("%s", (_, doc) => {
+            const parsed = parseDoc(doc, AccessorParsers);
             expect(parsed).toBeDefined();
             expect(parsed!.body.length).toBeGreaterThan(0);
         });

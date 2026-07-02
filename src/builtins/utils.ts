@@ -1,6 +1,7 @@
 import { stringify } from "lib0/json";
 import { BuiltinFunction } from "../callable";
-import { Applier, Arity, JebVM, OpcodeFunction } from "../vm";
+import { JebVM, OpcodeFunction } from "../vm";
+import { Accessor, Applier, Arity, Evaluator } from "../dispatch";
 
 export const argsHelper = (vm: JebVM, args: any[], shouldEval: boolean) => {
     const len = args.length;
@@ -73,6 +74,20 @@ export const defineOpcode = <T extends JebVM>(vm: T, name: string, fn: OpcodeFun
  */
 export const defineApplier = (vm: JebVM, apply: Applier<any>) => {
     vm.applyTable.push(apply);
+};
+
+/**
+ * Defines a new applier that can be used by the `jeb:eval` opcode to evaluate or unwrap something.
+ */
+export const defineEvaluator = (vm: JebVM, apply: Evaluator<any>) => {
+    vm.evalTable.push(apply);
+};
+
+/**
+ * Defines a new accessor that can be used by the `jeb:get` and `jeb:set` opcodes to look up or reassign a field on something.
+ */
+export const defineAccessor = (vm: JebVM, apply: Accessor<any>) => {
+    vm.accessTable.push(apply);
 };
 
 /**
