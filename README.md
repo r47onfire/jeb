@@ -26,4 +26,4 @@ canonically, JEB stands for "JSON Evaluation Backend". however, JEB can stand fo
 * Just Enough Brackets - when you get sick of writing it
 * Javascript's Evil Brother - when it breaks
 
-it does not have anything to do with Jens Bergenstein.
+it does not have anything to do with Jens Bergensten.
