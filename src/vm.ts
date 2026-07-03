@@ -38,8 +38,6 @@ export class JebVM {
     tracebackStack!: StackCount | null;
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
-    /** environment that module-level globals live in */
-    globalEnv = this.createEnv(this.builtinsEnv);
     opcodeTable: Record<string, [impl: OpcodeFunction<this>, doc: string | null]> = {};
     applyTable: Applier<any>[] = [];
     evalTable: Evaluator<any>[] = [];
@@ -114,7 +112,7 @@ export class JebVM {
      */
     reset() {
         this.commandStack = this.dataStack = this.tracebackStack = null;
-        this.curDynamicWind = new DynamicWind(this.currentEnv = this.globalEnv);
+        this.curDynamicWind = new DynamicWind(this.currentEnv = this.createEnv(this.builtinsEnv));
     }
     /**
      * Gets the length of the command stack.
