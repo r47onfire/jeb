@@ -1,4 +1,4 @@
-export { loadBuiltins } from "./builtins";
+export { loadBuiltins, QUASIQUOTE_NAME, UNQUOTE_NAME, UNQUOTE_SPLICING_NAME } from "./builtins";
 export { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, implicitBegin, NOTHING } from "./builtins/utils";
 export { BuiltinFunction, CallableClass, Lambda } from "./callable";
 export { Continuation, DynamicWind, type Windable } from "./continuation";

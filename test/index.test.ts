@@ -46,6 +46,24 @@ describe("basic", () => {
         expect(run(vm, ["$", []])).toBeTrue();
         expect(vm.popData()).toBe(vm.currentEnv);
     });
+    testTest("set with existing value", (vm, out) => {
+        expect(run(vm, ["let", [["x", 0]],
+            ["print", ["set", "x", 10]],
+            ["print", ["$", "x"]],
+            ["print", ["set", "x", ["+", 1, ["$", "_"]]]],
+            ["print", ["$", "x"]]
+        ])).toBeTrue();
+        expect(out).toEqual(["10", "10", "11", "11"]);
+    });
+    testTest("set with old value", (vm, out) => {
+        expect(run(vm, ["let", [["x", 0]],
+            ["print", ["set", "x", 10, true]],
+            ["print", ["$", "x"]],
+            ["print", ["set", "x", ["+", 1, ["$", "_"]], true]],
+            ["print", ["$", "x"]]
+        ])).toBeTrue();
+        expect(out).toEqual(["0", "10", "10", "11"]);
+    });
     testTest("calling non-functions errors", vm => {
         expect(() => run(vm, [1, 2, 3])).toThrow("can't call number");
     });
@@ -530,15 +548,6 @@ describe("self-defined macros", () => {
         ])).toBeTrue();
         expect(vm.popData()).toEqual(123);
     });
-    testTest("reset", (vm, out) => {
-        expect(run(vm, ["let", [["x", 0]],
-            ["print", ["reset", "x", 10]],
-            ["print", ["$", "x"]],
-            ["print", ["reset", "x", ["+", 1, ["$", "_"]]]],
-            ["print", ["$", "x"]]
-        ])).toBeTrue();
-        expect(out).toEqual(["0", "10", "10", "11"]);
-    })
 });
 
 describe("FFI", () => {
