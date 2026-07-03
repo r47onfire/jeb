@@ -665,6 +665,32 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 .param {code} body...
 . Each of the pairs' *expression*s will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.`);
 
+    defineBuiltin(vm, "let-in", { min: 2, max: Infinity }, false, false, (args, vm) => {
+        const newEnv = vm.createEnv(vm.currentEnv);
+        if ((args.length & 1) > 0) {
+            vm.pushCommand("jeb:throw", "jeb:syntax_error", "let-in should have an even number of arguments", {});
+            return NOTHING;
+        }
+        var value;
+        for (var i = 0; i < args.length; i += 2) {
+            const name = args[i];
+            value = args[i + 1];
+            if (!isString(name)) {
+                vm.pushCommand("jeb:throw", "jeb:syntax_error", "let-in name must be a string", {});
+                return NOTHING;
+            }
+            newEnv.add(name, value);
+        }
+        vm.currentEnv = newEnv;
+        return value;
+    },
+        `.func (let-in name value [name value]...)
+..param {string} name
+..param {any} value
+..returns {any} - the last value
+. Creates a new environment with the given name-value pairs as its bindings, and switches to it. Everything after this will be in the new environment.
+Functions much like [[let]] but with an implicit block after it that continues to the end of the outer block instead of explicit.`);
+
     defineBuiltin(vm, "define", null, true, false, (args, vm) => {
         const name = args[0] as string | string[];
         const setHelper = (name: string, thing: any) => {

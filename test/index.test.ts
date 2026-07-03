@@ -73,7 +73,8 @@ describe("basic", () => {
         expect(vm.popData()).toBe(vm.currentEnv);
     });
     testTest("set with existing value", (vm, out) => {
-        expect(run(vm, ["let", [["x", 0]],
+        expect(run(vm, ["begin",
+            ["let-in", "x", 0],
             ["print", ["set", "x", 10]],
             ["print", ["$", "x"]],
             ["print", ["set", "x", ["+", 1, ["$", "_"]]]],
@@ -82,7 +83,8 @@ describe("basic", () => {
         expect(out).toEqual(["10", "10", "11", "11"]);
     });
     testTest("set with old value", (vm, out) => {
-        expect(run(vm, ["let", [["x", 0]],
+        expect(run(vm, ["begin",
+            ["let-in", "x", 0],
             ["print", ["set", "x", 10, true]],
             ["print", ["$", "x"]],
             ["print", ["set", "x", ["+", 1, ["$", "_"]], true]],
@@ -114,9 +116,9 @@ describe("basic", () => {
     });
     testTest("json error 2", vm => {
         expect(() => run(vm, ["begin",
-            ["let", [["x", ["list"]]],
-                ["set", ["x", 0], ["$", "x"]],
-                ["dumpJSON", ["$", "x"]]]
+            ["let-in", "x", ["list"]],
+            ["set", ["x", 0], ["$", "x"]],
+            ["dumpJSON", ["$", "x"]]
         ])).toThrow();
     });
     testTest("property chain get", vm => {
@@ -178,7 +180,7 @@ describe("tail-call elimination", () => {
             ]);
         } catch (e) { err = e; }
 
-        // f → g is NOT a tail call (it's an argument), so both stay
+        // f -> g is NOT a tail call (it's an argument), so both stay
         const msg = err.message;
         expect(msg).toMatch(/error/);
         expect(msg).toMatch(/g/);
@@ -189,7 +191,7 @@ describe("tail-call elimination", () => {
 
 describe("traceback compression", () => {
     testTest("compresses long alternating cycle", vm => {
-        // a ↔ b tail recursion
+        // a <-> b tail recursion
         expect(run(vm, ["begin",
             ["define", ["a"], ["b"]],
             ["define", ["b"], ["a"]],
@@ -268,7 +270,8 @@ describe("with / dynamic-wind", () => {
     });
 
     testTest("continuation re-enters with", (vm, out) => {
-        expect(run(vm, ["let", [["k", null]],
+        expect(run(vm, ["begin",
+            ["let-in", "k", null],
             makeWith("enter", "exit",
                 [["lambda", [], ["set", "k", ["$", "return"]]]],
                 ["print", "inside"]),
@@ -326,12 +329,12 @@ describe("with / dynamic-wind", () => {
     });
 
     testTest("continuation can be called with computed value", vm => {
-        expect(run(vm, ["let", [["x", null]],
-            ["let", [["y", ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]]],
-                ["unless", ["=", ["$", "y"], 123],
-                    ["x", ["+", 23, 100]]],
-                ["$", "y"],
-            ]
+        expect(run(vm, ["begin",
+            ["let-in", "x", null],
+            ["let-in", "y", ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]],
+            ["unless", ["=", ["$", "y"], 123],
+                ["x", ["+", 23, 100]]],
+            ["$", "y"],
         ])).toBeTrue();
         expect(vm.popData()).toEqual(123);
     });
@@ -460,7 +463,7 @@ describe("recursion stress tests", () => {
     const MEMOIZE_F = (f: (a: bigint) => bigint) => { const cache: Record<number, bigint> = {}; return (a: bigint) => (cache[a as any] ??= f(a)) }
     const MEMOIZE = ["define", ["memoize", "f"],
         ["let", [["cache", {}]],
-            ["lambda", ["a"], "",
+            ["lambda", ["a"],
                 ["let", [["cached", ["$", ["cache", ["$", "a"]]]]],
                     ["if", ["nil?", ["$", "cached"]],
                         ["set", ["cache", ["$", "a"]], ["f", ["$", "a"]]],
@@ -555,14 +558,16 @@ describe("self-defined macros", () => {
         expect(out).toEqual(["nothing to see here", "we didn't get an error"]);
     });
     testTest("with-baffle 1", vm => {
-        expect(() => run(vm, ["let", [["x", null]],
+        expect(() => run(vm, ["begin",
+            ["let-in", "x", null],
             ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]],
             ["with-baffle",
                 ["x", null]]
         ])).toThrow("tried to jump out of a 'with-baffle' block");
     });
     testTest("with-baffle 2", vm => {
-        expect(() => run(vm, ["let", [["x", null]],
+        expect(() => run(vm, ["begin",
+            ["let-in", "x", null],
             ["with-baffle",
                 ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]],
             ["x", null]
