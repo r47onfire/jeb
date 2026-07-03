@@ -1,6 +1,9 @@
-import { isString } from "lib0/function.js";
+import { stringify } from "lib0/json";
+import { Lambda } from "./callable";
+import { Env } from "./env";
 import { Type, TypeFor, typeMatches } from "./overload";
 import { JebVM } from "./vm";
+import { wrapThrowToError } from "./errors";
 
 export abstract class TypeDispatcher {
     constructor(
@@ -79,19 +82,72 @@ export abstract class Accessor<T> extends TypeDispatcher {
     abstract access(object: TypeFor<T>, field: PropertyKey): LValue;
 }
 
+export const enum AccessType {
+    VARIABLE,
+    FUNCTION,
+    PROPERTY,
+}
+
 /**
  * Represents a slot that can be assigned to
  */
 export interface LValue {
     /**
-     * Pushes opcodes to leave the value currently in the slot on the top of the stack, or
+     * Pushes the value currently in the slot to the top of the stack, or
      * throw an error if it's not readable.
      */
-    get(vm: JebVM): void;
+    get(vm: JebVM, accessType: AccessType, shouldBind: boolean): void;
     /**
-     * Pushes opcodes to take the top value from the stack and set it to this slot,
-     * or throw an error if it's readonly.
+     * Set the value of the slot to the provided value,
+     * or throws an error if it's readonly. The stack should not be modified either way.
      */
-    set(vm: JebVM): void;
+    set(vm: JebVM, value: any, accessType: AccessType, createIfNotFound: boolean, makeConstant: boolean): void;
 }
 
+export class ObjectLValue implements LValue {
+    constructor(public obj: any, public name: PropertyKey) { }
+    get(vm: JebVM, _type: AccessType, shouldBind: boolean) {
+        var value = this.obj[this.name];
+        if (shouldBind && typeof value === "function") value = value.bind(this.obj);
+        vm.pushData(value);
+    }
+    set(vm: JebVM, value: any) {
+        wrapThrowToError(vm, "jeb:type_error", () => {
+            this.obj[this.name] = value;
+        });
+    }
+}
+
+export class EnvVarLValue implements LValue {
+    name: string;
+    constructor(public env: Env, name: PropertyKey) {
+        this.name = name as string;
+    }
+    get(vm: JebVM, type: AccessType) {
+        const result = this.env.get(this.name);
+        if (result.ok) {
+            vm.pushData(result.data);
+            return;
+        }
+        this.referenceError(vm, type);
+    }
+    set(vm: JebVM, value: any, type: AccessType, create: boolean, readonly: boolean) {
+        if (create) {
+            if (readonly) this.env.addConst(this.name, value);
+            else this.env.add(this.name, value);
+        } else {
+            const didSet = this.env.set(this.name, value);
+            if (didSet === undefined) {
+                this.referenceError(vm, type);
+            } else if (!didSet) {
+                vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(this.name)} is a constant`, {});
+            }
+        }
+        if (value instanceof Lambda) value.name ??= this.name;
+    }
+    protected referenceError(vm: JebVM, type: AccessType) {
+        vm.pushCommand("jeb:throw", "jeb:reference_error",
+            type === AccessType.PROPERTY ? `module has no property ${stringify(this.name)}` :
+                `${type === AccessType.VARIABLE ? "variable" : "function"} ${stringify(this.name)} not found`, {});
+    }
+}

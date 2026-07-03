@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { stringify } from "lib0/json";
+import { parse, stringify } from "lib0/json";
 import { defineBuiltin, JebVM } from "../src";
 
 const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) => {
@@ -42,6 +42,10 @@ describe("basic", () => {
             expect(() => run(vm, ["nonexistent"])).toThrow("function \"nonexistent\" not found");
         });
     });
+    testTest("get nothing returns current env", vm => {
+        expect(run(vm, ["$", []])).toBeTrue();
+        expect(vm.popData()).toBe(vm.currentEnv);
+    });
     testTest("calling non-functions errors", vm => {
         expect(() => run(vm, [1, 2, 3])).toThrow("can't call number");
     });
@@ -58,11 +62,15 @@ describe("basic", () => {
         expect(out).toEqual(["b"]);
     });
     testTest("json error 1", vm => {
-        expect(() => run(vm, ["parseJSON", "["])).toThrow();
+        try {
+            parse("[");
+        } catch (error: any) {
+            expect(() => run(vm, ["parseJSON", "["])).toThrow(error.message);
+        }
     });
     testTest("json error 2", vm => {
         expect(() => run(vm, ["begin",
-            ["let", [["x", ["list", null]]],
+            ["let", [["x", ["list"]]],
                 ["set", ["x", 0], ["$", "x"]],
                 ["dumpJSON", ["$", "x"]]]
         ])).toThrow();
@@ -149,8 +157,8 @@ describe("traceback compression", () => {
         var err: any;
         try { for (; vm.step();); } catch (e) { err = e; }
 
-        // should be "(a<-b * N)" not a zillion repeats
-        expect(err.message).toMatch(/\(a<-b \* \d+\)/);
+        // should be "(b<-a * N)" not a zillion repeats
+        expect(err.message).toMatch(/\(b<-a \* \d+\)/);
         expect(err.message).not.toMatch(/a<-b<-a<-b<-a<-b<-a<-b/);
     });
 
@@ -181,9 +189,9 @@ describe("with / dynamic-wind", () => {
     const makeWith = (begin: string, end: string, ...body: any[]) => {
         return ["with", null,
             {
-                enter: ["lambda", ["k"], "",
+                enter: ["lambda", ["k"],
                     ["print", begin, ["$", "k"]]],
-                exit: ["lambda", ["k", "type", "value", "restarts"], "",
+                exit: ["lambda", ["k", "type", "value", "restarts"],
                     ["print",
                         end,
                         ["$", "k"],
@@ -195,7 +203,7 @@ describe("with / dynamic-wind", () => {
         ];
     }
     testTest("runs before then body then after", (vm, out) => {
-        run(vm, makeWith("before", "after", ["print", "body"]));
+        expect(run(vm, makeWith("before", "after", ["print", "body"]))).toBeTrue();
         expect(out).toEqual(["before false", "body", "after false null null null"]);
     });
 
@@ -204,6 +212,7 @@ describe("with / dynamic-wind", () => {
         try {
             run(vm, makeWith("before", "after", ["error", "test:runtime_error", "boom", {}]));
         } catch (e) { err = e; }
+        expect(err).toBeDefined();
         expect(err.message).toContain("boom");
         expect(err.message).toContain("VM stack: error<-with");
         expect(out).toEqual(["before false", "after false test:runtime_error boom [object Object]"]);
@@ -217,7 +226,7 @@ describe("with / dynamic-wind", () => {
     testTest("continuation re-enters with", (vm, out) => {
         expect(run(vm, ["let", [["k", null]],
             makeWith("enter", "exit",
-                [["lambda", [], "", ["set", "k", ["$", "return"]]]],
+                [["lambda", [], ["set", "k", ["$", "return"]]]],
                 ["print", "inside"]),
             ["print", "outside"],
             ["k", null],          // jump back into the with
@@ -242,7 +251,7 @@ describe("with / dynamic-wind", () => {
     testTest("continuation escapes with (after runs once)", (vm, out) => {
         // escape from inside with via a continuation captured outside
         run(vm, ["begin",
-            [["lambda", [], "",
+            [["lambda", [],
                 makeWith("enter", "exit",
                     ["print", "inside"],
                     ["return", null],
@@ -477,11 +486,11 @@ describe("self-defined macros", () => {
     const makeTryCatch = (body: any) => ["try",
         body,
         {
-            ["test:bar_error"]: ["lambda", ["message", "restarts"], "",
+            ["test:bar_error"]: ["lambda", ["message", "restarts"],
                 ["print", "caught bar!", ["$", "message"]]],
-            "*": ["lambda", ["type", "message", "restarts"], "",
+            "*": ["lambda", ["type", "message", "restarts"],
                 ["print", "caught star!", ["$", "type"], ["$", "message"]]],
-            else: ["lambda", [], "", ["print", "we didn't get an error"]]
+            else: ["lambda", [], ["print", "we didn't get an error"]]
         }];
     testTest("trycatch 1", (vm, out) => {
         expect(run(vm, ["begin",

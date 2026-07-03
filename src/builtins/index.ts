@@ -1,4 +1,4 @@
-import { isArray, last } from "lib0/array";
+import { isArray } from "lib0/array";
 import { undefinedToNull } from "lib0/conditions";
 import { id, isNumber, isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
@@ -7,13 +7,13 @@ import { keys } from "lib0/object";
 import { Err, Ok, Result } from "ts-res";
 import { BuiltinFunction, Lambda } from "../callable";
 import { Continuation, DynamicWind, Windable } from "../continuation";
-import { Applier, Evaluator, findDispatcherForObject } from "../dispatch";
+import { Accessor, AccessType, Applier, EnvVarLValue, Evaluator, findDispatcherForObject, LValue, ObjectLValue } from "../dispatch";
 import { Env } from "../env";
 import { resultToError, wrapThrowToError } from "../errors";
 import { float, numberOp } from "../math";
 import { Operation, theTypeName, typeOf } from "../overload";
 import { JebVM } from "../vm";
-import { alias, argsHelper, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, implicitBegin, NOTHING } from "./utils";
+import { alias, argsHelper, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, implicitBegin, NOTHING } from "./utils";
 
 // TODO: split this all up
 // MARK: loadBuiltins()
@@ -72,7 +72,7 @@ Examples:
 .param {boolean?} [tailcall=false]
 .sed value -- evaled
 . Evaluates the top item of the stack. An array gets interpreted as a call and passed to [[jeb:apply]], an object has all its properties evaluated and reassembled, and anything else is treated as a literal and left as-is.`);
-    defineBuiltin(vm, "eval", 1, false, true, args => args[0],
+    defineBuiltin(vm, "eval", 1, false, false, (args, vm) => { vm.pushData(args[0]); vm.pushCommand("jeb:eval"); return NOTHING; },
         `.func (eval arg)
 ..param {any} arg
 .returns {any}
@@ -89,12 +89,11 @@ Examples:
             const target = {};
             vm.pushData(target);
             for (var key of keys(code)) {
-                vm.pushData(key);
-                vm.pushData(target);
+                vm.pushData(new ObjectLValue(target, key));
                 vm.pushData(code[key]);
                 vm.pushCommand("jeb:shuffle", 1, []);
-                vm.pushCommand("jeb:set_prop", "", true);
-                vm.pushCommand("jeb:shuffle", 3, [2, 1, 0]);
+                vm.pushCommand("jeb:set", AccessType.PROPERTY);
+                vm.pushCommand("jeb:shuffle", 2, [1, 0]);
                 vm.pushCommand("jeb:eval");
             }
         }
@@ -127,8 +126,7 @@ Examples:
         const tailcallHint = args[2];
         const applier = findDispatcherForObject(vm.applyTable, func);
         if (!applier) {
-            const typename = func === null ? "null" : isArray(func) ? "array" : typeof func;
-            vm.pushCommand("jeb:throw", "jeb:type_error", `can't call ${typename === "object" ? (func.constructor.name ?? "object") : typename}`, {
+            vm.pushCommand("jeb:throw", "jeb:type_error", `can't call ${theTypeName(typeOf(func))}`, {
                 return: vm.cc(),
             });
             return;
@@ -173,8 +171,8 @@ If \`alreadyEvaluated\` is true, they are interpreted as values and the applier 
             // String is a special case because normally strings evaluate to themselves
             // (not to a callable function), but if it's in head position, we implicitly look it up.
             vm.pushCommand("jeb:apply", args, alreadyEvaluated, tailcallHint);
-            vm.pushCommand("jeb:lookup", true);
-            vm.pushData(func);
+            vm.pushCommand("jeb:get", AccessType.FUNCTION);
+            vm.pushData(new EnvVarLValue(vm.currentEnv, func));
         }
         getNameOf = () => undefined;
         getArity = () => null;
@@ -206,165 +204,95 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
     }, null);
 
     // MARK: variables
-    defineOpcode(vm, "jeb:lookup", (vm, args) => {
-        const name = vm.popData();
-        const variable = vm.getVar(name);
-        const functionHint = args[0];
-        if (!variable.ok) {
-            vm.pushCommand("jeb:throw", "jeb:reference_error", `${functionHint ? "function" : "variable"} ${stringify(name)} not found`, {
-                define: vm.cc(["store", name]),
-            });
-            return;
-        }
-        vm.pushData(variable.data);
-    },
-        `.imm functionHint
-.param {boolean?} [functionHint=false]
-.sed name -- value
-.throws jeb:reference_error - when the name is not defined anywhere
-. Pops the name off the top of the stack, looks it up in the current environment, and returns the value.
-If the name doesn't exist, this opcode won't return. \`functionHint\` is used to create the error message if it doesn't exist.`);
-    defineOpcode(vm, "jeb:get_prop", (vm, args) => {
-        const name = vm.popData();
+    defineAccessor(vm, new class extends Accessor<"object"> {
+        constructor() { super("object"); }
+        access(object: any, field: PropertyKey) { return new ObjectLValue(object, field); }
+        doc = "Default object property accessor.";
+    });
+
+    defineAccessor(vm, new class extends Accessor<Env> {
+        constructor() { super(Env); }
+        access(env: Env, field: PropertyKey) { return new EnvVarLValue(env, field); }
+        doc = "Accessor for variables from an environment.";
+    });
+    defineOpcode(vm, "jeb:index/access", vm => {
+        const name = vm.popData() as PropertyKey;
         const obj = vm.popData();
-        if ((obj ?? null) === null) {
-            const propHint = args[0] as string ?? "unknown expression";
-            vm.pushCommand("jeb:throw", "jeb:type_error", `can't get property ${stringify(name)} of ${obj} (evaluating "${propHint}")`, {});
+        const accessor = findDispatcherForObject(vm.accessTable, obj);
+        if (!accessor) {
+            console.log("unindexable", { name, obj });
+            vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(theTypeName(typeOf(obj)))} is not subscriptable`, {});
             return;
         }
-        const should_bind = args[1] as boolean;
-        var value: any = obj[name];
-        if (should_bind && typeof value === "function") {
-            value = value.bind(obj);
-        }
-        vm.pushData(value);
+        vm.pushData(accessor.access(obj, name));
+    }, null);
+    defineOpcode(vm, "jeb:index", (vm, args) => {
+        const name = args[0] as any;
+        vm.pushCommand("jeb:index/access");
+        vm.pushCommand("jeb:eval");
+        vm.pushData(name);
     },
-        `.imm propHint shouldBind
-.param {string?} [propHint="unknown expression"]
+        `.sed obj name -- lvalue
+.throws jeb:type_error - if the object can't be indexed
+. Finds an Accessor for the object and pushes the LValue for the given field.`);
+    defineOpcode(vm, "jeb:get", (vm, args) => {
+        const lvalue = vm.popData() as LValue;
+        const accessType = args[0] as AccessType;
+        const shouldBind = args[1] as boolean;
+        lvalue.get(vm, accessType, shouldBind);
+    },
+        `.imm accessType shouldBind
+.param {AccessType} accessType
 .param {boolean?} [shouldBind=false]
-.throws jeb:type_error - when the object is null or undefined
-. Pops \`name\`, then \`obj\` off the stack, and then pushes \`obj[name]\`. If \`obj[name]\` is a function and \`shouldBind\` is true, then \`obj[name].bind(obj)\` is pushed instead.
-The \`propHint\` is used to construct the error message if the obj is null or undefined.`);
+.sed lvalue -- value
+. Takes an LValue on the top of the stack and unwraps it by calling its get() method.`);
+    defineOpcode(vm, "jeb:set", (vm, args) => {
+        const lvalue = vm.popData() as LValue;
+        const accessType = args[0] as AccessType;
+        const create = args[1] as boolean;
+        const readonly = args[2] as boolean;
+        lvalue.set(vm, vm.peekData(), accessType, create, readonly);
+    },
+        `.imm accessType create readonly
+.param {AccessType} accessType
+.param {boolean?} [create=false]
+.param {boolean?} [readonly=false]
+.sed value lvalue -- value
+. Takes an LValue on the top of the stack and calls the \`set()\` method with the next item in the stack as the value to set.`);
+    const pushNamePath = (vm: JebVM, path: string | any[], last: (type: AccessType) => void) => {
+        if (!isArray(path)) path = [path];
+        for (var i = path.length - 1, first = true; i >= 0; i--, first = false) {
+            const type = i > 0 ? AccessType.PROPERTY : AccessType.VARIABLE;
+            if (first) {
+                last(type);
+            } else {
+                vm.pushCommand("jeb:get", type);
+            }
+            vm.pushCommand("jeb:index", path[i]);
+        }
+    };
     defineBuiltin(vm, "$", 1, true, false, (args, vm) => {
         const name = args[0] as string | any[];
-        if (!isArray(name)) {
-            vm.pushData(name);
-        } else {
-            if (name.length < 2) {
-                vm.pushCommand("jeb:throw", "jeb:value_error", "array form of $ must have 2 or more elements", {});
-                return;
-            }
-            // On each iteration, the stack looks like:
-            //     value nameA nameB nameC
-            // So we swap, eval nameA, then index it and it becomes
-            //     value nameB nameC
-            // rinse and repeat.
-            for (var i = name.length - 1, first = true; i > 0; i--, first = false) {
-                vm.pushData(name[i]);
-                vm.pushCommand("jeb:get_prop", name.slice(0, i + 1).map((j, i) => i > 0 ? j : stringify([j])).join(""), first);
-                vm.pushCommand("jeb:eval");
-                vm.pushCommand("jeb:shuffle", 2, [1, 0]);
-            }
-            vm.pushData(name[0]);
-        }
-        vm.pushCommand("jeb:lookup");
-        vm.pushCommand("jeb:eval");
+        pushNamePath(vm, name, type => vm.pushCommand("jeb:get", type, true));
+        vm.pushData(vm.currentEnv);
         return NOTHING;
     }, `.macro ($ (name properties...))
 The \`properties\` index the variable like Javascript square brackets.
 ..param {string} name - can be an expression; it is evaluated
 ..param {string} properties...
-..throws jeb:value_error - if there are no \`properties\`
 .func ($ name)
 ..param {string} name
 .throws jeb:reference_error - if the name is not defined anywhere
 .returns {any}
 . Look up the variable with this name in the current environment.`);
-    defineOpcode(vm, "jeb:store", (vm, args) => {
-        const value = vm.peekData();
-        const name: string = args[0];
-        const didSet = vm.setVar(name, value);
-        if (!didSet) {
-            if (didSet === undefined) {
-                vm.pushCommand("jeb:throw", "jeb:reference_error", `variable ${stringify(name)} not found`, {
-                    define: vm.cc(["jeb:store", name]),
-                });
-            } else {
-                vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(name)} is a constant`, {});
-            }
-            return;
-        }
-        if (value instanceof Lambda && value.name === undefined) value.name = name;
-    },
-        `.imm name
-.param {string} name
-.sed value -- value
-.throws jeb:reference_error - if the variable wasn't defined anywhere
-.throws jeb:type_error - if the variable is a constant
-. Looks up where \`name\` is stored (in the current scope or one of its parents) and then sets it.
-If the value is a yet-unnamed lambda or macro, also sets the value's name to \`name\`.`);
-    defineOpcode(vm, "jeb:const", (vm, args) => {
-        const value = vm.peekData();
-        const name: string = args[0];
-        vm.addConst(name, value);
-        if (value instanceof Lambda && value.name === undefined) value.name = name;
-    },
-        `.imm name
-.param {string} name
-.sed value -- value
-. Defines \`name\` to be a constant in the current scope.
-If the value is a yet-unnamed lambda or macro, also sets the value's name to \`name\`.`);
-    defineOpcode(vm, "jeb:set_prop", (vm, args) => {
-        const name = vm.popData();
-        const obj = vm.popData();
-        if (undefinedToNull(obj) === null) {
-            const propHint = args[0] as string ?? "unknown expression";
-            vm.pushCommand("jeb:throw", "jeb:type_error", `can't set property ${stringify(name)} on ${obj} (evaluating ${propHint})`, {});
-            return;
-        }
-        wrapThrowToError(vm, "jeb:type_error", () => obj[name] = vm.peekData());
-    },
-        `.imm propHint
-.param {string} [propHint="unknown expression"]
-.sed value obj name -- value
-.throws jeb:type_error - if obj is null or undefined.
-The \`propHint\` is used to construct the error message.
-. Sets \`obj[name] = value\`.`);
     defineBuiltin(vm, "set", 2, true, false, (args, vm) => {
         const name = args[0] as string | any[];
-        if (!isArray(name)) {
-            vm.pushCommand("jeb:store", name);
-            vm.pushCommand("jeb:eval");
-            vm.pushData(args[1]);
-        } else {
-            if (name.length < 2) {
-                vm.pushCommand("jeb:throw", "jeb:value_error", "array form of set must have 2 or more elements", {});
-                return;
-            }
-            // On the last iteration, stack looks like:
-            //     obj name value
-            // so we rot value to the top:
-            //     value obj name
-            // eval value, then rot name to the top and swap obj and value:
-            //     name obj value
-            // eval name, and then set.
-            vm.pushData(args[1]);
-            vm.pushCommand("jeb:set_prop", name.map((j, i) => i > 0 ? j : stringify([j])).join(""));
-            vm.pushCommand("jeb:eval");
-            vm.pushCommand("jeb:shuffle", 3, [2, 1, 0]);
-            vm.pushCommand("jeb:eval");
-            vm.pushCommand("jeb:shuffle", 3, [1, 2, 0]);
-            vm.pushData(last(name));
-            // On each prior iteration, it's the same as in $
-            for (var i = name.length - 2; i > 0; i--) {
-                vm.pushData(name[i]);
-                vm.pushCommand("jeb:get_prop", name.slice(0, i + 1).map((j, i) => i > 0 ? j : stringify([j])).join(""));
-                vm.pushCommand("jeb:eval");
-                vm.pushCommand("jeb:shuffle", 2, [1, 0]);
-            }
-            vm.pushCommand("jeb:lookup");
-            vm.pushData(name[0]);
-        }
+        const value = args[1] as any;
+        pushNamePath(vm, name, type => vm.pushCommand("jeb:set", type));
+        vm.pushCommand("jeb:shuffle", 2, [1, 0]);
+        vm.pushData(vm.currentEnv);
+        vm.pushCommand("jeb:eval");
+        vm.pushData(value);
         return NOTHING;
     }, `.macro (set name value)
 ..param {string} name
@@ -468,7 +396,11 @@ Some errors also include a *restart* as part of their \`context\` - this will be
 
         if (!context.enter) return;
         vm.pushCommand("jeb:shuffle", 1, []);
-        if (name !== null) vm.pushCommand("jeb:store", name);
+        if (name !== null) {
+            vm.pushCommand("jeb:set", AccessType.VARIABLE, true);
+            vm.pushCommand("jeb:shuffle", 2, [1, 0]);
+            vm.pushData(new EnvVarLValue(vm.currentEnv, name));
+        }
         vm.pushCommand("jeb:apply", [false], true);
         vm.pushData(context.enter);
     }, null);
@@ -607,14 +539,14 @@ Some errors also include a *restart* as part of their \`context\` - this will be
             }
             return new Lambda(isMacro, isImplicit, undefined, required, optional, rest, body, vm.currentEnv, docstring);
         },
-            `.macro (${kind} (parameters...) body...) | (${kind} (parameters... #t) body...) | (${kind} #t (parameters...) docstring body...)
+            `.macro (${name} (parameters...) body...) | (${name} (parameters... #t) body...) | (${name} #t (parameters...) docstring body...)
 The form with \`#t\` right after the \`${kind}\` defines it as an implicit ${kind}, where the special \`return\` continuation is not injected and the call will not show up in the traceback of an error (it would normally show as \`[${kind}]\` unless assigned to a name).
 ..param {string | [string, code]} parameters - list of parameter names
 If the param is a 2-tuple \`[*name*, *default*]\`, then the parameter is optional, and if it is not provided in a call, then the value of \`default\` is evaluated in a dynamic environment of both the environment in which the ${name} was defined, as well as the environment from which it was called.
 The form with \`#t\` at the end of the parameters list defines the last parameter name to be a rest parameter that will be an array at runtime filled with all the arguments given after it. It cannot have a default since defining it as a rest parameter implicitly defines the default as \`[]\`.
 ..param {string} docstring - Defines the documentation string for this ${kind}. The first element of the body will only be interpreted as a docstring if there is at least one statement after it (rendering the string otherwise pointless).
 ..param {code} body... - Statements to be executed in sequence (as with [[begin]]) to calculate the return value of the ${name}.
-...injected {Continuation} return - if the first element after the \`${kind}\` is not \`#t\`, a continuation jumping back to where the ${kind} was called from is injected into the \`return\` variable.
+...injected {Continuation} return - if the first element after the \`${name}\` is not \`#t\`, a continuation jumping back to where the ${kind} was called from is injected into the \`return\` variable.
 .returns {Lambda}
 . Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}`);
     }
@@ -718,30 +650,31 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 
     defineBuiltin(vm, "define", null, true, false, (args, vm) => {
         const name = args[0] as string | string[];
+        const setHelper = (name: string, thing: any) => {
+            vm.pushCommand("jeb:set", AccessType.VARIABLE, true, true);
+            vm.pushCommand("jeb:shuffle", 2, [1, 0]);
+            vm.pushCommand("jeb:eval");
+            vm.pushData(new EnvVarLValue(vm.currentEnv, name));
+            vm.pushData(thing);
+        };
         if (typeof name === "boolean" && name && isArray(args[1])) {
             // macro definition: (define true (f x y) body)
             const name2 = args[1];
             const funcName = name2[0] as string;
             const params = name2.slice(1) as string[];
             const body = args.slice(2);
-            vm.pushCommand("jeb:const", funcName);
-            vm.pushCommand("jeb:eval");
-            vm.pushData(["macro", params, ...body]);
+            setHelper(funcName, ["macro", params, ...body]);
         }
         else if (isString(name)) {
             // variable definition: (define x 10)
-            vm.pushCommand("jeb:const", name);
-            vm.pushCommand("jeb:eval");
-            vm.pushData(args[1]);
+            setHelper(name, args[1]);
         }
         else if (isArray(name)) {
             // function definition: (define (f x y) body)
             const funcName = name[0] as string;
             const params = name.slice(1) as string[];
             const body = args.slice(1);
-            vm.pushCommand("jeb:const", funcName);
-            vm.pushCommand("jeb:eval");
-            vm.pushData(["lambda", params, ...body]);
+            setHelper(funcName, ["lambda", params, ...body]);
         }
         else {
             vm.pushCommand("jeb:throw", "jeb:syntax_error", "invalid define syntax", {});
@@ -1104,7 +1037,7 @@ The \`value\` expression will have access to the old value in the variable \`_\`
                         ["_", ["$", [UNQUOTE_NAME, ["$", "name"]]]]
                     ],
                     // TODO: this evaluates the path twice if it's a path
-                    // Need to add generalized lvalues
+                    // Need to rewrite using the generalized lvalues system
                     ["set", [UNQUOTE_NAME, ["$", "name"]], [UNQUOTE_NAME, ["$", "value"]]],
                     ["$", "_"]]]],
         ["define", ["reduce", "list", "f", "value"],
@@ -1115,8 +1048,6 @@ The \`value\` expression will have access to the old value in the variable \`_\`
 .returns {R}
 . Repeatedly call the function with 2 arguments; the first one is the current \`value\` and the second is each element of \`list\` in turn. The return value will be the new \`value\` for the next element.
 When the list is empty, returns the accumulated value.`,
-            // must be recursive because continuations
-            // TODO: make this more tail-recursive? it seems to blow the stack for long lists
             ["if", ["zero?", ["length", ["$", "list"]]],
                 ["$", "value"],
                 ["reduce",
@@ -1150,6 +1081,7 @@ const UNQUOTE_SPLICING_NAME = "unquoteSplicing";
 
 // MARK: processQuasiquote
 const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any, string> => {
+    const env = vm.currentEnv;
     // atoms
     if (!isArray(form)) {
         if (typeof form !== "object" || form === null) {
@@ -1170,8 +1102,8 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any, str
 
     const same = (x: any, y: string) => {
         if (!isString(x)) return false;
-        const v1 = vm.getVar(x);
-        const v2 = vm.getVar(y);
+        const v1 = env.get(x);
+        const v2 = env.get(y);
         return v1.ok ? (v2.ok && v1.data === v2.data) : !v2.ok;
     }
 

@@ -2,7 +2,7 @@ export { loadBuiltins } from "./builtins";
 export { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, implicitBegin, NOTHING } from "./builtins/utils";
 export { BuiltinFunction, CallableClass, Lambda } from "./callable";
 export { Continuation, DynamicWind, type Windable } from "./continuation";
-export { Accessor, Applier, Evaluator, findDispatcherForObject, TypeDispatcher, type Arity, type LValue } from "./dispatch";
+export { Accessor, AccessType, Applier, EnvVarLValue, Evaluator, findDispatcherForObject, TypeDispatcher, type Arity, type LValue } from "./dispatch";
 export * from "./doc";
 export { Env } from "./env";
 export { jsError, resultToError } from "./errors";

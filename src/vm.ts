@@ -39,7 +39,7 @@ export class JebVM {
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
     /** environment that module-level globals live in */
-    globalEnv = this.createEnv();
+    globalEnv = this.createEnv(this.builtinsEnv);
     opcodeTable: Record<string, [impl: OpcodeFunction<this>, doc: string | null]> = {};
     applyTable: Applier<any>[] = [];
     evalTable: Evaluator<any>[] = [];
@@ -73,36 +73,6 @@ export class JebVM {
     }
     pushCommand(name: string, ...args: any[]) {
         this.commandStack = llPush(this.commandStack, [name, ...args]);
-    }
-    /**
-     * Gets the variable name in the current environment
-     * @see {Env.get}
-     */
-    getVar(name: string) {
-        const res = this.currentEnv.get(name);
-        if (res.ok) return res;
-        return this.builtinsEnv.get(name);
-    }
-    /**
-     * Sets the variable name in the current environment
-     * @see {Env.set}
-     */
-    setVar(name: string, value: any) {
-        return this.currentEnv.set(name, value);
-    }
-    /**
-     * Defines the variable name in the current environment
-     * @see {Env.add}
-     */
-    addVar(name: string, value: any) {
-        this.currentEnv.add(name, value);
-    }
-    /**
-     * Defines the constant name in the current environment
-     * @see {Env.addConst}
-     */
-    addConst(name: string, value: any) {
-        this.currentEnv.addConst(name, value);
     }
     #popCommand() {
         if (llLength(this.commandStack) === 0) throw new Error("Opcode stack underflow");
@@ -144,7 +114,7 @@ export class JebVM {
      */
     reset() {
         this.commandStack = this.dataStack = this.tracebackStack = null;
-        this.curDynamicWind = new DynamicWind(this.currentEnv = this.createEnv(this.globalEnv));
+        this.curDynamicWind = new DynamicWind(this.currentEnv = this.globalEnv);
     }
     /**
      * Gets the length of the command stack.
