@@ -26,6 +26,32 @@ const rawTraceback = (vm: JebVM): string[] => {
     return res;
 }
 
+describe("stack machine test", () => {
+    testTest("identity", vm => {
+        vm.pushData(1);
+        vm.pushData(2);
+        vm.pushData(3);
+        vm.pushData(4);
+        vm.pushData(5);
+        vm.pushCommand("jeb:shuffle", 5, [0, 1, 2, 3, 4]);
+        vm.step();
+        expect(vm.popData()).toEqual(5);
+        expect(vm.popData()).toEqual(4);
+        expect(vm.popData()).toEqual(3);
+        expect(vm.popData()).toEqual(2);
+        expect(vm.popData()).toEqual(1);
+    });
+    testTest("tuck", vm => {
+        vm.pushData(1);
+        vm.pushData(2);
+        vm.pushCommand("jeb:shuffle", 2, [1, 0, 1]);
+        vm.step();
+        expect(vm.popData()).toEqual(2);
+        expect(vm.popData()).toEqual(1);
+        expect(vm.popData()).toEqual(2);
+    });
+});
+
 describe("basic", () => {
     testTest("begin with no args returns null", vm => {
         expect(run(vm, ["begin"])).toBeTrue();
