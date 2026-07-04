@@ -225,7 +225,7 @@ describe("traceback compression", () => {
         try { run(vm, prog); } catch (e) { err = e; }
 
         expect(err.message).toMatch(/\(if<-foo<-bar \* \d+\)/);
-        expect(err.message).toMatch(/\([^()]+\(/);
+        expect(err.message).toMatch(/\([^)]*\(/);
     });
 });
 

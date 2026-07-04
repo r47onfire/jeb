@@ -2,7 +2,7 @@ import { loadBuiltins } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
 import { Accessor, Applier, Evaluator } from "./dispatch";
 import { Env } from "./env";
-import { jsError } from "./errors";
+import { createStackInnerNode, createStackLeafNode, jsError, StackTreeNode } from "./errors";
 import { Linked, LinkedList, llLength, llPop, llPopN, llPush, llPushArray } from "./linked_list";
 import { Arithmetic } from "./overload";
 
@@ -132,16 +132,26 @@ export class JebVM {
     }
     /**
      * Returns the names of the functions in the call stack, with innermost first
-     * @returns A list of strings for each call frame
+     * @returns list of stack entries, with only 1-element repeats compressed.
      */
-    // TODO: don't expand the repeats! it should be able to take advantage of them to compress faster
     tracebackArray() {
         var stack = this.tracebackStack;
-        const parts: string[] = [];
+        const parts: StackTreeNode[] = [];
+        var prevName: string | undefined, prevCount = 0;
+        const flush = () => {
+            if (prevCount > 0) {
+                const leaf = createStackLeafNode(prevName!);
+                parts.push(prevCount > 1 ? createStackInnerNode(prevCount, [leaf]) : leaf);
+            }
+            prevCount = 0;
+        };
         while (stack) {
-            for (var i = 0; i < stack.count; i++) parts.push(stack.value);
+            if (prevName !== stack.value) flush();
+            prevName = stack.value;
+            prevCount += stack.count;
             stack = stack.next;
         }
+        flush();
         return parts;
     }
     /**
@@ -223,6 +233,7 @@ export class JebVM {
         );
     }
     fatalError(type: string, message: string): never {
+
         return jsError(type, message, this.tracebackArray());
     }
 }
