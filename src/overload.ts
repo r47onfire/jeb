@@ -1,3 +1,4 @@
+import { isinstance } from "@r47onfire/game-math";
 import { isString } from "lib0/function";
 import { stringify } from "lib0/json";
 import { add, pow } from "lib0/math";
@@ -34,7 +35,7 @@ export function typeMatches(obj: any, type: Type): number {
     if (isString(type)) {
         return typeof obj === type ? 3 : 0;
     } else {
-        return obj instanceof type ? 3 : 0;
+        return isinstance(obj, type) ? 3 : 0;
     }
 }
 
@@ -59,6 +60,7 @@ export interface Operations {
     sub: OverloadTable;
     div: OverloadTable;
     mul: OverloadTable;
+    mulAlt: OverloadTable;
     mod: OverloadTable;
     cmp: OverloadTable;
     pow: OverloadTable;

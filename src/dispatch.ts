@@ -1,9 +1,10 @@
+import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
 import { Lambda } from "./callable";
 import { Env } from "./env";
+import { wrapThrowToError } from "./errors";
 import { Type, TypeFor, typeMatches } from "./overload";
 import { JebVM } from "./vm";
-import { wrapThrowToError } from "./errors";
 
 export abstract class TypeDispatcher {
     constructor(
@@ -143,7 +144,7 @@ export class EnvVarLValue implements LValue {
                 vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(this.name)} is a constant`, {});
             }
         }
-        if (value instanceof Lambda) value.name ??= this.name;
+        if (isinstance(value, Lambda)) value.name ??= this.name;
     }
     protected referenceError(vm: JebVM, type: AccessType) {
         vm.pushCommand("jeb:throw", "jeb:reference_error",
