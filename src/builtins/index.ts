@@ -212,7 +212,7 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 
     defineAccessor(vm, new class extends Accessor<Env> {
         constructor() { super(Env); }
-        access(env: Env, field: PropertyKey) { return new EnvVarLValue(env, field); }
+        access(env: Env, field: PropertyKey) { return new EnvVarLValue(env, field as string); }
         doc = "Accessor for variables from an environment.";
     });
     defineOpcode(vm, "jeb:index/access", vm => {

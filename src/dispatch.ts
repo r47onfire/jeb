@@ -120,10 +120,7 @@ export class ObjectLValue implements LValue {
 }
 
 export class EnvVarLValue implements LValue {
-    name: string;
-    constructor(public env: Env, name: PropertyKey) {
-        this.name = name as string;
-    }
+    constructor(public env: Env, public name: string) { }
     get(vm: JebVM, type: AccessType) {
         const result = this.env.get(this.name);
         if (result.ok) {
