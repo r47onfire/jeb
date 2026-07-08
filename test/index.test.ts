@@ -592,7 +592,7 @@ describe("self-defined macros", () => {
     });
     testTest("pipe", vm => {
         expect(run(vm, ["begin",
-            ["|>", 1, ["*", ["$", "#"], 100], ["+", ["$", "#"], 23]]
+            ["|>", 1, ["*", ["$", "%"], 100], ["+", ["$", "%"], 23]]
         ])).toBeTrue();
         expect(vm.popData()).toEqual(123);
     });

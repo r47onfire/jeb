@@ -1168,13 +1168,13 @@ In both cases if the handler exists, \`true\` is returned to [[with]] to stop pr
         `.macro (|> value expressions...)
 ..param {any} value
 ..param {code} expressions...
-...injected {any} #
-. Pipes the \`value\` as the variable \`#\` into the next expression, and then the result of it becomes the next \`#\`, etc. until all expressions have been evaluated.
-This is analogous to Javascript's proposed pipe operator, specifically the Hack style but using \`#\` for the placeholder instead of \`%\`.`,
+...injected {any} %
+. Pipes the \`value\` as the variable \`%\` into the next expression, and then the result of it becomes the next \`%\`, etc. until all expressions have been evaluated.
+This is analogous to Javascript's proposed pipe operator, specifically the Hack style.`,
         ["if", ["zero?", ["length", ["$", "items"]]],
             ["$", "value"],
             [QUASIQUOTE_NAME,
-                [["lambda", true, ["#"],
+                [["lambda", true, ["%"],
                     ["|>", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]],
                 [UNQUOTE_NAME, ["$", "value"]]]]]],
     ["define", ["reduce", "list", "f", "value"],
