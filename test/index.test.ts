@@ -72,6 +72,13 @@ describe("basic", () => {
         expect(run(vm, ["$", []])).toBeTrue();
         expect(vm.popData()).toBe(vm.currentEnv);
     });
+    testTest("get complex value", vm => {
+        expect(run(vm, ["begin",
+            ["define", ["x"], ["list", ["list", 1], ["list", 2], ["list", 4]]],
+            ["$", [["x"], 1, 0]],
+        ])).toBeTrue();
+        expect(vm.popData()).toBe(2);
+    });
     testTest("set with existing value", (vm, out) => {
         expect(run(vm, ["begin",
             ["let-in", "x", 0],
@@ -91,6 +98,16 @@ describe("basic", () => {
             ["print", ["$", "x"]]
         ])).toBeTrue();
         expect(out).toEqual(["0", "10", "10", "11"]);
+    });
+    testTest("set complex value lvalue is only evaluated once", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", "value", { x: 1 }],
+            ["define", ["f"], ["print", "called"], ["$", "value"]],
+            ["set", [["f"], "x"], ["+", 10, ["$", "_"]]],
+            ["$", "value"],
+        ])).toBeTrue();
+        expect(vm.popData()).toEqual({ x: 11 });
+        expect(out).toEqual(["called"]);
     });
     testTest("calling non-functions errors", vm => {
         expect(() => run(vm, [1, 2, 3])).toThrow("can't call number");

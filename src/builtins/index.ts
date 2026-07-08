@@ -220,7 +220,6 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
         const obj = vm.popData();
         const accessor = findDispatcherForObject(vm.accessTable, obj);
         if (!accessor) {
-            console.log("unindexable", { name, obj });
             vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(theTypeName(typeOf(obj)))} is not subscriptable`, {});
             return;
         }
@@ -261,6 +260,16 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 . Takes an LValue on the top of the stack and calls the \`set()\` method with the next item in the stack as the value to set.`);
     const pushNamePath = (vm: JebVM, path: string | any[], last: (type: AccessType) => void) => {
         if (!isArray(path)) path = [path];
+        var item = vm.currentEnv as any, shouldEval = false;
+        if (!isString(path[0]) && path.length > 0) {
+            if (path.length < 2) {
+                vm.pushCommand("jeb:throw", "jeb:syntax_error", "complex expression indexing must have an index", {});
+                return;
+            }
+            item = path[0];
+            path = path.slice(1);
+            shouldEval = true;
+        }
         for (var i = path.length - 1, first = true; i >= 0; i--, first = false) {
             const type = i > 0 ? AccessType.PROPERTY : AccessType.VARIABLE;
             if (first) {
@@ -270,11 +279,14 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
             }
             vm.pushCommand("jeb:index", path[i]);
         }
+        vm.pushData(item);
+        if (shouldEval) {
+            vm.pushCommand("jeb:eval");
+        }
     };
     defineBuiltin(vm, "$", 1, true, false, (args, vm) => {
         const name = args[0] as string | any[];
         pushNamePath(vm, name, type => vm.pushCommand("jeb:get", type, true));
-        vm.pushData(vm.currentEnv);
         return NOTHING;
     }, `.macro ($ (name properties...))
 The \`properties\` index the variable like Javascript square brackets.
@@ -305,7 +317,6 @@ The \`properties\` index the variable like Javascript square brackets.
         const valueExpr = args[1] as any;
         const old = args[2] as boolean;
         pushNamePath(vm, name, type => vm.pushCommand("jeb:set/old", type, valueExpr, old));
-        vm.pushData(vm.currentEnv);
         return NOTHING;
     }, `.macro (set name value old)
 ..param {string} name
