@@ -1,24 +1,28 @@
 import { Env } from "./env";
-import { LinkedList } from "./linked_list";
+import { LinkedList, llPushArray } from "./linked_list";
 import { Command, JebVM, StackCount } from "./vm";
 
 /**
  * A continuation which holds all the VM state, and can restore it at any time
  */
 export class Continuation {
-
-    constructor(
-        /** Closed-over environment */
-        public env: any,
-        /** Closed-over command stack in progress */
-        public commands: LinkedList<Command>,
-        /** Closed-over data stack in progress */
-        public data: LinkedList<any>,
-        /** Closed-over dynamic wind stack in progress */
-        public winders: DynamicWind,
-        /** Closed-over traceback stack in progress */
-        public traceback: StackCount | null
-    ) { }
+    /** Closed-over environment */
+    env: Env;
+    /** Closed-over command stack in progress */
+    commands: LinkedList<Command>;
+    /** Closed-over data stack in progress */
+    data: LinkedList<any>;
+    /** Closed-over dynamic wind stack in progress */
+    winders: DynamicWind;
+    /** Closed-over traceback stack in progress */
+    traceback: StackCount | null;
+    constructor(vm: JebVM, extraOps: Command[]) {
+        this.env = vm.currentEnv;
+        this.commands = llPushArray(vm.commandStack, extraOps);
+        this.data = vm.dataStack;
+        this.winders = vm.curDynamicWind;
+        this.traceback = vm.tracebackStack;
+    }
     /**
      * Call the continuation and restore the state of the VM
      * @param vm VM to restore state of
@@ -47,15 +51,19 @@ export interface Windable {
  */
 export class DynamicWind {
     handler: Windable | null = null;
-    constructor(
-        /** current env at the point of the dynamic wind start */
-        public envHere: Env,
-        public parent: DynamicWind | null = null,
-        /** closed-over command stack */
-        public commandsHere: LinkedList<Command> = null,
-        /** closed-over data stack */
-        public dataHere: LinkedList<any> = null,
-    ) { }
+    /** current env at the point of the dynamic wind start */
+    envHere: Env;
+    parent: DynamicWind | null = null;
+    /** closed-over command stack */
+    commandsHere: LinkedList<Command> = null;
+    /** closed-over data stack */
+    dataHere: LinkedList<any> = null;
+    constructor(vm: JebVM) {
+        this.envHere = vm.currentEnv;
+        this.parent = vm.curDynamicWind;
+        this.commandsHere = vm.commandStack;
+        this.dataHere = vm.dataStack;
+    }
     /**
      * sets the handler after it has been processed
      */

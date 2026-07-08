@@ -3,7 +3,7 @@ import { Continuation, DynamicWind } from "./continuation";
 import { Accessor, Applier, Evaluator } from "./dispatch";
 import { Env } from "./env";
 import { createStackInnerNode, createStackLeafNode, jsError, StackTreeNode } from "./errors";
-import { Linked, LinkedList, llLength, llPop, llPopN, llPush, llPushArray } from "./linked_list";
+import { Linked, LinkedList, llLength, llPop, llPopN, llPush } from "./linked_list";
 import { Arithmetic } from "./overload";
 
 /**
@@ -112,7 +112,8 @@ export class JebVM {
      */
     reset() {
         this.commandStack = this.dataStack = this.tracebackStack = null;
-        this.curDynamicWind = new DynamicWind(this.currentEnv = this.createEnv(this.builtinsEnv));
+        this.currentEnv = this.createEnv(this.builtinsEnv);
+        this.curDynamicWind = new DynamicWind(this);
     }
     /**
      * Gets the length of the command stack.
@@ -209,12 +210,7 @@ export class JebVM {
         }
     }
     newDynamicWind() {
-        return new DynamicWind(
-            this.currentEnv,
-            this.curDynamicWind,
-            this.commandStack,
-            this.dataStack,
-        );
+        return new DynamicWind(this);
     }
     createEnv(...parents: Env[]) {
         return new Env({}, parents);
@@ -224,13 +220,7 @@ export class JebVM {
      * @param extraOps Extra opcodes to push to the command stack *when this continuation is invoked* (not now).
      */
     cc(...extraOps: Command[]) {
-        return new Continuation(
-            this.currentEnv,
-            llPushArray(this.commandStack, extraOps),
-            this.dataStack,
-            this.curDynamicWind,
-            this.tracebackStack,
-        );
+        return new Continuation(this, extraOps);
     }
     fatalError(type: string, message: string): never {
 
