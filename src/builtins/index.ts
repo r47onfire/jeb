@@ -284,7 +284,7 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
             vm.pushCommand("jeb:eval");
         }
     };
-    defineBuiltin(vm, "$", 1, true, false, (args, vm) => {
+    defineBuiltin(vm, GET_NAME, 1, true, false, (args, vm) => {
         const name = args[0] as string | any[];
         pushNamePath(vm, name, type => vm.pushCommand("jeb:get", type, true));
         return NOTHING;
@@ -578,8 +578,8 @@ The form with \`#t\` at the end of the parameters list defines the last paramete
 .returns {Lambda}
 . Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}`);
     }
-    lambdaHelper("lambda", false, "function", "");
-    lambdaHelper("macro", true, "macro", "\nA macro differs from a normal function in that its arguments are passed in *before* being evaluated, so the macro body has access to the actual code passed in; additionally, the return value of the macro is expected to be code as well, and is evaluated again the the scope that the macro was called from.");
+    lambdaHelper(LAMBDA_NAME, false, "function", "");
+    lambdaHelper(MACRO_NAME, true, "macro", "\nA macro differs from a normal function in that its arguments are passed in *before* being evaluated, so the macro body has access to the actual code passed in; additionally, the return value of the macro is expected to be code as well, and is evaluated again the the scope that the macro was called from.");
 
     // MARK: continuation applier
     defineApplier(vm, new class extends Applier<Continuation> {
@@ -643,7 +643,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 ..param {code} [else=null] - case to be evaluated if \`cond\` is falsy
 .returns {any}`);
 
-    defineBuiltin(vm, "begin", null, true, false, (args, vm) => implicitBegin(vm, args),
+    defineBuiltin(vm, BEGIN_NAME, null, true, false, (args, vm) => implicitBegin(vm, args),
         `.macro (begin body...)
 ..param {code} body...
 .returns {any | null} - null if \`body\` is empty, otherwise returns the result of the last body statement
@@ -657,20 +657,20 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
             const body = args.slice(2);
             const params = bindings.map(b => b[0]);
             const initializers = bindings.map(b => b[1]);
-            vm.pushData([["lambda", true, [loopname], ["set", loopname, ["lambda", true, params, ...body]], [loopname, ...initializers]], null]);
+            vm.pushData([[LAMBDA_NAME, true, [loopname], ["set", loopname, [LAMBDA_NAME, true, params, ...body]], [loopname, ...initializers]], null]);
         } else {
             // rewrite (let ((x 1) (y 2)) body) to ((lambda (x y) body) 1 2)
             const bindings = args[0] as [string, any][];
             const body = args.slice(1);
             const params = bindings.map(b => b[0]);
             const initializers = bindings.map(b => b[1]);
-            vm.pushData([["lambda", true, params, ...body], ...initializers]);
+            vm.pushData([[LAMBDA_NAME, true, params, ...body], ...initializers]);
         }
         vm.pushCommand("jeb:eval");
         return NOTHING;
     }, `.macro (let pairs body...)
 .macro (let loopname pairs body...)
-..param {string} loopname - variable name in which a reference to the entire \`let\` is put. \`let\` just expands to a [[lambda]] expression, and the loopname variable allows \`body\` to recursively call that lambda.
+..param {string} loopname - variable name in which a reference to the entire \`let\` is put. \`let\` just expands to a [[${LAMBDA_NAME}]] expression, and the loopname variable allows \`body\` to recursively call that \`${LAMBDA_NAME}\`.
 ...receives {(...names: (typeof pairs)[number][1]) => any}
 .param {[name: string, expression: code][]} pairs
 .param {code} body...
@@ -702,7 +702,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 . Creates a new environment with the given name-value pairs as its bindings, and switches to it. Everything after this will be in the new environment.
 Functions much like [[let]] but with an implicit block after it that continues to the end of the outer block instead of explicit.`);
 
-    defineBuiltin(vm, "define", null, true, false, (args, vm) => {
+    defineBuiltin(vm, DEFINE_NAME, null, true, false, (args, vm) => {
         const name = args[0] as string | string[];
         const setHelper = (name: string, thing: any) => {
             vm.pushCommand("jeb:set", AccessType.VARIABLE, true, true);
@@ -717,7 +717,7 @@ Functions much like [[let]] but with an implicit block after it that continues t
             const funcName = name2[0] as string;
             const params = name2.slice(1) as string[];
             const body = args.slice(2);
-            setHelper(funcName, ["macro", params, ...body]);
+            setHelper(funcName, [MACRO_NAME, params, ...body]);
         }
         else if (isString(name)) {
             // variable definition: (define x 10)
@@ -728,7 +728,7 @@ Functions much like [[let]] but with an implicit block after it that continues t
             const funcName = name[0] as string;
             const params = name.slice(1) as string[];
             const body = args.slice(1);
-            setHelper(funcName, ["lambda", params, ...body]);
+            setHelper(funcName, [LAMBDA_NAME, params, ...body]);
         }
         else {
             vm.pushCommand("jeb:throw", "jeb:syntax_error", "invalid define syntax", {});
@@ -740,7 +740,7 @@ Defines a simple name=value.
 ...receives {T}
 ..param {T} value
 .macro (define (name params...) body...)
-Expands into a [[lambda]].
+Expands into a [[${LAMBDA_NAME}]].
 ..param {string} name
 ..param {...} params...
 ..param {code} body...
@@ -874,8 +874,8 @@ Expands into a [[macro]].
             }
             const sym = vm.currentEnv.gensym();
             const rest = [name, ...args.slice(1)];
-            const getsym = ["$", sym];
-            vm.pushData([["lambda", true, [sym],
+            const getsym = [GET_NAME, sym];
+            vm.pushData([[LAMBDA_NAME, true, [sym],
                 shortCircuitOn ?
                     ["if", getsym, getsym, rest] :
                     ["if", getsym, rest, getsym]
@@ -975,6 +975,11 @@ If an argument is not a list, the value is coerced to a list using the Javascrip
 export const QUASIQUOTE_NAME = "quasiquote";
 export const UNQUOTE_NAME = "unquote";
 export const UNQUOTE_SPLICING_NAME = "unquoteSplicing";
+export const DEFINE_NAME = "define";
+export const BEGIN_NAME = "begin";
+export const GET_NAME = "$";
+export const LAMBDA_NAME = "lambda";
+export const MACRO_NAME = "macro";
 
 // MARK: processQuasiquote
 const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any, string> => {
@@ -1064,30 +1069,30 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): Result<any, str
 }
 
 // MARK: JSON based standard library!
-const STANDARD_LIBRARY = ["begin",
-    ["define", true, ["comment", "items", true],
+const STANDARD_LIBRARY = [BEGIN_NAME,
+    [DEFINE_NAME, true, ["comment", "items", true],
         `.macro (comment items...) | (#; items...) | #;(items...)
 ..param {any} items
 .returns {null}
 . Skips evaluating the items and returns null immediately.`,
         null],
-    ["define", "#;", ["$", "comment"]],
-    ["define", true, ["uncomment", "items", true],
+    [DEFINE_NAME, "#;", [GET_NAME, "comment"]],
+    [DEFINE_NAME, true, ["uncomment", "items", true],
         `.macro (uncomment items...) | (!; items...) | !;(items...)
 ..param {code} items
 . Evaluates the items as with [[begin]].`,
-        [QUASIQUOTE_NAME, ["begin", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]]],
-    ["define", "!;", ["$", "uncomment"]],
-    ["define", ["call-with-current-continuation", "f"],
+        [QUASIQUOTE_NAME, [BEGIN_NAME, [UNQUOTE_SPLICING_NAME, [GET_NAME, "items"]]]]],
+    [DEFINE_NAME, "!;", [GET_NAME, "uncomment"]],
+    [DEFINE_NAME, ["call-with-current-continuation", "f"],
         `.func (call-with-current-continuation f) | (call/cc f)
 ..param {(k: Continuation) => any} f
 .returns {any} - possibly multiple times if the continuation is invoked later
 . Calls the function with a *continuation*, which is a special callable object. When the continuation is called with one argument, it will not return normally, and instead jump back to the place where \`call/cc\` was created from and make the \`call/cc\` return the given value instead - *even if* the \`call/cc\` expression has already returned!
 Invoking a continuation will cause the \`enter\` and \`exit\` handlers of [[with]] blocks jumped across to be triggered with \`true\` to indicate it was due to a continuation.
 Continuations can be used for very complex control structures and can be incredibly confusing to debug, so use with care.`,
-        ["f", ["$", "return"]]],
-    ["define", "call/cc", ["$", "call-with-current-continuation"]],
-    ["define", true, ["when", "test", "body", true],
+        ["f", [GET_NAME, "return"]]],
+    [DEFINE_NAME, "call/cc", [GET_NAME, "call-with-current-continuation"]],
+    [DEFINE_NAME, true, ["when", "test", "body", true],
         `.macro (when test body...)
 ..param {boolean} test
 ..param {code => T} body
@@ -1095,9 +1100,9 @@ Continuations can be used for very complex control structures and can be incredi
 . If \`condition\` is truthy, runs \`body\` as with [[begin]].
 (Equivalent to \`([[if]] condition ([[begin]] body...))\`.)`,
         [QUASIQUOTE_NAME,
-            ["if", [UNQUOTE_NAME, ["$", "test"]],
-                ["begin", [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]]],
-    ["define", true, ["unless", "test", "body", true],
+            ["if", [UNQUOTE_NAME, [GET_NAME, "test"]],
+                [BEGIN_NAME, [UNQUOTE_SPLICING_NAME, [GET_NAME, "body"]]]]]],
+    [DEFINE_NAME, true, ["unless", "test", "body", true],
         `.macro (unless test body...)
 ..param {boolean} test
 ..param {code => T} body
@@ -1105,10 +1110,10 @@ Continuations can be used for very complex control structures and can be incredi
 . If \`condition\` is falsy, runs \`body\` as with [[begin]].
 (Equivalent to \`([[when]] ([[not]] condition) body...)\`.)`,
         [QUASIQUOTE_NAME,
-            ["if", [UNQUOTE_NAME, ["$", "test"]],
+            ["if", [UNQUOTE_NAME, [GET_NAME, "test"]],
                 null,
-                ["begin", [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]]],
-    ["define", true, ["try", "body", "handlers"],
+                [BEGIN_NAME, [UNQUOTE_SPLICING_NAME, [GET_NAME, "body"]]]]]],
+    [DEFINE_NAME, true, ["try", "body", "handlers"],
         `.macro (try body handlers)
 ..param {code} body - single statement that forms the body. If you need more than one statement, use [[begin]].
 ..param {object} handlers
@@ -1119,65 +1124,65 @@ Continuations can be used for very complex control structures and can be incredi
 During evaluation of the body, if an error is thrown, the error's \`type\` (as returned by [[with]]) will be checked to see if it's in the handlers, and if it is, the handler is called with the \`message\` and \`context\` of the error.
 If no handler directly matches, the special catch-all handler \`"\\*"\` is tried.
 In both cases if the handler exists, \`true\` is returned to [[with]] to stop propagation of the error. If the handler wants to propagate the error, it should re-throw it using [[error]].`,
-        [QUASIQUOTE_NAME, ["let", [["handlers", [UNQUOTE_NAME, ["$", "handlers"]]]],
+        [QUASIQUOTE_NAME, ["let", [["handlers", [UNQUOTE_NAME, [GET_NAME, "handlers"]]]],
             ["with", null, {
-                exit: ["lambda", ["k", "type", "message", "ctx"],
+                exit: [LAMBDA_NAME, ["k", "type", "message", "ctx"],
                     ["let",
                         [
-                            ["handler", ["$", ["handlers", ["$", "type"]]]],
-                            ["starHandler", ["$", ["handlers", "*"]]],
-                            ["elseHandler", ["$", ["handlers", "else"]]]
+                            ["handler", [GET_NAME, ["handlers", [GET_NAME, "type"]]]],
+                            ["starHandler", [GET_NAME, ["handlers", "*"]]],
+                            ["elseHandler", [GET_NAME, ["handlers", "else"]]]
                         ],
-                        ["unless", ["$", "type"],
-                            ["when", ["$", "elseHandler"], ["elseHandler"]],
+                        ["unless", [GET_NAME, "type"],
+                            ["when", [GET_NAME, "elseHandler"], ["elseHandler"]],
                             ["return", true]],
-                        ["when", ["$", "handler"],
-                            ["handler", ["$", "message"], ["$", "ctx"]],
+                        ["when", [GET_NAME, "handler"],
+                            ["handler", [GET_NAME, "message"], [GET_NAME, "ctx"]],
                             ["return", true]],
-                        ["when", ["$", "starHandler"],
-                            ["starHandler", ["$", "type"], ["$", "message"], ["$", "ctx"]],
+                        ["when", [GET_NAME, "starHandler"],
+                            ["starHandler", [GET_NAME, "type"], [GET_NAME, "message"], [GET_NAME, "ctx"]],
                             ["return", true]],
                         false]],
             },
-                [UNQUOTE_NAME, ["$", "body"]]]]]],
-    ["define", true, ["with-baffle", "body", true],
+                [UNQUOTE_NAME, [GET_NAME, "body"]]]]]],
+    [DEFINE_NAME, true, ["with-baffle", "body", true],
         `.macro (with-baffle body...)
 ..param {code} body... - evaluated as with [[begin]]
 .throws jeb:state_error - if a continuation tries to jump in or out.
 . Prevents continuations from jumping in or out of \`body\`; only normal control flow or exceptions can be used to enter or exit.`,
         [QUASIQUOTE_NAME, ["with", null, {
-            enter: ["lambda", ["k"],
-                ["when", ["$", "k"],
+            enter: [LAMBDA_NAME, ["k"],
+                ["when", [GET_NAME, "k"],
                     ["error", "jeb:state_error", "Continuation tried to jump into a 'with-baffle' block", {}]],
                 null],
-            exit: ["lambda", ["k", "_", true],
-                ["when", ["$", "k"],
+            exit: [LAMBDA_NAME, ["k", "_", true],
+                ["when", [GET_NAME, "k"],
                     ["error", "jeb:state_error", "Continuation tried to jump out of a 'with-baffle' block", {}]],
                 false]
         },
-            [UNQUOTE_SPLICING_NAME, ["$", "body"]]]]],
-    ["define", ["length", "x"], `.func (length value)
+            [UNQUOTE_SPLICING_NAME, [GET_NAME, "body"]]]]],
+    [DEFINE_NAME, ["length", "x"], `.func (length value)
 ..param {any[] | string} value
 .returns {number} - the length of \`value\``,
-        ["$", ["x", "length"]]],
-    ["define", ["zero?", "x"], `.func (zero? value)
+        [GET_NAME, ["x", "length"]]],
+    [DEFINE_NAME, ["zero?", "x"], `.func (zero? value)
 ..param {number} value
 .returns {boolean} - true if \`value\` is zero`,
-        ["=", ["$", "x"], 0]],
-    ["define", true, ["|>", "value", "items", true],
+        ["=", [GET_NAME, "x"], 0]],
+    [DEFINE_NAME, true, ["|>", "value", "items", true],
         `.macro (|> value expressions...)
 ..param {any} value
 ..param {code} expressions...
 ...injected {any} %
 . Pipes the \`value\` as the variable \`%\` into the next expression, and then the result of it becomes the next \`%\`, etc. until all expressions have been evaluated.
 This is analogous to Javascript's proposed pipe operator, specifically the Hack style.`,
-        ["if", ["zero?", ["length", ["$", "items"]]],
-            ["$", "value"],
+        ["if", ["zero?", ["length", [GET_NAME, "items"]]],
+            [GET_NAME, "value"],
             [QUASIQUOTE_NAME,
-                [["lambda", true, ["%"],
-                    ["|>", [UNQUOTE_SPLICING_NAME, ["$", "items"]]]],
-                [UNQUOTE_NAME, ["$", "value"]]]]]],
-    ["define", ["reduce", "list", "f", "value"],
+                [[LAMBDA_NAME, true, ["%"],
+                    ["|>", [UNQUOTE_SPLICING_NAME, [GET_NAME, "items"]]]],
+                [UNQUOTE_NAME, [GET_NAME, "value"]]]]]],
+    [DEFINE_NAME, ["reduce", "list", "f", "value"],
         `.func (reduce list function value)
 ..param {T[]} list
 ..param {(value: R, item: T) => R} function
@@ -1185,21 +1190,30 @@ This is analogous to Javascript's proposed pipe operator, specifically the Hack 
 .returns {R}
 . Repeatedly call the function with 2 arguments; the first one is the current \`value\` and the second is each element of \`list\` in turn. The return value will be the new \`value\` for the next element.
 When the list is empty, returns the accumulated value.`,
-        ["if", ["zero?", ["length", ["$", "list"]]],
-            ["$", "value"],
+        ["if", ["zero?", ["length", [GET_NAME, "list"]]],
+            [GET_NAME, "value"],
             ["reduce",
-                ["tail", ["$", "list"]],
-                ["$", "f"],
-                ["f", ["$", "value"], ["head", ["$", "list"]]]]]],
-    ["define", ["map", "list_", "f"],
+                ["tail", [GET_NAME, "list"]],
+                [GET_NAME, "f"],
+                ["f", [GET_NAME, "value"], ["head", [GET_NAME, "list"]]]]]],
+    [DEFINE_NAME, ["map", "list_", "f"],
         `.func (map list function)
 ..param {T[]} list
 ..param {(x: T) => R} function
 .returns {R[]}
 . Return a new list with the result of applying the function to each element of the list in order.`,
         ["reduce",
-            ["$", "list_"],
-            ["lambda", ["acc", "cur"],
-                ["concat", ["$", "acc"], ["list", ["f", ["$", "cur"]]]]],
+            [GET_NAME, "list_"],
+            [LAMBDA_NAME, ["acc", "cur"],
+                ["concat", [GET_NAME, "acc"], ["list", ["f", [GET_NAME, "cur"]]]]],
             ["list"]]],
+    [DEFINE_NAME, true, ["while", "cond", "body", true],
+        `.macro (while cond body...)
+..param {code => boolean} cond
+..param {code} body
+. Evaluates \`cond\` repeatedly, followed by \`body\`, until \`cond\` evaluates to a falsy value and then returns null.`,
+        [QUASIQUOTE_NAME, ["when",
+            [UNQUOTE_NAME, [GET_NAME, "cond"]],
+            [UNQUOTE_SPLICING_NAME, [GET_NAME, "body"]],
+            ["while", [UNQUOTE_NAME, [GET_NAME, "cond"]], [UNQUOTE_SPLICING_NAME, [GET_NAME, "body"]]]]]],
 ];

@@ -596,6 +596,15 @@ describe("self-defined macros", () => {
         ])).toBeTrue();
         expect(vm.popData()).toEqual(123);
     });
+    testTest("while", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["let-in", "x", 0],
+            ["while", ["<=", ["$", "x"], 10],
+                ["print", ["$", "x"]],
+                ["set", "x", ["+", ["$", "x"], 1]]],
+        ])).toBeTrue();
+        expect(out).toEqual(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]);
+    })
 });
 
 describe("FFI", () => {
