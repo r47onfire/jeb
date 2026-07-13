@@ -573,7 +573,7 @@ The form with \`#t\` right after the \`${kind}\` defines it as an implicit ${kin
 If the param is a 2-tuple \`[*name*, *default*]\`, then the parameter is optional, and if it is not provided in a call, then the value of \`default\` is evaluated in a dynamic environment of both the environment in which the ${name} was defined, as well as the environment from which it was called.
 The form with \`#t\` at the end of the parameters list defines the last parameter name to be a rest parameter that will be an array at runtime filled with all the arguments given after it. It cannot have a default since defining it as a rest parameter implicitly defines the default as \`[]\`.
 ..param {string} docstring - Defines the documentation string for this ${kind}. The first element of the body will only be interpreted as a docstring if there is at least one statement after it (rendering the string otherwise pointless).
-..param {code} body... - Statements to be executed in sequence (as with [[begin]]) to calculate the return value of the ${name}.
+..param {code} body... - Statements to be executed in sequence (as with [[${BEGIN_NAME}]]) to calculate the return value of the ${name}.
 ...injected {Continuation} return - if the first element after the \`${name}\` is not \`#t\`, a continuation jumping back to where the ${kind} was called from is injected into the \`return\` variable.
 .returns {Lambda}
 . Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}`);
@@ -745,7 +745,7 @@ Expands into a [[${LAMBDA_NAME}]].
 ..param {...} params...
 ..param {code} body...
 .macro (define #t (name params...) body...)
-Expands into a [[macro]].
+Expands into a [[${MACRO_NAME}]].
 ..param {string} name
 ..param {...} params...
 ..param {code} body...
@@ -1080,7 +1080,7 @@ const STANDARD_LIBRARY = [BEGIN_NAME,
     [DEFINE_NAME, true, ["uncomment", "items", true],
         `.macro (uncomment items...) | (!; items...) | !;(items...)
 ..param {code} items
-. Evaluates the items as with [[begin]].`,
+. Evaluates the items as with [[${BEGIN_NAME}]].`,
         [QUASIQUOTE_NAME, [BEGIN_NAME, [UNQUOTE_SPLICING_NAME, [GET_NAME, "items"]]]]],
     [DEFINE_NAME, "!;", [GET_NAME, "uncomment"]],
     [DEFINE_NAME, ["call-with-current-continuation", "f"],
@@ -1097,8 +1097,8 @@ Continuations can be used for very complex control structures and can be incredi
 ..param {boolean} test
 ..param {code => T} body
 .returns {T | null}
-. If \`condition\` is truthy, runs \`body\` as with [[begin]].
-(Equivalent to \`([[if]] condition ([[begin]] body...))\`.)`,
+. If \`condition\` is truthy, runs \`body\` as with [[${BEGIN_NAME}]].
+(Equivalent to \`([[if]] condition ([[${BEGIN_NAME}]] body...))\`.)`,
         [QUASIQUOTE_NAME,
             ["if", [UNQUOTE_NAME, [GET_NAME, "test"]],
                 [BEGIN_NAME, [UNQUOTE_SPLICING_NAME, [GET_NAME, "body"]]]]]],
@@ -1107,7 +1107,7 @@ Continuations can be used for very complex control structures and can be incredi
 ..param {boolean} test
 ..param {code => T} body
 .returns {T | null}
-. If \`condition\` is falsy, runs \`body\` as with [[begin]].
+. If \`condition\` is falsy, runs \`body\` as with [[${BEGIN_NAME}]].
 (Equivalent to \`([[when]] ([[not]] condition) body...)\`.)`,
         [QUASIQUOTE_NAME,
             ["if", [UNQUOTE_NAME, [GET_NAME, "test"]],
@@ -1115,7 +1115,7 @@ Continuations can be used for very complex control structures and can be incredi
                 [BEGIN_NAME, [UNQUOTE_SPLICING_NAME, [GET_NAME, "body"]]]]]],
     [DEFINE_NAME, true, ["try", "body", "handlers"],
         `.macro (try body handlers)
-..param {code} body - single statement that forms the body. If you need more than one statement, use [[begin]].
+..param {code} body - single statement that forms the body. If you need more than one statement, use [[${BEGIN_NAME}]].
 ..param {object} handlers
 ...prop {(message: string, context: object) => ignored} (name) - called for the error with \`type\` equal to \`name\` (where \`name\` is the property name of the object).
 ...prop {(type: string, message: string, context: object) => ignored} * - called if an error is thrown, but no specific handler matched it
@@ -1147,7 +1147,7 @@ In both cases if the handler exists, \`true\` is returned to [[with]] to stop pr
                 [UNQUOTE_NAME, [GET_NAME, "body"]]]]]],
     [DEFINE_NAME, true, ["with-baffle", "body", true],
         `.macro (with-baffle body...)
-..param {code} body... - evaluated as with [[begin]]
+..param {code} body... - evaluated as with [[${BEGIN_NAME}]]
 .throws jeb:state_error - if a continuation tries to jump in or out.
 . Prevents continuations from jumping in or out of \`body\`; only normal control flow or exceptions can be used to enter or exit.`,
         [QUASIQUOTE_NAME, ["with", null, {
