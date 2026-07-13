@@ -27,6 +27,6 @@
     "dependencies": {
         "@r47onfire/game-math": "github:r47onfire/game-math#6b31f9921f2c53c78e37c0f78a1c3d03931c4a98",
         "lib0": "^0.2.117",
-        "ts-res": "^1.3.0"
+        "ts-res": "github:r47onfire/ts-res"
     }
 }
