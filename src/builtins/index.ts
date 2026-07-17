@@ -339,7 +339,7 @@ The properties will be used to index the object, and the last one will be used t
     defineOpcode(vm, "jeb:throw", (vm, args) => {
         const type = args[0] as string;
         const message = args[1] as string;
-        const restarts = args[2] as Record<string, any>;
+        const context = args[2] as Record<string, any>;
         if (vm.curDynamicWind.parent) {
             // call exit handler with error details
             // if it returns true, it means the error was handled and we can continue execution
@@ -347,11 +347,11 @@ The properties will be used to index the object, and the last one will be used t
             vm.curDynamicWind = dw.parent!;
             dw.restore(vm);
             if (dw.handler?.exit) {
-                vm.pushCommand("jeb:if", null, ["jeb:throw", type, message, restarts], true);
-                vm.pushCommand("jeb:apply", [false, type, message, restarts], true);
+                vm.pushCommand("jeb:if", null, ["jeb:throw", type, message, context], true);
+                vm.pushCommand("jeb:apply", [false, type, message, context], true);
                 vm.pushData(dw.handler?.exit);
             } else {
-                vm.pushCommand("jeb:throw", type, message, restarts);
+                vm.pushCommand("jeb:throw", type, message, context);
             }
             return;
         }
@@ -1077,14 +1077,14 @@ const STANDARD_LIBRARY = ["begin",
         ["quasiquote", ["begin", ["unquoteSplicing", ["$", "items"]]]]],
     ["define", "!;", ["$", "uncomment"]],
     ["define", ["call-with-current-continuation", "f"],
-        `.func (call-with-current-continuation f) | (call/cc f)
+        `.func (call-with-current-continuation f) | (cwcc f)
 ..param {(k: Continuation) => any} f
 .returns {any} - possibly multiple times if the continuation is invoked later
-. Calls the function with a *continuation*, which is a special callable object. When the continuation is called with one argument, it will not return normally, and instead jump back to the place where \`call/cc\` was created from and make the \`call/cc\` return the given value instead - *even if* the \`call/cc\` expression has already returned!
+. Calls the function with a *continuation*, which is a special callable object. When the continuation is called with one argument, it will not return normally, and instead jump back to the place where \`cwcc\` was created from and make the \`cwcc\` return the given value instead - *even if* the \`cwcc\` expression has already returned!
 Invoking a continuation will cause the \`enter\` and \`exit\` handlers of [[with]] blocks jumped across to be triggered with \`true\` to indicate it was due to a continuation.
 Continuations can be used for very complex control structures and can be incredibly confusing to debug, so use with care.`,
         ["f", ["$", "return"]]],
-    ["define", "call/cc", ["$", "call-with-current-continuation"]],
+    ["define", "cwcc", ["$", "call-with-current-continuation"]],
     ["define", true, ["when", "test", "body", true],
         `.macro (when test body...)
 ..param {boolean} test

@@ -132,11 +132,18 @@ describe("basic", () => {
         }
     });
     testTest("json error 2", vm => {
-        expect(() => run(vm, ["begin",
-            ["let-in", "x", ["list"]],
-            ["set", ["x", 0], ["$", "x"]],
-            ["dumpJSON", ["$", "x"]]
-        ])).toThrow();
+        try {
+            const x: any = [];
+            x[0] = x;
+            stringify(x);
+        } catch (error: any) {
+            expect(() => run(vm, ["begin",
+                ["let-in", "x", ["list"]],
+                ["set", ["x", 0], ["$", "x"]],
+                ["dumpJSON", ["$", "x"]]
+            ])).toThrow(error.message);
+        }
+
     });
     testTest("property chain get", vm => {
         expect(run(vm, ["begin",
@@ -169,7 +176,7 @@ describe("tail-call elimination", () => {
     });
 
     testTest("tail frames are still dropped on return", (vm, out) => {
-        var err: any;
+        expect.assertions(4);
         try {
             run(vm, ["begin",
                 ["define", ["foo"], ["bar"]],
@@ -178,36 +185,36 @@ describe("tail-call elimination", () => {
                 ["foo"],
                 ["error", "test", "test", {}]
             ]);
-        } catch (e) { err = e; }
+        } catch (err: any) {
+            expect(out).toEqual(["hello", "hello"]);
+            // foo and bar were tail-called, only begin and error survive
+            expect(err.message).toContain("VM stack: error<-begin");
+            expect(err.message).not.toContain("foo");
+            expect(err.message).not.toContain("bar");
+        }
 
-        expect(out).toEqual(["hello", "hello"]);
-        // foo and bar were tail-called, only begin and error survive
-        expect(err.message).toContain("VM stack: error<-begin");
-        expect(err.message).not.toContain("foo");
-        expect(err.message).not.toContain("bar");
     });
 
     testTest("non-tail frames are kept", vm => {
-        var err: any;
+        expect.assertions(1);
         try {
             run(vm, ["begin",
                 ["define", ["f"], ["+", 1, ["g"]]],
                 ["define", ["g"], ["error", "x", "y", {}]],
                 ["f"]
             ]);
-        } catch (e) { err = e; }
+        } catch (err: any) {
+            // f -> g is NOT a tail call (it's an argument), so both stay
+            expect(err.message).toContain("VM stack: error<-g<-f<-begin");
+        }
 
-        // f -> g is NOT a tail call (it's an argument), so both stay
-        const msg = err.message;
-        expect(msg).toMatch(/error/);
-        expect(msg).toMatch(/g/);
-        expect(msg).toMatch(/f/);
-        expect(msg).toMatch(/begin/);
+
     });
 });
 
 describe("traceback compression", () => {
     testTest("compresses long alternating cycle", vm => {
+        expect.assertions(3);
         // a <-> b tail recursion
         expect(run(vm, ["begin",
             ["define", ["a"], ["b"]],
@@ -217,32 +224,34 @@ describe("traceback compression", () => {
 
         // force an error to snapshot the stack
         vm.pushCommand("jeb:throw", "boom", "x", {});
-        var err: any;
-        try { for (; vm.step();); } catch (e) { err = e; }
-
-        // should be "(b<-a * N)" not a zillion repeats
-        expect(err.message).toMatch(/\(b<-a \* \d+\)/);
-        expect(err.message).not.toMatch(/a<-b<-a<-b<-a<-b<-a<-b/);
+        try {
+            while (vm.step());
+        } catch (err: any) {
+            // should be "(b<-a * N)" not a zillion repeats
+            expect(err.message).toMatch(/\(b<-a \* \d+\)/);
+            expect(err.message).not.toMatch(/a<-b<-a<-b<-a<-b<-a<-b/);
+        }
     });
 
     testTest("nests cycles", vm => {
-        const prog = ["begin",
-            ["define", ["foo", "x"],
-                ["if", [">", ["$", "x"], 0],
-                    ["bar", ["-", ["$", "x"], 1]],
-                    ["baz"]],
-                ["unreachable"]],
-            ["define", ["bar", "x"],
-                ["foo", ["$", "x"]]],
-            ["define", ["baz"],
-                ["foo", 10]],
-            ["baz"],
-        ];
-        var err: any;
-        try { run(vm, prog); } catch (e) { err = e; }
-
-        expect(err.message).toMatch(/\(if<-foo<-bar \* \d+\)/);
-        expect(err.message).toMatch(/\([^)]*\(/);
+        expect.assertions(2);
+        try {
+            run(vm, ["begin",
+                ["define", ["foo", "x"],
+                    ["if", [">", ["$", "x"], 0],
+                        ["bar", ["-", ["$", "x"], 1]],
+                        ["baz"]],
+                    ["unreachable"]],
+                ["define", ["bar", "x"],
+                    ["foo", ["$", "x"]]],
+                ["define", ["baz"],
+                    ["foo", 10]],
+                ["baz"],
+            ]);
+        } catch (err: any) {
+            expect(err.message).toMatch(/\(if<-foo<-bar \* \d+\)/);
+            expect(err.message).toMatch(/\([^)]*\(/);
+        }
     });
 });
 
@@ -265,20 +274,22 @@ describe("with / dynamic-wind", () => {
             ...body
         ];
     }
-    testTest("runs before then body then after", (vm, out) => {
-        expect(run(vm, makeWith("before", "after", ["print", "body"]))).toBeTrue();
+    testTest("runs before then body then after and returns body", (vm, out) => {
+        expect(run(vm, makeWith("before", "after", ["print", "body"], 123))).toBeTrue();
+        expect(vm.popData()).toEqual(123);
         expect(out).toEqual(["before false", "body", "after false null null null"]);
     });
 
     testTest("after runs on error", (vm, out) => {
-        var err: any;
+        expect.assertions(4);
         try {
-            run(vm, makeWith("before", "after", ["error", "test:runtime_error", "boom", {}]));
-        } catch (e) { err = e; }
-        expect(err).toBeDefined();
-        expect(err.message).toContain("boom");
-        expect(err.message).toContain("VM stack: error<-with");
-        expect(out).toEqual(["before false", "after false test:runtime_error boom [object Object]"]);
+            run(vm, makeWith("before", "after", ["error", "test", "boom", { toString: () => "Foobar" }]));
+        } catch (err: any) {
+            expect(err).toBeDefined();
+            expect(err.message).toContain("boom");
+            expect(err.message).toContain("VM stack: error<-with");
+            expect(out).toEqual(["before false", "after false test boom Foobar"]);
+        }
     });
 
     testTest("nested with unwinds in stack order", (vm, out) => {
@@ -306,7 +317,7 @@ describe("with / dynamic-wind", () => {
             "outside",
             "enter true",
         ];
-        for (var i = 0; init.length < out.length; i = (i + 1) % repeated.length) {
+        for (var i = 0; init.length < out.length; i++, i %= repeated.length) {
             init.push(repeated[i]!);
         }
         expect(out).toEqual(init);
@@ -314,28 +325,29 @@ describe("with / dynamic-wind", () => {
 
     testTest("continuation escapes with (after runs once)", (vm, out) => {
         // escape from inside with via a continuation captured outside
-        run(vm, ["begin",
+        expect(run(vm, ["begin",
             [["lambda", [],
                 makeWith("enter", "exit",
                     ["print", "inside"],
                     ["return", null],
-                    ["error", "test:unreachable_error", "unreachable", {}])
+                    ["error", "unreachable", "unreachable", {}])
             ]],
             ["print", "outside"]
-        ]);
+        ])).toBeTrue();
 
         expect(out).toEqual(["enter false", "inside", "exit true null null null", "outside"]);
     });
 
     testTest("uncaught errors retain full traceback", vm => {
-        var err: any;
+        expect.assertions(1);
         try {
             run(vm, ["begin",
                 ["define", ["foo"], ["error"]],
                 makeWith("", "", makeWith("", "", makeWith("", "", ["foo"])))
             ]);
-        } catch (e) { err = e; }
-        expect(err.message).toContain("foo");
+        } catch (err: any) {
+            expect(err.message).toContain("foo<-(with * 3)");
+        }
     });
 
     testTest("with requires variable name or null", vm => {
@@ -348,7 +360,7 @@ describe("with / dynamic-wind", () => {
     testTest("continuation can be called with computed value", vm => {
         expect(run(vm, ["begin",
             ["let-in", "x", null],
-            ["let-in", "y", ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]],
+            ["let-in", "y", ["cwcc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]],
             ["unless", ["=", ["$", "y"], 123],
                 ["x", ["+", 23, 100]]],
             ["$", "y"],
@@ -491,7 +503,7 @@ describe("recursion stress tests", () => {
         const fibonacci = MEMOIZE_F(a => a < 2 ? a : fibonacci(a - 1n) + fibonacci(a - 2n));
         expect(run(vm, ["begin",
             MEMOIZE,
-            ["define", "fibonacci", ["memoize", ["lambda", ["a"], "",
+            ["define", "fibonacci", ["memoize", ["lambda", ["a"],
                 ["if", ["<", ["$", "a"], 2],
                     ["$", "a"],
                     ["+",
@@ -506,7 +518,7 @@ describe("recursion stress tests", () => {
         const q = MEMOIZE_F(a => a < 3 ? 1n : q(a - q(a - 1n)) + q(a - q(a - 2n)));
         expect(run(vm, ["begin",
             MEMOIZE,
-            ["define", "q", ["memoize", ["lambda", ["a"], "",
+            ["define", "q", ["memoize", ["lambda", ["a"],
                 ["if", ["<", ["$", "a"], 3],
                     1,
                     ["+",
@@ -577,7 +589,7 @@ describe("self-defined macros", () => {
     testTest("with-baffle 1", vm => {
         expect(() => run(vm, ["begin",
             ["let-in", "x", null],
-            ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]],
+            ["cwcc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]],
             ["with-baffle",
                 ["x", null]]
         ])).toThrow("tried to jump out of a 'with-baffle' block");
@@ -586,7 +598,7 @@ describe("self-defined macros", () => {
         expect(() => run(vm, ["begin",
             ["let-in", "x", null],
             ["with-baffle",
-                ["call/cc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]],
+                ["cwcc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]],
             ["x", null]
         ])).toThrow("tried to jump into a 'with-baffle' block");
     });
