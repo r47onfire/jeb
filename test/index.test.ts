@@ -89,6 +89,13 @@ describe("basic", () => {
         ])).toBeTrue();
         expect(out).toEqual(["10", "10", "11", "11"]);
     });
+    testTest("get with computed indexing", vm => {
+        expect(run(vm, ["begin",
+            ["let-in", "x", ["list", 1, 2, 3]],
+            ["$", ["x", ["$", ["x", 0]]]]
+        ])).toBeTrue();
+        expect(vm.popData()).toEqual(2);
+    });
     testTest("set with old value", (vm, out) => {
         expect(run(vm, ["begin",
             ["let-in", "x", 0],
