@@ -7,7 +7,7 @@ export * from "./doc";
 export { Env } from "./env";
 export { compressStackTree, createStackInnerNode, createStackLeafNode, jsError, resultToError, type StackTreeNode } from "./errors";
 export { llLength, llPop, llPopN, llPush, llPushArray, type Linked, type LinkedList, type LinkedListNode } from "./linked_list";
-export { numberOp, type BinaryFun } from "./math";
+export { numberOp, Relation, type BinaryFun } from "./math";
 export { Arithmetic, theTypeName, typeMatches, typeOf, type Operation, type Operations, type Type, type TypeFor } from "./overload";
 export { JebVM, type Command, type OpcodeFunction, type StackCount } from "./vm";
 

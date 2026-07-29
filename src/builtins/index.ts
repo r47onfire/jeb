@@ -10,7 +10,7 @@ import { Continuation, DynamicWind, Windable } from "../continuation";
 import { Accessor, AccessType, Applier, EnvVarLValue, Evaluator, findDispatcherForObject, LValue, ObjectLValue } from "../dispatch";
 import { Env } from "../env";
 import { resultToError, wrapThrowToError } from "../errors";
-import { float, numberOp } from "../math";
+import { float, numberOp, Relation } from "../math";
 import { Operation, theTypeName, typeOf } from "../overload";
 import { JebVM } from "../vm";
 import { alias, argsHelper, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, implicitBegin, NOTHING } from "./utils";
@@ -839,27 +839,27 @@ Expands into a [[macro]].
     }
     const compDocHelper = (phrase: string) => `True if the sequence of items is strictly ${phrase} when read from left to right.`;
     for (var [name, bits, doc] of ([
-        ["=", 4, "True if all of the items are equal."],
-        ["!=", 3, "True if no adjacent pair of items are equal."],
-        ["<", 2, compDocHelper("increasing")],
-        [">", 1, compDocHelper("decreasing")],
-        ["<=", 6, compDocHelper("nondecreasing")],
-        [">=", 5, compDocHelper("nonincreasing")],
-    ] as [string, number, string][])) {
+        ["=", Relation.EQUAL, "True if all of the items are equal."],
+        ["!=", Relation.NOT_EQ, "True if no adjacent pair of items are equal."],
+        ["<", Relation.LESS, compDocHelper("increasing")],
+        [">", Relation.GREATER, compDocHelper("decreasing")],
+        ["<=", Relation.LESS_EQ, compDocHelper("nondecreasing")],
+        [">=", Relation.GREATER_EQ, compDocHelper("nonincreasing")],
+    ] as [string, Relation, string][])) {
         comparisonHelper(name, bits, doc);
     }
-    const compareFn = (a: any, b: any, c: number) => {
-        if (a == b) return Ok(!!(c & 4));
-        if (a < b) return Ok(!!(c & 2));
-        if (a > b) return Ok(!!(c & 1));
+    const compareFn = (a: any, b: any, c: Relation) => {
+        if (a == b) return Ok(!!(c & Relation.EQUAL));
+        if (a < b) return Ok(!!(c & Relation.LESS));
+        if (a > b) return Ok(!!(c & Relation.GREATER));
         throw "unreachable";
     };
     vm.math.overload("cmp", [["number", "bigint"], ["number", "bigint"], ["number"]], compareFn);
     vm.math.overload("cmp", [["string"], ["string"], ["number"]], compareFn);
     vm.math.overload("cmp", [[null], [null], ["number"]], (a, b, c) => {
-        if (a === b) return Ok(!!(c & 4));
-        if ((!!(c & 2)) !== (!!(c & 1))) return Err(`No ordering defined for ${stringify(theTypeName(typeOf(a)))} and ${stringify(theTypeName(typeOf(b)))}`);
-        return Ok(!!(c & 1));
+        if (a === b) return Ok(!!(c & Relation.EQUAL));
+        if ((!!(c & Relation.GREATER)) !== (!!(c & Relation.LESS))) return Err(`No ordering defined for ${stringify(theTypeName(typeOf(a)))} and ${stringify(theTypeName(typeOf(b)))}`);
+        return Ok(!!(c & Relation.LESS));
     });
 
     // MARK: booleans

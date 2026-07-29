@@ -1,5 +1,20 @@
 
 /**
+ * The value is a bit field: equal is 4, less is 2, greater is 1
+ */
+export const enum Relation {
+    FALSE = 0,
+    GREATER = 1,
+    LESS = 2,
+    NOT_EQ = 3,
+    EQUAL = 4,
+    GREATER_EQ = 5,
+    LESS_EQ = 6,
+    TRUE = 7,
+}
+
+
+/**
  * A function taking two arguments
  */
 export type BinaryFun = (a: any, b: any) => any;
