@@ -5,7 +5,7 @@ import { Command, JebVM, StackCount } from "./vm";
 /**
  * A continuation which holds all the VM state, and can restore it at any time
  */
-export class Continuation {
+export class Continuation<T extends JebVM = JebVM> {
     /** Closed-over environment */
     env: Env;
     /** Closed-over command stack in progress */
@@ -16,23 +16,27 @@ export class Continuation {
     winders: DynamicWind;
     /** Closed-over traceback stack in progress */
     traceback: StackCount | null;
-    constructor(vm: JebVM, extraOps: Command[]) {
+    /** Other saved state */
+    state: { [K in T["copyableState"][number]]: T[K] };
+    constructor(vm: T, extraOps: Command[]) {
         this.env = vm.currentEnv;
         this.commands = llPushArray(vm.commandStack, extraOps);
         this.data = vm.dataStack;
         this.winders = vm.curDynamicWind;
         this.traceback = vm.tracebackStack;
+        this.state = Object.fromEntries(vm.copyableState.map(s => [s, vm[s]])) as any;
     }
     /**
      * Call the continuation and restore the state of the VM
      * @param vm VM to restore state of
      * @param data Result of the continuation return value
      */
-    invoke(vm: JebVM, data: any) {
+    invoke(vm: T, data: any) {
         vm.currentEnv = this.env;
         vm.commandStack = this.commands;
         vm.dataStack = this.data;
         vm.tracebackStack = this.traceback;
+        Object.assign(vm, this.state);
         vm.pushData(data);
         this.winders.processJumpHere(vm);
     }
@@ -49,7 +53,7 @@ export interface Windable {
 /**
  * Node in a dynamic wind tree
  */
-export class DynamicWind {
+export class DynamicWind<T extends JebVM = JebVM> {
     handler: Windable | null = null;
     /** current env at the point of the dynamic wind start */
     envHere: Env;
@@ -58,11 +62,14 @@ export class DynamicWind {
     commandsHere: LinkedList<Command> = null;
     /** closed-over data stack */
     dataHere: LinkedList<any> = null;
-    constructor(vm: JebVM) {
+    /** Other saved state */
+    stateHere: { [K in T["copyableState"][number]]: T[K] };
+    constructor(vm: T) {
         this.envHere = vm.currentEnv;
         this.parent = vm.curDynamicWind;
         this.commandsHere = vm.commandStack;
         this.dataHere = vm.dataStack;
+        this.stateHere = Object.fromEntries(vm.copyableState.map(s => [s, vm[s]])) as any;
     }
     /**
      * sets the handler after it has been processed
@@ -75,7 +82,7 @@ export class DynamicWind {
      * processes the jump here, and adds instructions to call the enter and exit handlers
      * @param vm VM to process jump on
      */
-    processJumpHere(vm: JebVM) {
+    processJumpHere(vm: T) {
         var tp: DynamicWind | null = this;
         // find the common ancestor of from and to
         // parents: rightmost is innermost
@@ -118,9 +125,10 @@ export class DynamicWind {
      * Restores the dynamic wind state when an error occurs
      * @param vm VM to restore to
      */
-    restore(vm: JebVM) {
+    restore(vm: T) {
         vm.commandStack = this.commandsHere;
         vm.dataStack = this.dataHere;
         vm.currentEnv = this.envHere;
+        Object.assign(vm, this.stateHere);
     }
 }

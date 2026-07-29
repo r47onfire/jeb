@@ -856,7 +856,7 @@ Expands into a [[macro]].
     };
     vm.math.overload("cmp", [["number", "bigint"], ["number", "bigint"], ["number"]], compareFn);
     vm.math.overload("cmp", [["string"], ["string"], ["number"]], compareFn);
-    vm.math.overload("cmp", [[null], [null], ["number"]], (a, b, c) => {
+    vm.math.overload("cmp", [[true], [true], ["number"]], (a, b, c) => {
         if (a === b) return Ok(!!(c & Relation.EQUAL));
         if ((!!(c & Relation.GREATER)) !== (!!(c & Relation.LESS))) return Err(`No ordering defined for ${stringify(theTypeName(typeOf(a)))} and ${stringify(theTypeName(typeOf(b)))}`);
         return Ok(!!(c & Relation.LESS));

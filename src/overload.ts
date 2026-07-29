@@ -5,9 +5,9 @@ import { add, pow } from "lib0/math";
 import { Err, Ok, Result } from "ts-res";
 
 /**
- * thing that can be used to match a type of an object. null = wildcard, matches anything
+ * thing that can be used to match a type of an object. true = wildcard, matches anything
  */
-export type Type = (abstract new (...args: any[]) => any) | keyof TypeMap | null;
+export type Type = (abstract new (...args: any[]) => any) | keyof TypeMap | true;
 type TypeMap = {
     string: string;
     number: number;
@@ -31,7 +31,7 @@ export type TypeFor<T> = T extends keyof TypeMap ? TypeMap[T] : T;
  * @returns Score of the match, higher is a closer match, 0 is no match
  */
 export function typeMatches(obj: any, type: Type): number {
-    if (type === null) return 1;
+    if (type === true) return 1;
     if (isString(type)) {
         return typeof obj === type ? 3 : 0;
     } else {
@@ -39,7 +39,7 @@ export function typeMatches(obj: any, type: Type): number {
     }
 }
 
-export const theTypeName = (type: Type) => isString(type) ? type : type?.name;
+export const theTypeName = (type: Type) => type === true ? "any" : isString(type) ? type : type.name;
 export const typeOf = (x: any): Type => { const t = typeof x; if (t === "object" && x.constructor !== Object) return x.constructor; else return t; }
 
 // MARK: Operator overloading
@@ -77,7 +77,7 @@ export interface Operations {
  * works on the commonly used ones)
  */
 export type Operation = keyof Operations;
-type TypeValue<T extends Type> = T extends keyof TypeMap ? TypeMap[T] : T extends abstract new (...args: any[]) => infer U ? U : T extends null ? any : never;
+type TypeValue<T extends Type> = T extends keyof TypeMap ? TypeMap[T] : T extends abstract new (...args: any[]) => infer U ? U : T extends true ? any : never;
 type TypeArrayValue<T extends Type[][]> = T extends [infer Head extends Type[], ...infer Tail extends Type[][]] ? [TypeValue<Head[number]>, ...TypeArrayValue<Tail>] : [];
 // MARK: class Arithmetic
 

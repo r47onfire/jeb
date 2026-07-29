@@ -42,6 +42,7 @@ export class JebVM {
     applyTable: Applier<any>[] = [];
     evalTable: Evaluator<any>[] = [];
     accessTable: Accessor<any>[] = [];
+    copyableState: Exclude<keyof this, keyof JebVM>[] = [];
 
     constructor(public math = new Arithmetic) {
         this.reset();
