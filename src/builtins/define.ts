@@ -1,20 +1,7 @@
 import { stringify } from "lib0/json";
-import { BuiltinFunction } from "../callable";
+import { BuiltinFunction, CallableSignatureFromShorthand, createSignature, ShorthandArgument } from "../callable";
+import { AccessFlags, ApplyMetadata, ApplyOrEvalFlags, LValue, ProtocolObj, Type } from "../protocol";
 import { JebVM, OpcodeFunction } from "../vm";
-import { Accessor, Applier, Arity, Evaluator } from "../dispatch";
-
-export const argsHelper = (vm: JebVM, args: any[], shouldEval: boolean) => {
-    const len = args.length;
-    for (var i = len - 1; i >= 0; i--) {
-        vm.pushData(args[i]);
-        if (shouldEval) {
-            // rotate the argument we just evaluated around and bring up the next one
-            // optimize if len == 1 then don't bother shuffling!
-            if (len > 1) vm.pushCommand("jeb:shuffle", len, new Array(len).fill(0).map((_, j) => (j + 1) % len));
-            vm.pushCommand("jeb:eval");
-        }
-    }
-};
 
 /**
  * Sets up instructions to run all of the arguments in order and the result is the value of the last one.
@@ -22,6 +9,7 @@ export const argsHelper = (vm: JebVM, args: any[], shouldEval: boolean) => {
  * @param args List of things to evaluate
  * @returns - {@link NOTHING}
  */
+
 export const implicitBegin = (vm: JebVM, args: any[]) => {
     const len = args.length;
     if (len === 0) {
@@ -37,14 +25,13 @@ export const implicitBegin = (vm: JebVM, args: any[]) => {
     }
     return NOTHING;
 };
-
 /**
  * Special symbol that means "this function is a macro and pushed opcodes
  * which implement the return value, don't push my return value" for built-in functions,
  * which normally treat `undefined` as a valid return value and push it to the stack.
  */
-export const NOTHING: unique symbol = Symbol("nothing");
 
+export const NOTHING: unique symbol = Symbol("nothing");
 /**
  * Defines a builtin function in the VM's builtins scope as a constant.
  * @param arity The allowable number of arguments to the function.
@@ -55,39 +42,44 @@ export const NOTHING: unique symbol = Symbol("nothing");
  * close over the one that is passed to the `vm` parameter of `defineBuiltin` (since this builtin may be reused for a sub-VM for
  * e.g. an FFI callback).
  */
-export const defineBuiltin = <T extends JebVM>(vm: T, name: string, arity: Arity, isSpecial: boolean, resultIsMacro: boolean, fn: (args: any[], vm: T) => any, doc: string) => {
-    vm.builtinsEnv.addConst(name, new BuiltinFunction(name, arity, isSpecial, resultIsMacro, fn as any, doc));
-};
 
+export const defineBuiltin = <const T extends ShorthandArgument<any, any>[]>(vm: JebVM, name: string, signature: T, resultIsMacro: boolean, fn: BuiltinFunction<CallableSignatureFromShorthand<T>>["impl"], doc: string) => {
+    vm.builtinsEnv.addConst(name, new BuiltinFunction(name, createSignature(signature), resultIsMacro, fn as any, doc));
+};
 /**
  * Defines a new opcode for the VM.
  * @param fn The function to implement the opcode. It should use the VM from the parameter, and **not**
  * close over the one that is passed to the `vm` parameter of `defineOpcode` (since this opcode may be reused for a sub-VM for
  * e.g. an FFI callback).
  */
-export const defineOpcode = <T extends JebVM>(vm: T, name: string, fn: OpcodeFunction<T>, doc: string | null) => {
-    vm.opcodeTable[name] = [fn, doc];
+export const defineOpcode = (vm: JebVM, name: string, fn: OpcodeFunction, doc: string | null) => {
+    vm.opcodes[name] = [fn, doc];
 };
-
 /**
  * Defines a new applier that can be used by the `jeb:apply` opcode to call something.
+ *
+ * @param describe Returns the metadata of the function, which includes the signature (see {@link CallableSignature})
+ * @param run Should push opcodes to take the arguments object from the top of the stack and pass them to whatever the implementation is.
+ * It should not actually call that implementation as the arguments object is not actually on the stack at the point this is called.
  */
-export const defineApplier = (vm: JebVM, apply: Applier<any>) => {
-    vm.applyTable.push(apply);
-};
+// Why does this mess up the syntax highlighting ?!??!?!?!?
 
+export const defineApplier = <const T extends Type[], PO extends ProtocolObj<void, [T], {}, ApplyMetadata, ApplyOrEvalFlags>>(vm: JebVM, type: T, run: PO["run"], describe: PO["describe"], doc: string) => {
+    vm.addProtocol("apply", { type: [type], run, doc, describe });
+};
 /**
  * Defines a new applier that can be used by the `jeb:eval` opcode to evaluate or unwrap something.
  */
-export const defineEvaluator = (vm: JebVM, apply: Evaluator<any>) => {
-    vm.evalTable.push(apply);
-};
 
+export const defineEvaluator = <const T extends Type[]>(vm: JebVM, type: T, fn: ProtocolObj<void, [T], {}, void, ApplyOrEvalFlags>["run"], doc: string) => {
+    vm.addProtocol("eval", { type: [type], run: fn, doc, describe() { } });
+};
 /**
  * Defines a new accessor that can be used by the `jeb:get` and `jeb:set` opcodes to look up or reassign a field on something.
  */
-export const defineAccessor = (vm: JebVM, apply: Accessor<any>) => {
-    vm.accessTable.push(apply);
+
+export const defineAccessor = <const T extends Type[]>(vm: JebVM, type: T, fn: ProtocolObj<LValue, [T], {}, void, AccessFlags>["run"], doc: string) => {
+    vm.addProtocol("access", { type: [type], run: fn, doc, describe() { } });
 };
 
 /**

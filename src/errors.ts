@@ -1,6 +1,6 @@
 import { javaHash, rotate32 } from "@r47onfire/game-math";
 import { Err, Ok, Result } from "ts-res";
-import { NOTHING } from "./builtins/utils";
+import { NOTHING } from "./builtins/define";
 import { JebVM } from "./vm";
 
 const STACKFRAME_JOINER = "<-";
@@ -153,7 +153,7 @@ export const wrapThrowToError = <T>(vm: JebVM, kind: string, f: () => T) => {
  * just returns the result.
  * @param vm VM we're running in
  * @param kind Kind of JEB error an {@link Err} causes
- * @param result The result to look at
+ * @param result The result to look at or {@link NOTHING} (so it can be chained from a call to {@link wrapThrowToError})
  * @returns The result of the function or {@link NOTHING} if the function threw
  * @example
  * ```
@@ -162,13 +162,23 @@ export const wrapThrowToError = <T>(vm: JebVM, kind: string, f: () => T) => {
  *         doSomethingThatReturnsAResult(vm, args[0])));
  * ```
  */
-export const resultToError = <T>(vm: JebVM, kind: string, result: Result<T, any>) => {
-    if (result.ok) {
-        return result.data;
+export const resultToError = <T>(vm: JebVM, kind: string, result: Result<T, any> | typeof NOTHING) => {
+    if (result !== NOTHING) {
+        if (result.ok) {
+            return result.data;
+        }
+        vm.pushCommand("jeb:throw", kind, result.error, {
+            return: vm.cc(),
+        });
     }
-    vm.pushCommand("jeb:throw", kind, result.error, {
-        return: vm.cc(),
-    });
     return NOTHING;
 }
 
+/**
+ * Pushes the value to the VM's data stack, but only if the value is not {@link NOTHING}.
+ * @param vm VM we're running in
+ * @param value Value to check
+ */
+export const checkNothingOrPush = (vm: JebVM, value: any) => {
+    if (value !== NOTHING) vm.pushData(value);
+}

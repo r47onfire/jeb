@@ -6,7 +6,7 @@ const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) =>
     const vm = new JebVM();
     const out: string[] = [];
     // simple print hook for the tests
-    defineBuiltin(vm, "print", null, false, false, args => void out.push(args.map(String).join(" ")), "test print");
+    defineBuiltin(vm, "print", ["args", true], false, ({ args }) => void out.push(args.map(String).join(" ")), "test print");
     test(name, () => testBody(vm, out));
 }
 
@@ -646,7 +646,7 @@ describe("FFI", () => {
             ["let", [["x", ["lambda", ["x"], ["print", ["$", "x"]]]]],
                 [thrice, ["$", "x"], "hi"],
                 [thrice, ["$", "x"], "bye"]]
-        ])).toThrow();
+        ])).toThrow("Cannot call JEB lambda.");
         // expect(out).toEqual(["hi", "hi", "hi", "bye", "bye", "bye"]);
     });
 });

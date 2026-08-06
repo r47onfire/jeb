@@ -1,10 +1,11 @@
+import { stringify } from "lib0/json";
 import { loadBuiltins } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
-import { Accessor, Applier, Evaluator } from "./dispatch";
 import { Env } from "./env";
 import { createStackInnerNode, createStackLeafNode, jsError, StackTreeNode } from "./errors";
 import { Linked, LinkedList, llLength, llPop, llPopN, llPush } from "./linked_list";
-import { Arithmetic } from "./overload";
+import { ArgcForName, getProtocolHandler, JEBProtocols } from "./protocol";
+import { Tuple } from "./utils";
 
 /**
  * Data for the command
@@ -18,7 +19,7 @@ export interface StackCount extends Linked<string> {
 /**
  * Function that implements an opcode for the VM by pushing instructions or pushing and popping data.
  */
-export type OpcodeFunction<T extends JebVM> = (vm: T, args: any[]) => void;
+export type OpcodeFunction = (vm: JebVM, args: any[]) => void;
 
 /**
  * Base VM for running JEB code
@@ -38,15 +39,21 @@ export class JebVM {
     tracebackStack!: StackCount | null;
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
-    opcodeTable: Record<string, [impl: OpcodeFunction<this>, doc: string | null]> = {};
-    applyTable: Applier<any>[] = [];
-    evalTable: Evaluator<any>[] = [];
-    accessTable: Accessor<any>[] = [];
+    opcodes: Record<string, [impl: OpcodeFunction, doc: string | null]> = {};
+    protocols: Partial<JEBProtocols> = {};
     copyableState: Exclude<keyof this, keyof JebVM>[] = [];
 
-    constructor(public math = new Arithmetic) {
+    constructor() {
         this.reset();
         loadBuiltins(this);
+    }
+    addProtocol<N extends keyof JEBProtocols>(name: N, impl: JEBProtocols[N][number]) {
+        (this.protocols[name] ??= [] as any[]).push(impl);
+    }
+    getProtocol<N extends keyof JEBProtocols, T extends boolean>(fast: boolean, assert: T, name: N, args: Tuple<any, ArgcForName<N>>): JEBProtocols[N][number] | (T extends true ? never : undefined) {
+        const { 0: res, 1: types } = getProtocolHandler(this.protocols, fast, name, args);
+        if (assert && res) throw new Error(`No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${types.map(s => stringify(s)).join(",")}`);
+        return res!;
     }
     pushData(value: any) {
         this.dataStack = llPush(this.dataStack, value);
@@ -91,7 +98,7 @@ export class JebVM {
         if (this.paused) return false;
         if (llLength(this.commandStack) === 0) return false;
         const command = this.#popCommand();
-        const opcode = this.opcodeTable[command[0]];
+        const opcode = this.opcodes[command[0]];
         if (!opcode) throw new Error(`Unknown opcode: ${command[0]}`);
         opcode[0](this, command.slice(1));
         return true;
@@ -161,7 +168,7 @@ export class JebVM {
      * @param func Name of the function that is now being called
      * @param tailcallHint True if the function was tail-called
      */
-    tracebackPush(func: string, tailcallHint: boolean) {
+    pushTraceback(func: string, tailcallHint: boolean) {
         const top = this.tracebackStack;
         if (top && top.value === func && top.isTailCalled === tailcallHint) {
             // same name and type = just bump the counter
@@ -183,7 +190,7 @@ export class JebVM {
     /**
      * Drops all the tail-call entries off the stack, and then one more
      */
-    tracebackPop() {
+    popTraceback() {
         var cur = this.tracebackStack;
         if (!cur) throw new Error("Traceback stack underflow");
 

@@ -1,7 +1,7 @@
 import { isArray, last } from "lib0/array";
 import { isString } from "lib0/function";
 import { stringify } from "lib0/json";
-import type { Applier, Evaluator, Accessor } from "./dispatch";
+import { JEBProtocols } from "./protocol";
 
 /**
  * Documentation tree markup node
@@ -102,6 +102,14 @@ export const ParamTag: DocMetadataParser = firstLineRegex(/^\s*(?:\{([^}]*)\}\s*
         flags.push("lazy");
         fullName = fullName.slice(1);
     }
+    if (fullName.startsWith("^")) {
+        flags.push("macro");
+        fullName = fullName.slice(1);
+    }
+    if (fullName.startsWith("@") && !flags.includes("lazy")) {
+        flags.push("lazy");
+        fullName = fullName.slice(1);
+    }
     if (fullName.endsWith("...")) {
         flags.push("rest");
         fullName = fullName.slice(0, -3);
@@ -199,7 +207,7 @@ export const FunctionOrMacroParsers: Record<string, DocMetadataParser> = {
 }
 
 /**
- * Metadata parsers used for the {@link Applier} docstring
+ * Metadata parsers used for the {@link JEBProtocols.apply apply} protocol's docstring
  */
 export const ApplierParsers: Record<string, DocMetadataParser> = {
     // errors thrown
@@ -210,12 +218,12 @@ export const ApplierParsers: Record<string, DocMetadataParser> = {
 }
 
 /**
- * Metadata parsers used for the {@link Evaluator} docstring
+ * Metadata parsers used for the {@link JEBProtocols.eval eval} protocol's docstring
  */
 export const EvaluatorParsers: Record<string, DocMetadataParser> = ApplierParsers;
 
 /**
- * Metadata parsers used for the {@link Accessor} docstring
+ * Metadata parsers used for the {@link JEBProtocols.access access} protocol's docstring
  */
 export const AccessorParsers: Record<string, DocMetadataParser> = ApplierParsers;
 
@@ -312,7 +320,7 @@ export const parseHeaderAndSummary = (lines: string[], parsers: Record<string, D
         if (accumulatingTagLevel > currentLevel) {
             currentLevel++;
             if (accumulatingTagLevel !== currentLevel)
-                throw new Error(`can only jump one level at a time (was at level ${currentLevel - 1} but jumped up to level ${accumulatingTagLevel}): ${stringify(firstLine)}`);
+                throw new Error(`can only go up one level at a time (was at level ${currentLevel - 1} but jumped up to level ${accumulatingTagLevel}): ${stringify(firstLine)}`);
             const item = last(currentArray);
             stack.push(currentArray);
             currentArray = item.groups ??= [];
