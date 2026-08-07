@@ -7,7 +7,7 @@ import { AccessType, Reference } from "../protocol";
 import { JebVM } from "../vm";
 import { NOTHING } from "./define";
 
-export class ObjectLValue extends Reference {
+export class ObjectPropertyReference extends Reference {
     constructor(public obj: any, public name: PropertyKey) { super(); }
     get(_vm: JebVM, _type: AccessType, shouldBind: boolean) {
         var value = this.obj[this.name];
@@ -21,7 +21,7 @@ export class ObjectLValue extends Reference {
     }
 }
 
-export class EnvVarLValue extends Reference {
+export class VariableReference extends Reference {
     constructor(public env: Env, public name: string) { super(); }
     get(vm: JebVM, type: AccessType) {
         const result = this.env.get(this.name);

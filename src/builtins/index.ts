@@ -15,7 +15,7 @@ import { JebVM } from "../vm";
 import { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, NOTHING } from "./define";
 import { registerDoargs } from "./doargs";
 import { implicitBegin } from "./implicitBegin";
-import { EnvVarLValue, ObjectLValue } from "./reference";
+import { VariableReference, ObjectPropertyReference } from "./reference";
 
 // TODO: split this all up
 // MARK: loadBuiltins()
@@ -82,7 +82,7 @@ Examples:
         const target = {};
         vm.pushData(target);
         for (var key of keys(code)) {
-            vm.pushData(new ObjectLValue(target, key));
+            vm.pushData(new ObjectPropertyReference(target, key));
             vm.pushData(code[key]);
             vm.pushCommand("jeb:shuffle", 1, []);
             vm.pushCommand("jeb:set", AccessType.PROPERTY);
@@ -153,7 +153,7 @@ If \`alreadyEvaluated\` is true, they are interpreted as values and the applier 
         // (not to a callable function), but if it's in head position, we implicitly look it up.
         vm.pushCommand("jeb:apply/string-trampoline", tail);
         vm.pushCommand("jeb:get", AccessType.FUNCTION);
-        vm.pushData(new EnvVarLValue(vm.currentEnv, func));
+        vm.pushData(new VariableReference(vm.currentEnv, func));
     }, () => ({
         name: undefined,
         signature: {
@@ -179,8 +179,8 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
     defineOpcode(vm, "jeb:call/builtin", (vm, { 0: func }) => checkNothingOrPush(vm, func.impl(vm.popData(), vm)), null);
 
     // MARK: variables
-    defineAccessor(vm, ["object"], (_, { 0: object }, { field }) => new ObjectLValue(object, field), "Default object property accessor.");
-    defineAccessor(vm, [Env], (_, { 0: object }, { field }) => new EnvVarLValue(object, field as string), "Accessor for variables from an environment.");
+    defineAccessor(vm, ["object"], (_, { 0: object }, { field }) => new ObjectPropertyReference(object, field), "Default object property accessor.");
+    defineAccessor(vm, [Env], (_, { 0: object }, { field }) => new VariableReference(object, field as string), "Accessor for variables from an environment.");
     defineOpcode(vm, "jeb:index/access", vm => {
         const field = vm.popData() as PropertyKey;
         const obj = vm.popData();
@@ -375,7 +375,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         if (name !== null) {
             vm.pushCommand("jeb:set", AccessType.VARIABLE, true);
             vm.pushCommand("jeb:shuffle", 2, [1, 0]);
-            vm.pushData(new EnvVarLValue(vm.currentEnv, name));
+            vm.pushData(new VariableReference(vm.currentEnv, name));
         }
         vm.pushCommand("jeb:apply", [false]);
         vm.pushData(context.enter);
@@ -606,7 +606,7 @@ Functions much like [[let]] but with an implicit block after it that continues t
             vm.pushCommand("jeb:set", AccessType.VARIABLE, true, true);
             vm.pushCommand("jeb:shuffle", 2, [1, 0]);
             vm.pushCommand("jeb:eval");
-            vm.pushData(new EnvVarLValue(vm.currentEnv, name));
+            vm.pushData(new VariableReference(vm.currentEnv, name));
             vm.pushData(thing);
         };
         if (typeof name === "boolean" && name && isArray(args[1])) {
