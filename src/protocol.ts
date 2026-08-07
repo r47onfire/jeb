@@ -4,11 +4,11 @@ import { stringify } from "lib0/json";
 import { add, pow } from "lib0/math";
 import { Result } from "ts-res";
 import { NOTHING } from "./builtins/define";
-import { Relation } from "./math";
-import { Tuple } from "./utils";
-import { JebVM } from "./vm";
 import { CallableSignature } from "./callable";
 import { Env } from "./env";
+import { Relation } from "./math";
+import { JebVM } from "./vm";
+import { Wrapper } from "./wrapper";
 
 /**
  * Thing that can be used to match a type of an object. `true` = any
@@ -36,7 +36,13 @@ export function typeMatches(obj: any, type: Type): number {
     if (isString(type)) {
         return typeof obj === type ? 3 : 0;
     } else {
-        return isinstance(obj, type) ? 3 : 0;
+        if (!isinstance(obj, type)) return 0;
+        var score = 3;
+        while (type) {
+            score++;
+            type = Object.getPrototypeOf(type);
+        }
+        return score;
     }
 }
 
@@ -100,16 +106,16 @@ export const enum AccessType {
 /**
  * Represents a slot that can be assigned to
  */
-export interface LValue {
+export abstract class Reference {
     /**
      * Returns the current value, or returns `NOTHING` and throws an error (in the VM, not Javascript) if it's not readable.
      */
-    get(vm: JebVM, accessType: AccessType, shouldBind: boolean): any | typeof NOTHING;
+    abstract get(vm: JebVM, accessType: AccessType, shouldBind: boolean): any | typeof NOTHING;
     /**
      * Set the value of the slot to the provided value,
      * or throws an error if it's readonly. The stack should not be modified either way.
      */
-    set(vm: JebVM, value: any, accessType: AccessType, createIfNotFound: boolean, makeConstant: boolean): void;
+    abstract set(vm: JebVM, value: any, accessType: AccessType, createIfNotFound: boolean, makeConstant: boolean): void;
 }
 
 export interface JEBProtocols {
@@ -117,7 +123,8 @@ export interface JEBProtocols {
     // Runtime protocols
     apply: ProtocolsList<void, [Type[]], {}, ApplyMetadata, ApplyOrEvalFlags>;
     eval: ProtocolsList<void, [Type[]], {}, void, ApplyOrEvalFlags>;
-    access: ProtocolsList<LValue | typeof NOTHING, [Type[]], {}, void, AccessFlags>;
+    access: ProtocolsList<Reference | typeof NOTHING, [Type[]], {}, void, AccessFlags>;
+    unwrap: ProtocolsList<any, [[typeof Wrapper]], {}, { name: string } | void, void>;
     // Math protocols
     add: BinaryProtocolToResult;
     abs: UnaryProtocolToResult;

@@ -8,7 +8,7 @@ import { JebVM } from "./vm";
 
 const setPrototypeOf = Object.setPrototypeOf;
 
-export type ShorthandArgument<N extends string = string, F extends readonly string[] = readonly string[]> =
+export type ShorthandArgument<N extends string = string, F extends readonly (string | boolean)[] = readonly (string | boolean)[]> =
     /**
      * param gets evaluated and unwrapped, no default
      */
@@ -53,7 +53,7 @@ export const enum Laziness {
     QUOTED,
 }
 
-export interface LonghandArgument<N extends string, F extends readonly string[] = []> {
+export interface LonghandArgument<N extends string, F extends readonly (string | boolean)[] = readonly (string | boolean)[]> {
     readonly name: N;
     readonly required: boolean;
     readonly defaultExpr: any;

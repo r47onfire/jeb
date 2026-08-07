@@ -10,11 +10,12 @@ import { Continuation, DynamicWind, Windable } from "../continuation";
 import { Env } from "../env";
 import { checkNothingOrPush, resultToError, wrapThrowToError } from "../errors";
 import { float, numberOp, Relation } from "../math";
-import { AccessType, LValue, theTypeName, typeOf } from "../protocol";
+import { AccessType, Reference, theTypeName, typeOf } from "../protocol";
 import { JebVM } from "../vm";
-import { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, implicitBegin, NOTHING } from "./define";
+import { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, NOTHING } from "./define";
 import { registerDoargs } from "./doargs";
-import { EnvVarLValue, ObjectLValue } from "./lvalue";
+import { implicitBegin } from "./implicitBegin";
+import { EnvVarLValue, ObjectLValue } from "./reference";
 
 // TODO: split this all up
 // MARK: loadBuiltins()
@@ -199,17 +200,14 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 .param {code} name - evaluated
 .throws jeb:type_error - if the object can't be indexed
 . Finds an Accessor for the object and pushes the LValue for the given field.`);
-    defineOpcode(vm, "jeb:get", (vm, { 0: accessType, 1: shouldBind }) => checkNothingOrPush(vm, (vm.popData() as LValue).get(vm, accessType, shouldBind)),
+    defineOpcode(vm, "jeb:get", (vm, { 0: accessType, 1: shouldBind }) => checkNothingOrPush(vm, (vm.popData() as Reference).get(vm, accessType, shouldBind)),
         `.imm accessType shouldBind
 .param {AccessType} accessType
 .param {boolean?} [shouldBind=false]
 .sed lvalue -- value
 . Takes an LValue on the top of the stack and unwraps it by calling its get() method.`);
-    defineOpcode(vm, "jeb:set", (vm, args) => {
-        const lvalue = vm.popData() as LValue;
-        const accessType = args[0] as AccessType;
-        const create = args[1] as boolean;
-        const readonly = args[2] as boolean;
+    defineOpcode(vm, "jeb:set", (vm, { 0: accessType, 1: create, 2: readonly }) => {
+        const lvalue = vm.popData() as Reference;
         lvalue.set(vm, vm.peekData(), accessType, create, readonly);
     },
         `.imm accessType create readonly

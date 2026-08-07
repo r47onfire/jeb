@@ -30,6 +30,10 @@ export const registerDoargs = (vm: JebVM) => {
             kw: false,
             s: {},
         };
+        // XXX: should go through each of the given arguments and process the argument
+        // by checking the types and flags on the parameters, unwrapping it while excluding
+        // "splat" and "keyword" wrappers as well as the ones listed, and then slot the values
+        // into the appropriate argument(s) or throw an error if there's nowhere to go
         console.log({ params, env, given, state });
         throw new Error("todo doargs doargs doargs");
     },

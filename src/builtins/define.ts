@@ -1,30 +1,8 @@
 import { stringify } from "lib0/json";
 import { BuiltinFunction, CallableSignatureFromShorthand, createSignature, ShorthandArgument } from "../callable";
-import { AccessFlags, ApplyMetadata, ApplyOrEvalFlags, LValue, ProtocolObj, Type } from "../protocol";
+import { AccessFlags, ApplyMetadata, ApplyOrEvalFlags, Reference, ProtocolObj, Type } from "../protocol";
 import { JebVM, OpcodeFunction } from "../vm";
 
-/**
- * Sets up instructions to run all of the arguments in order and the result is the value of the last one.
- * @param vm VM to evaluate in
- * @param args List of things to evaluate
- * @returns - {@link NOTHING}
- */
-
-export const implicitBegin = (vm: JebVM, args: any[]) => {
-    const len = args.length;
-    if (len === 0) {
-        vm.pushData(null);
-    }
-    // Evaluate all in order (reverse because stack)
-    for (var i = len - 1, last = true; i >= 0; i--, last = false) {
-        // Drop all but the last one
-        if (!last) vm.pushCommand("jeb:shuffle", 1, []);
-        vm.pushData(args[i]);
-        // Do a tail call on the last item
-        vm.pushCommand("jeb:eval", last);
-    }
-    return NOTHING;
-};
 /**
  * Special symbol that means "this function is a macro and pushed opcodes
  * which implement the return value, don't push my return value" for built-in functions,
@@ -78,7 +56,7 @@ export const defineEvaluator = <const T extends Type[]>(vm: JebVM, type: T, fn: 
  * Defines a new accessor that can be used by the `jeb:get` and `jeb:set` opcodes to look up or reassign a field on something.
  */
 
-export const defineAccessor = <const T extends Type[]>(vm: JebVM, type: T, fn: ProtocolObj<LValue, [T], {}, void, AccessFlags>["run"], doc: string) => {
+export const defineAccessor = <const T extends Type[]>(vm: JebVM, type: T, fn: ProtocolObj<Reference, [T], {}, void, AccessFlags>["run"], doc: string) => {
     vm.addProtocol("access", { type: [type], run: fn, doc, describe() { } });
 };
 

@@ -3,12 +3,12 @@ import { stringify } from "lib0/json";
 import { Lambda } from "../callable";
 import { Env } from "../env";
 import { wrapThrowToError } from "../errors";
-import { AccessType, LValue } from "../protocol";
+import { AccessType, Reference } from "../protocol";
 import { JebVM } from "../vm";
 import { NOTHING } from "./define";
 
-export class ObjectLValue implements LValue {
-    constructor(public obj: any, public name: PropertyKey) { }
+export class ObjectLValue extends Reference {
+    constructor(public obj: any, public name: PropertyKey) { super(); }
     get(_vm: JebVM, _type: AccessType, shouldBind: boolean) {
         var value = this.obj[this.name];
         if (shouldBind && typeof value === "function") value = value.bind(this.obj);
@@ -21,8 +21,8 @@ export class ObjectLValue implements LValue {
     }
 }
 
-export class EnvVarLValue implements LValue {
-    constructor(public env: Env, public name: string) { }
+export class EnvVarLValue extends Reference {
+    constructor(public env: Env, public name: string) { super(); }
     get(vm: JebVM, type: AccessType) {
         const result = this.env.get(this.name);
         return result.ok ? result.data : this.referenceError(vm, type);
