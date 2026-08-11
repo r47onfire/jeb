@@ -6,11 +6,12 @@ import { createStackInnerNode, createStackLeafNode, jsError, StackTreeNode } fro
 import { Linked, LinkedList, llLength, llPop, llPopN, llPush } from "./linked_list";
 import { ArgcForName, getProtocolHandler, JEBProtocols } from "./protocol";
 import { Tuple } from "./utils";
+import { JEBOpcode } from "./opcode_types";
 
 /**
  * Data for the command
  */
-export type Command = [opcode: string, ...immediateArgs: any[]];
+export type Command = [opcode: keyof JEBOpcode, ...immediateArgs: any[]];
 export interface StackCount extends Linked<string> {
     readonly count: number;
     readonly isTailCalled: boolean;
@@ -19,7 +20,7 @@ export interface StackCount extends Linked<string> {
 /**
  * Function that implements an opcode for the VM by pushing instructions or pushing and popping data.
  */
-export type OpcodeFunction = (vm: JebVM, args: any[]) => void;
+export type OpcodeFunction<T extends keyof JEBOpcode> = (vm: JebVM, args: JEBOpcode[T]) => void;
 
 /**
  * Base VM for running JEB code
@@ -39,7 +40,7 @@ export class JebVM {
     tracebackStack!: StackCount | null;
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
-    opcodes: Record<string, [impl: OpcodeFunction, doc: string | null]> = {};
+    opcodes: Partial<{ [K in keyof JEBOpcode]: [impl: OpcodeFunction<K>, doc: string | null] }> = {};
     protocols: Partial<JEBProtocols> = {};
     copyableState: Exclude<keyof this, keyof JebVM>[] = [];
 
@@ -77,7 +78,7 @@ export class JebVM {
         this.#checkStack(1);
         return this.dataStack!.value;
     }
-    pushCommand(name: string, ...args: any[]) {
+    pushCommand<T extends keyof JEBOpcode>(name: T, ...args: JEBOpcode[T]) {
         this.commandStack = llPush(this.commandStack, [name, ...args]);
     }
     #popCommand() {

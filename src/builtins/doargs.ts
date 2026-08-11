@@ -18,9 +18,7 @@ interface DoargsState {
 }
 
 export const registerDoargs = (vm: JebVM) => {
-    defineOpcode(vm, "jeb:doargs", (vm, args) => {
-        const params = args[0] as CallableSignature;
-        const env = args[1] as Env | undefined;
+    defineOpcode(vm, "jeb:doargs", (vm, { 0: params, 1: env }) => {
         const given = vm.popData();
         const state: DoargsState = {
             p: params,

@@ -76,7 +76,6 @@ export class DynamicWind<T extends JebVM = JebVM> {
      */
     setHandler(handler: Windable) {
         this.handler = handler;
-        return this;
     }
     /**
      * processes the jump here, and adds instructions to call the enter and exit handlers

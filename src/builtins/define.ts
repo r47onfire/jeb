@@ -2,6 +2,7 @@ import { stringify } from "lib0/json";
 import { BuiltinFunction, CallableSignatureFromShorthand, createSignature, ShorthandArgument } from "../callable";
 import { AccessFlags, ApplyMetadata, ApplyOrEvalFlags, Reference, ProtocolObj, Type } from "../protocol";
 import { JebVM, OpcodeFunction } from "../vm";
+import { JEBOpcode } from "../opcode_types";
 
 /**
  * Special symbol that means "this function is a macro and pushed opcodes
@@ -22,6 +23,7 @@ export const NOTHING: unique symbol = Symbol("nothing");
  */
 
 export const defineBuiltin = <const T extends ShorthandArgument<any, any>[]>(vm: JebVM, name: string, signature: T, resultIsMacro: boolean, fn: BuiltinFunction<CallableSignatureFromShorthand<T>>["impl"], doc: string) => {
+    if (vm.builtinsEnv.get(name).ok) throw new Error(`Builtin ${stringify(name)} is already defined`);
     vm.builtinsEnv.addConst(name, new BuiltinFunction(name, createSignature(signature), resultIsMacro, fn as any, doc));
 };
 /**
@@ -30,8 +32,9 @@ export const defineBuiltin = <const T extends ShorthandArgument<any, any>[]>(vm:
  * close over the one that is passed to the `vm` parameter of `defineOpcode` (since this opcode may be reused for a sub-VM for
  * e.g. an FFI callback).
  */
-export const defineOpcode = (vm: JebVM, name: string, fn: OpcodeFunction, doc: string | null) => {
-    vm.opcodes[name] = [fn, doc];
+export const defineOpcode = <T extends keyof JEBOpcode>(vm: JebVM, name: T, fn: OpcodeFunction<T>, doc: string | null) => {
+    if (vm.opcodes[name]) throw new Error(`Opcode ${stringify(name)} is already defined`);
+    vm.opcodes[name] = [fn, doc] as any;
 };
 /**
  * Defines a new applier that can be used by the `jeb:apply` opcode to call something.
@@ -67,5 +70,6 @@ export const defineAccessor = <const T extends Type[]>(vm: JebVM, type: T, fn: P
  */
 export const alias = (vm: JebVM, srcName: string, dstName: string) => {
     const env = vm.builtinsEnv;
+    if (env.get(dstName).ok) throw new Error(`Builtin ${stringify(dstName)} is already defined`);
     env.addConst(dstName, env.get(srcName).throw(`Alias source ${stringify(srcName)} doesn't exist`));
 };

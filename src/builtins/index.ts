@@ -33,7 +33,7 @@ export const loadBuiltins = (vm: JebVM) => {
         `.imm
 .sed --
 . Pops the top of the traceback stack, including all tailcall entries if there are some.`);
-    defineOpcode(vm, "jeb:tb_push", (vm, args) => vm.pushTraceback(args[0], args[1]),
+    defineOpcode(vm, "jeb:tb_push", (vm, { 0: func, 1: tail }) => vm.pushTraceback(func, tail),
         `.imm function tailcall
 ..param {string} function
 ..param {boolean} [tailcall=false]
@@ -60,7 +60,7 @@ Examples:
     defineOpcode(vm, "jeb:eval", (vm, { 0: tail }) => {
         const code = vm.popData();
         const p = vm.getProtocol(true, false, "eval", [code]);
-        if (p) p.run(vm, [code], { tail });
+        if (p) p.run(vm, [code], { tail: tail ?? false });
         else vm.pushData(code);
     },
         `.imm tailcall
@@ -93,7 +93,7 @@ Examples:
         "Evaluates all of the property values, and then reassembles the object with the same set of keys with the evaluated values.");
     defineEvaluator(vm, [Array], (vm, { 0: code }, { tail }) => {
         if (code.length > 0) {
-            vm.pushCommand("jeb:apply", code.slice(1), false, tail);
+            vm.pushCommand("jeb:apply", code.slice(1), tail);
             vm.pushCommand("jeb:eval");
             vm.pushData(code[0]);
         } else {
@@ -117,11 +117,9 @@ Examples:
             return;
         }
         const { name, macro, signature, closureEnv } = applier.describe(vm, func);
-        if (name) {
-            if (!tail) vm.pushCommand("jeb:tb_pop");
-        }
+        if (name && !tail) vm.pushCommand("jeb:tb_pop");
         if (macro) vm.pushCommand("jeb:eval");
-        applier.run(vm, [func], { tail });
+        applier.run(vm, [func], { tail: tail ?? false });
         if (name) vm.pushCommand("jeb:tb_push", name);
         vm.pushCommand("jeb:doargs", signature, closureEnv);
         vm.pushData(argv);
@@ -233,7 +231,7 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
             if (first) {
                 last(type);
             } else {
-                vm.pushCommand("jeb:get", type);
+                vm.pushCommand("jeb:get", type, false);
             }
             vm.pushCommand("jeb:index", path[i]);
         }
@@ -253,15 +251,12 @@ The \`properties\` index the variable like Javascript square brackets.
 .returns {any}
 . Look up the variable with this name in the current environment.`);
     defineOpcode(vm, "jeb:set/internal/nested", vm => vm.pushData([vm.popData()]), null);
-    defineOpcode(vm, "jeb:set/internal", (vm, args) => {
-        const type = args[0] as AccessType;
-        const valueExpr = args[1];
-        const old = args[2] as boolean;
+    defineOpcode(vm, "jeb:set/internal", (vm, { 0: type, 1: valueExpr, 2: old }) => {
         const lambda = new Lambda(false, true, undefined, { params: [{ name: "_", laziness: Laziness.QUOTED, }], rest: undefined, kwRest: undefined }, [valueExpr], vm.currentEnv, "");
         // accessor is first on stack
         vm.pushCommand("jeb:apply/resetEnv", vm.currentEnv);
         if (old) vm.pushCommand("jeb:shuffle", 1, []);
-        vm.pushCommand("jeb:set", type);
+        vm.pushCommand("jeb:set", type, false, false);
         vm.pushCommand("jeb:shuffle", 2, [1, 0]);
         vm.pushCommand("jeb:lambda/invoke", lambda);
         vm.pushCommand("jeb:doargs", lambda.signature);
@@ -291,10 +286,7 @@ The properties will be used to index the object, and the last one will be used t
 . Set the value of the variable in the environment in which it is defined, and returns the new or value as determined by \`old\`.`);
 
     // MARK: error handling
-    defineOpcode(vm, "jeb:throw", (vm, args) => {
-        const type = args[0] as string;
-        const message = args[1] as string;
-        const context = args[2] as Record<string, any>;
+    defineOpcode(vm, "jeb:throw", (vm, { 0: type, 1: message, 2: context }) => {
         if (vm.curDynamicWind.parent) {
             // call exit handler with error details
             // if it returns true, it means the error was handled and we can continue execution
@@ -357,7 +349,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
 .throws jeb:type_error - if \`varname\` is null or \`handlers\` is not an object.
 . Used to manage error handling, contextual resources, and continuation tracking.`);
 
-    defineOpcode(vm, "jeb:with/setup", (vm, args) => {
+    defineOpcode(vm, "jeb:with/setup", (vm, { 0: dw, 1: name }) => {
         // we just got the before and after handlers evaluated
         const context = vm.popData() as Windable;
         const notObject = typeof context !== "object" || context === null;
@@ -365,15 +357,14 @@ Some errors also include a *restart* as part of their \`context\` - this will be
             vm.pushCommand("jeb:throw", "jeb:type_error", notObject ? "context manager should be an object" : "context manager should have 'enter' and/or 'exit' handlers", {});
             return;
         }
-        const name = args[1] as string | null;
-        const dw = (args[0] as DynamicWind).setHandler(context);
+        dw.setHandler(context);
         // set up the winder to be installed AFTER the enter handler runs, so that errors thrown by this handler won't be caught by the exit handler
         vm.pushCommand("jeb:with/install", dw);
 
         if (!context.enter) return;
         vm.pushCommand("jeb:shuffle", 1, []);
         if (name !== null) {
-            vm.pushCommand("jeb:set", AccessType.VARIABLE, true);
+            vm.pushCommand("jeb:set", AccessType.VARIABLE, true, false);
             vm.pushCommand("jeb:shuffle", 2, [1, 0]);
             vm.pushData(new VariableReference(vm.currentEnv, name));
         }
@@ -381,8 +372,8 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         vm.pushData(context.enter);
     }, null);
 
-    defineOpcode(vm, "jeb:with/install", (vm, args) => {
-        vm.curDynamicWind = args[0] as DynamicWind;
+    defineOpcode(vm, "jeb:with/install", (vm, { 0: dw }) => {
+        vm.curDynamicWind = dw;
     }, null);
 
     defineOpcode(vm, "jeb:with/teardown", vm => {
@@ -437,7 +428,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
     defineOpcode(vm, "jeb:lambda/invoke/resetEnv", (vm, { 0: env }) => vm.currentEnv = env, null);
     defineOpcode(vm, "jeb:lambda/invoke", (vm, { 0: lambda, 1: tail }) => {
         if (!tail || lambda.isMacro) vm.pushCommand("jeb:lambda/invoke/resetEnv", vm.currentEnv);
-        const argvObject = vm.popData()
+        const argvObject = vm.popData();
         const callEnv = vm.createEnv(lambda.closureEnv);
         for (var { 0: name, 1: value } of Object.entries(argvObject)) callEnv.add(name, value);
         if (!lambda.isImplicit) callEnv.add("return", vm.cc());
@@ -507,7 +498,6 @@ There are many forms that the paremeter can take to control is behavior at call 
     defineOpcode(vm, "jeb:if", (vm, { 0: then, 1: else_, 2: isAsm }) => {
         const condition = vm.popData();
         if (isAsm) {
-            // @ts-ignore
             if (condition) { if (then) vm.pushCommand(...then); } else if (else_) vm.pushCommand(...else_);
         } else {
             vm.pushData(condition ? then : else_);
