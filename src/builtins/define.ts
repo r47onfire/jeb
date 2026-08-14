@@ -3,6 +3,7 @@ import { BuiltinFunction, CallableSignatureFromShorthand, createSignature, Short
 import { AccessFlags, ApplyMetadata, ApplyOrEvalFlags, Reference, ProtocolObj, Type } from "../protocol";
 import { JebVM, OpcodeFunction } from "../vm";
 import { JEBOpcode } from "../opcode_types";
+import { Wrapper } from "../wrapper";
 
 /**
  * Special symbol that means "this function is a macro and pushed opcodes
@@ -53,14 +54,23 @@ export const defineApplier = <const T extends Type[], PO extends ProtocolObj<voi
  */
 
 export const defineEvaluator = <const T extends Type[]>(vm: JebVM, type: T, fn: ProtocolObj<void, [T], {}, void, ApplyOrEvalFlags>["run"], doc: string) => {
-    vm.addProtocol("eval", { type: [type], run: fn, doc, describe() { } });
+    vm.addProtocol("eval", { type: [type], run: fn, doc });
 };
+
 /**
  * Defines a new accessor that can be used by the `jeb:get` and `jeb:set` opcodes to look up or reassign a field on something.
  */
 
 export const defineAccessor = <const T extends Type[]>(vm: JebVM, type: T, fn: ProtocolObj<Reference, [T], {}, void, AccessFlags>["run"], doc: string) => {
-    vm.addProtocol("access", { type: [type], run: fn, doc, describe() { } });
+    vm.addProtocol("access", { type: [type], run: fn, doc });
+};
+
+/**
+ * Defines a new accessor that can be used by the `jeb:get` and `jeb:set` opcodes to look up or reassign a field on something.
+ */
+
+export const defineUnwrapper = <const T extends (typeof Wrapper)[]>(vm: JebVM, type: T, fn: ProtocolObj<void, [T], {}, void, void>["run"], doc: string) => {
+    vm.addProtocol("unwrap", { type: [type], run: fn, doc });
 };
 
 /**

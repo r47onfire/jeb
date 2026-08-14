@@ -1,3 +1,5 @@
+import { Reference } from "./protocol";
+
 /**
  * Represents a wrapped value that only appears as a directly-usable value under certain circumstances
  */
@@ -20,4 +22,12 @@ export class KeywordArg extends Wrapper {
 export class SplatArg extends Wrapper {
     flag = "splat" as const;
     constructor(obj: any, public isKeyword: boolean) { super(obj); }
+}
+
+/**
+ * Wrapper for a variable reference
+ */
+export class ReferenceWrapper extends Wrapper {
+    flag = "ref" as const;
+    declare obj: Reference;
 }

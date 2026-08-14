@@ -1,8 +1,10 @@
+import { DoargsState } from "./builtins/doargs";
 import { BuiltinFunction, CallableSignature, Lambda } from "./callable";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
 import { AccessType } from "./protocol";
 import { Command } from "./vm";
+import { Wrapper } from "./wrapper";
 
 export interface JEBOpcode {
     [x: string]: unknown[];
@@ -12,14 +14,17 @@ export interface JEBOpcode {
     "jeb:eval": [tail?: boolean];
     "jeb:apply": [argv: any[], tail?: boolean];
     "jeb:doargs": [signature: CallableSignature, dynamicEnv: Env | undefined];
+    "jeb:doargs/loop": [state: DoargsState, first: boolean];
+    "jeb:unwrap": [flagsNotToUnwrap: string[]];
+    "jeb:wrap": [cls: new (...args: any[]) => Wrapper, ...args: unknown[]];
     "jeb:apply/string-trampoline": [tail: boolean];
     "jeb:call/builtin": [func: BuiltinFunction];
-    "jeb:index/access": [];
-    "jeb:index": [name: any];
-    "jeb:get": [accessType: AccessType, shouldBind: boolean];
-    "jeb:set": [accessType: AccessType, create: boolean, readonly: boolean];
+    "jeb:index/access": [type: AccessType];
+    "jeb:index": [name: any, accessType: AccessType];
+    "jeb:get": [shouldBind: boolean];
+    "jeb:set": [create?: boolean, readonly?: boolean];
     "jeb:set/internal/nested": [];
-    "jeb:set/internal": [accessType: AccessType, valueExpr: any, returnOldValue: boolean];
+    "jeb:set/internal": [valueExpr: any, returnOldValue: boolean];
     "jeb:throw": [type: string, message: string, context: Record<string, any>];
     "jeb:with/setup": [dw: DynamicWind, varname: string | null];
     "jeb:with/install": [dw: DynamicWind];

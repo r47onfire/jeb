@@ -118,8 +118,6 @@ export const createSignature = <const S extends readonly ShorthandArgument<any, 
     return processed;
 }
 
-const x = createSignature([[true, "binding"], "context", [true, "body"], true]);
-
 /**
  * Callable hack from https://stackoverflow.com/a/78553691. Subclasses of this
  * are actually instances of `Function`, so `typeof this === "function"`.

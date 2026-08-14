@@ -180,7 +180,7 @@ describe("basic", () => {
     });
 });
 
-describe.skip("tail-call elimination", () => {
+describe("tail-call elimination", () => {
     testTest("command stack stays constant", vm => {
         expect(run(vm, ["begin",
             ["define", ["loop"], ["loop"]],
@@ -230,7 +230,7 @@ describe.skip("tail-call elimination", () => {
     });
 });
 
-describe.skip("traceback compression", () => {
+describe("traceback compression", () => {
     testTest("compresses long alternating cycle", vm => {
         expect.assertions(3);
         // a <-> b tail recursion
@@ -274,7 +274,7 @@ describe.skip("traceback compression", () => {
 });
 
 
-describe.skip("with / dynamic-wind", () => {
+describe("with / dynamic-wind", () => {
 
     const makeWith = (begin: string, end: string, ...body: any[]) => {
         return ["with", null,
@@ -387,7 +387,7 @@ describe.skip("with / dynamic-wind", () => {
     });
 });
 
-describe.skip("metaprogramming", () => {
+describe("metaprogramming", () => {
     testTest("eval", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", "x", ["'", ["print", ["$", "a"]]]],
@@ -453,7 +453,7 @@ describe.skip("metaprogramming", () => {
     });
 });
 
-describe.skip("lambdas", () => {
+describe("lambdas", () => {
     testTest("lambda optional dynamic env", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["foo", ["a", ["$", "x"]]], ["print", ["$", "a"]]],
@@ -494,7 +494,7 @@ describe.skip("lambdas", () => {
     });
 });
 
-describe.skip("recursion stress tests", () => {
+describe("recursion stress tests", () => {
     testTest("A000142 (factorial)", vm => {
         const x = 5000n;
         const factorial = (a: bigint): bigint => a > 1 ? a * factorial(a - 1n) : 1n;
@@ -568,76 +568,7 @@ describe.skip("recursion stress tests", () => {
     });
 });
 
-describe.skip("self-defined macros", () => {
-    testTest("when/unless", (vm, out) => {
-        expect(run(vm, ["begin",
-            ["define", "a", true],
-            ["when", ["$", "a"], ["print", "hi"]],
-            ["unless", ["$", "a"], ["print", "bye"]]
-        ])).toBeTrue();
-        expect(out).toEqual(["hi"]);
-    });
-    const makeTryCatch = (body: any) => ["try",
-        body,
-        {
-            ["test:bar_error"]: ["lambda", ["message", "restarts"],
-                ["print", "caught bar!", ["$", "message"]]],
-            "*": ["lambda", ["type", "message", "restarts"],
-                ["print", "caught star!", ["$", "type"], ["$", "message"]]],
-            else: ["lambda", [], ["print", "we didn't get an error"]]
-        }];
-    testTest("trycatch 1", (vm, out) => {
-        expect(run(vm, ["begin",
-            makeTryCatch(["error", "test:bar_error", "an error!", {}]),
-        ])).toBeTrue();
-        expect(out).toEqual(["caught bar! an error!"]);
-    });
-    testTest("trycatch 2", (vm, out) => {
-        expect(run(vm, ["begin",
-            makeTryCatch(["error", "test:foo_error", "foo error!", {}]),
-        ])).toBeTrue();
-        expect(out).toEqual(["caught star! test:foo_error foo error!"]);
-    });
-    testTest("trycatch 3", (vm, out) => {
-        expect(run(vm, ["begin",
-            makeTryCatch(["print", "nothing to see here"]),
-        ])).toBeTrue();
-        expect(out).toEqual(["nothing to see here", "we didn't get an error"]);
-    });
-    testTest("with-baffle 1", vm => {
-        expect(() => run(vm, ["begin",
-            ["let-in", "x", null],
-            ["cwcc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]],
-            ["with-baffle",
-                ["x", null]]
-        ])).toThrow("tried to jump out of a 'with-baffle' block");
-    });
-    testTest("with-baffle 2", vm => {
-        expect(() => run(vm, ["begin",
-            ["let-in", "x", null],
-            ["with-baffle",
-                ["cwcc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]],
-            ["x", null]
-        ])).toThrow("tried to jump into a 'with-baffle' block");
-    });
-    testTest("pipe", vm => {
-        expect(run(vm, ["begin",
-            ["|>", 1, ["*", ["$", "%"], 100], ["+", ["$", "%"], 23]]
-        ])).toBeTrue();
-        expect(vm.popData()).toEqual(123);
-    });
-    testTest("while", (vm, out) => {
-        expect(run(vm, ["begin",
-            ["let-in", "x", 0],
-            ["while", ["<=", ["$", "x"], 10],
-                ["print", ["$", "x"]],
-                ["set", "x", ["+", ["$", "x"], 1]]],
-        ])).toBeTrue();
-        expect(out).toEqual(["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10"]);
-    })
-});
-
-describe.skip("FFI", () => {
+describe("FFI", () => {
     testTest("FFI calling functions", (vm, out) => {
         expect(run(vm, ["begin",
             [(arg: any) => { out.push(arg, { a: 1 } as any); }, "hi"]

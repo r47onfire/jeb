@@ -5,17 +5,19 @@ import { parse, stringify } from "lib0/json";
 import { add } from "lib0/math";
 import { keys } from "lib0/object";
 import { Err, Ok, Result } from "ts-res";
-import { BuiltinFunction, createSignature, Lambda, Laziness } from "../callable";
-import { Continuation, DynamicWind, Windable } from "../continuation";
+import { BuiltinFunction, CallableSignature, createSignature, Lambda, Laziness } from "../callable";
+import { Continuation, Windable } from "../continuation";
 import { Env } from "../env";
 import { checkNothingOrPush, resultToError, wrapThrowToError } from "../errors";
 import { float, numberOp, Relation } from "../math";
 import { AccessType, Reference, theTypeName, typeOf } from "../protocol";
 import { JebVM } from "../vm";
+import { ReferenceWrapper } from "../wrapper";
 import { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, NOTHING } from "./define";
 import { registerDoargs } from "./doargs";
 import { implicitBegin } from "./implicitBegin";
-import { VariableReference, ObjectPropertyReference } from "./reference";
+import { ObjectPropertyReference, VariableReference } from "./reference";
+import { registerUnwrap } from "./unwrap";
 
 // TODO: split this all up
 // MARK: loadBuiltins()
@@ -33,11 +35,11 @@ export const loadBuiltins = (vm: JebVM) => {
         `.imm
 .sed --
 . Pops the top of the traceback stack, including all tailcall entries if there are some.`);
-    defineOpcode(vm, "jeb:tb_push", (vm, { 0: func, 1: tail }) => vm.pushTraceback(func, tail),
+    defineOpcode(vm, "jeb:tb_push", (vm, { 0: func, 1: tail }) => vm.pushTraceback(func, tail ?? false),
         `.imm function tailcall
 ..param {string} function
 ..param {boolean} [tailcall=false]
-. Pushes the function to the traceback stack`);
+. Pushes the function to the traceback stack.`);
 
     // MARK: op: stack shuffle
     defineOpcode(vm, "jeb:shuffle", (vm, { 0: n, 1: indices }) => {
@@ -82,10 +84,10 @@ Examples:
         const target = {};
         vm.pushData(target);
         for (var key of keys(code)) {
-            vm.pushData(new ObjectPropertyReference(target, key));
+            vm.pushData(new ObjectPropertyReference(AccessType.PROPERTY, target, key));
             vm.pushData(code[key]);
             vm.pushCommand("jeb:shuffle", 1, []);
-            vm.pushCommand("jeb:set", AccessType.PROPERTY);
+            vm.pushCommand("jeb:set", true);
             vm.pushCommand("jeb:shuffle", 2, [1, 0]);
             vm.pushCommand("jeb:eval");
         }
@@ -139,6 +141,7 @@ Examples:
 If \`alreadyEvaluated\` is false, the arguments are interpreted as unevaluated expressions and the applier for the function or macro can choose to evaluate or not evaluate them.
 If \`alreadyEvaluated\` is true, they are interpreted as values and the applier should not evaluate them, even if it isn't a macro.`);
     registerDoargs(vm);
+    registerUnwrap(vm);
     // MARK: string applier
     defineOpcode(vm, "jeb:apply/string-trampoline", (vm, { 0: tail }) => {
         const realFunc = vm.popData();
@@ -150,21 +153,13 @@ If \`alreadyEvaluated\` is true, they are interpreted as values and the applier 
         // String is a special case because normally strings evaluate to themselves
         // (not to a callable function), but if it's in head position, we implicitly look it up.
         vm.pushCommand("jeb:apply/string-trampoline", tail);
-        vm.pushCommand("jeb:get", AccessType.FUNCTION);
-        vm.pushData(new VariableReference(vm.currentEnv, func));
+        vm.pushCommand("jeb:unwrap", []);
+        vm.pushCommand("jeb:get", false);
+        vm.pushCommand("jeb:shuffle", 2, [1, 0]);
+        vm.pushData(new VariableReference(AccessType.FUNCTION, vm.currentEnv, func));
     }, () => ({
         name: undefined,
-        signature: {
-            params: [],
-            rest: {
-                name: "_",
-                required: false,
-                defaultExpr: undefined,
-                lazy: Laziness.QUOTED,
-                flags: []
-            },
-            kwRest: undefined,
-        },
+        signature: ALL_UNDERSCORE_QUOTED,
         macro: false,
     }),
         `Applying a string is shorthand for looking up the variable with the same name as the string and calling that instead.
@@ -177,9 +172,9 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
     defineOpcode(vm, "jeb:call/builtin", (vm, { 0: func }) => checkNothingOrPush(vm, func.impl(vm.popData(), vm)), null);
 
     // MARK: variables
-    defineAccessor(vm, ["object"], (_, { 0: object }, { field }) => new ObjectPropertyReference(object, field), "Default object property accessor.");
-    defineAccessor(vm, [Env], (_, { 0: object }, { field }) => new VariableReference(object, field as string), "Accessor for variables from an environment.");
-    defineOpcode(vm, "jeb:index/access", vm => {
+    defineAccessor(vm, ["object"], (_, { 0: object }, { field, type }) => new ObjectPropertyReference(type, object, field), "Default object property accessor.");
+    defineAccessor(vm, [Env], (_, { 0: object }, { field, type }) => new VariableReference(type, object, field as string), "Accessor for variables from an environment.");
+    defineOpcode(vm, "jeb:index/access", (vm, { 0: type }) => {
         const field = vm.popData() as PropertyKey;
         const obj = vm.popData();
         const accessor = vm.getProtocol(true, false, "access", [obj]);
@@ -187,10 +182,10 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
             vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(theTypeName(typeOf(obj)))} is not subscriptable`, {});
             return;
         }
-        checkNothingOrPush(vm, accessor.run(vm, obj, { field }));
+        checkNothingOrPush(vm, accessor.run(vm, obj, { field, type }));
     }, null);
-    defineOpcode(vm, "jeb:index", (vm, { 0: name }) => {
-        vm.pushCommand("jeb:index/access");
+    defineOpcode(vm, "jeb:index", (vm, { 0: name, 1: type }) => {
+        vm.pushCommand("jeb:index/access", type);
         vm.pushCommand("jeb:eval");
         vm.pushData(name);
     },
@@ -198,15 +193,15 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 .param {code} name - evaluated
 .throws jeb:type_error - if the object can't be indexed
 . Finds an Accessor for the object and pushes the LValue for the given field.`);
-    defineOpcode(vm, "jeb:get", (vm, { 0: accessType, 1: shouldBind }) => checkNothingOrPush(vm, (vm.popData() as Reference).get(vm, accessType, shouldBind)),
+    defineOpcode(vm, "jeb:get", (vm, { 0: shouldBind }) => checkNothingOrPush(vm, (vm.popData() as Reference).get(vm, shouldBind)),
         `.imm accessType shouldBind
 .param {AccessType} accessType
 .param {boolean?} [shouldBind=false]
 .sed lvalue -- value
 . Takes an LValue on the top of the stack and unwraps it by calling its get() method.`);
-    defineOpcode(vm, "jeb:set", (vm, { 0: accessType, 1: create, 2: readonly }) => {
+    defineOpcode(vm, "jeb:set", (vm, { 0: create, 1: readonly }) => {
         const lvalue = vm.popData() as Reference;
-        lvalue.set(vm, vm.peekData(), accessType, create, readonly);
+        lvalue.set(vm, vm.peekData(), create ?? false, readonly ?? false);
     },
         `.imm accessType create readonly
 .param {AccessType} accessType
@@ -214,59 +209,32 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 .param {boolean?} [readonly=false]
 .sed value lvalue -- value
 . Takes an LValue on the top of the stack and calls the \`set()\` method with the next item in the stack as the value to set.`);
-    const pushNamePath = (vm: JebVM, path: string | any[], last: (type: AccessType) => void) => {
-        if (!isArray(path)) path = [path];
-        var item = vm.currentEnv as any, shouldEval = false;
-        if (!isString(path[0]) && path.length > 0) {
-            if (path.length < 2) {
-                vm.pushCommand("jeb:throw", "jeb:syntax_error", "complex expression indexing must have an index", {});
-                return;
-            }
-            item = path[0];
-            path = path.slice(1);
-            shouldEval = true;
-        }
-        for (var i = path.length - 1, first = true; i >= 0; i--, first = false) {
-            const type = i > 0 ? AccessType.PROPERTY : AccessType.VARIABLE;
-            if (first) {
-                last(type);
-            } else {
-                vm.pushCommand("jeb:get", type, false);
-            }
-            vm.pushCommand("jeb:index", path[i]);
-        }
-        vm.pushData(item);
-        if (shouldEval) vm.pushCommand("jeb:eval");
-    };
-    defineBuiltin(vm, "$", [[true, "path"]], false, ({ path }, vm) => {
-        pushNamePath(vm, path, type => vm.pushCommand("jeb:get", type, true));
-        return NOTHING;
-    }, `.macro ($ (name properties...))
-The \`properties\` index the variable like Javascript square brackets.
-..param {string} name - can be an expression; it is evaluated
-..param {string} properties...
-.func ($ name)
+    defineBuiltin(vm, "$", ["name"], false, ({ name }, vm) => {
+        vm.pushCommand("jeb:wrap", ReferenceWrapper);
+        vm.pushCommand("jeb:index", name, AccessType.VARIABLE);
+        return vm.currentEnv;
+    }, `.func ($ name)
 ..param {string} name
 .throws jeb:reference_error - if the name is not defined anywhere
 .returns {any}
 . Look up the variable with this name in the current environment.`);
-    defineOpcode(vm, "jeb:set/internal/nested", vm => vm.pushData([vm.popData()]), null);
-    defineOpcode(vm, "jeb:set/internal", (vm, { 0: type, 1: valueExpr, 2: old }) => {
-        const lambda = new Lambda(false, true, undefined, { params: [{ name: "_", laziness: Laziness.QUOTED, }], rest: undefined, kwRest: undefined }, [valueExpr], vm.currentEnv, "");
+    defineOpcode(vm, "jeb:set/internal/nested", vm => vm.pushData({ _: vm.popData() }), null);
+    defineOpcode(vm, "jeb:set/internal", (vm, { 0: valueExpr, 1: old }) => {
+        const lambda = new Lambda(false, true, undefined, ONE_UNDERSCORE_QUOTED, [valueExpr], vm.currentEnv, "");
         // accessor is first on stack
         vm.pushCommand("jeb:apply/resetEnv", vm.currentEnv);
         if (old) vm.pushCommand("jeb:shuffle", 1, []);
-        vm.pushCommand("jeb:set", type, false, false);
+        vm.pushCommand("jeb:set");
         vm.pushCommand("jeb:shuffle", 2, [1, 0]);
-        vm.pushCommand("jeb:lambda/invoke", lambda);
-        vm.pushCommand("jeb:doargs", lambda.signature);
+        vm.pushCommand("jeb:lambda/invoke", lambda, false);
         vm.pushCommand("jeb:set/internal/nested");
         if (old) vm.pushCommand("jeb:shuffle", 2, [1, 0, 1]);
-        vm.pushCommand("jeb:get", type, true);
+        vm.pushCommand("jeb:get", true);
         vm.pushCommand("jeb:shuffle", 1, [0, 0]);
     }, null);
-    defineBuiltin(vm, "set", [[true, "name"], [true, "value"], ["old", false]], false, ({ name, value, old }, vm) => {
-        pushNamePath(vm, name, type => vm.pushCommand("jeb:set/internal", type, value, old));
+    defineBuiltin(vm, "set", [[["ref"], "ref"], "value", ["old", false]], false, ({ ref, value, old }, vm) => {
+        vm.pushCommand("jeb:set/internal", value, old);
+        vm.pushData(ref);
         return NOTHING;
     }, `.macro (set name value old)
 ..param {string} name
@@ -364,9 +332,9 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         if (!context.enter) return;
         vm.pushCommand("jeb:shuffle", 1, []);
         if (name !== null) {
-            vm.pushCommand("jeb:set", AccessType.VARIABLE, true, false);
+            vm.pushCommand("jeb:set", true);
             vm.pushCommand("jeb:shuffle", 2, [1, 0]);
-            vm.pushData(new VariableReference(vm.currentEnv, name));
+            vm.pushData(new VariableReference(AccessType.VARIABLE, vm.currentEnv, name));
         }
         vm.pushCommand("jeb:apply", [false]);
         vm.pushData(context.enter);
@@ -392,18 +360,8 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         vm.pushCommand("jeb:ffi/invokeFunction", f);
     }, (_, f) => ({
         name: `[JS function ${f.name || "<no name>"}]`,
+        signature: ALL_UNDERSCORE_QUOTED,
         macro: (f as any).MACRO ?? false,
-        signature: {
-            params: [],
-            rest: {
-                name: "_",
-                required: false,
-                defaultExpr: undefined,
-                lazy: Laziness.NONE,
-                flags: []
-            },
-            kwRest: undefined,
-        }
     }),
         `JEB's FFI can call Javascript functions. JEB does not check the \`.length\` of the function since it is wrong in some cases.
 .throws jeb:ffi_error - if the FFI'ed function throws an error`);
@@ -593,10 +551,10 @@ Functions much like [[let]] but with an implicit block after it that continues t
         const args = ao.definition!;
         const name = args[0] as string | string[];
         const setHelper = (name: string, thing: any) => {
-            vm.pushCommand("jeb:set", AccessType.VARIABLE, true, true);
+            vm.pushCommand("jeb:set", true, true);
             vm.pushCommand("jeb:shuffle", 2, [1, 0]);
             vm.pushCommand("jeb:eval");
-            vm.pushData(new VariableReference(vm.currentEnv, name));
+            vm.pushData(new VariableReference(AccessType.VARIABLE, vm.currentEnv, name));
             vm.pushData(thing);
         };
         if (typeof name === "boolean" && name && isArray(args[1])) {
@@ -650,7 +608,7 @@ Expands into a [[macro]].
             var f: () => Result<any, any>;
             if (b === NOTHING) {
                 if (op1 === undefined) {
-                    vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(op2)} is not defined for one argument`);
+                    vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(op2)} is not defined for one argument`, {});
                     return NOTHING;
                 }
                 f = () => vm.getProtocol(false, true, op1, [a]).run(vm, [a]);
@@ -663,14 +621,14 @@ Expands into a [[macro]].
 ..param {any?} b
 .throws jeb:type_error - if no overload was found for the given argument types
 . ${doc}`);
-        vm.addProtocol(op2, { type: [["number", "bigint"], ["number", "bigint"]], run: (_, { 0: a, 1: b }) => Ok(f2(a, b)), describe() { }, doc });
+        vm.addProtocol(op2, { type: [["number", "bigint"], ["number", "bigint"]], run: (_, { 0: a, 1: b }) => Ok(f2(a, b)), doc });
         if (op1) {
-            vm.addProtocol(op1, { type: [["number"]], run: (_, { 0: a }) => Ok(num(a)), describe() { }, doc });
-            vm.addProtocol(op1, { type: [["bigint"]], run: (_, { 0: a }) => Ok(big(a)), describe() { }, doc });
+            vm.addProtocol(op1, { type: [["number"]], run: (_, { 0: a }) => Ok(num(a)), doc });
+            vm.addProtocol(op1, { type: [["bigint"]], run: (_, { 0: a }) => Ok(big(a)), doc });
         }
     }
     mathHelper("+", "add", "abs", numberOp(add), Math.abs, a => a > 0 ? a : -a, "Adds numbers or concatenates strings.");
-    vm.addProtocol("add", { type: [["string"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(a + b), describe() { }, doc: "Concatenates strings" });
+    vm.addProtocol("add", { type: [["string"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(a + b), doc: "Concatenates strings" });
     mathHelper("-", "sub", "neg", numberOp((a, b) => a - b), a => -a, a => -a, "Subtracts numbers.\nIn the case of one number, returns the additive inverse (i.e. the negative).");
     mathHelper("*", "mul", undefined, numberOp((a, b) => a * b), id, id, "Multiplies numbers.\nThe special case of `string * number` or `number * string` results in repeating the string N times.");
     const repeat = (a: string, b: number): Result<string, string> => {
@@ -678,8 +636,8 @@ Expands into a [[macro]].
         if ((b | 0) !== b) return Err("Cannot repeat a non-integer number of times");
         return Ok(a.repeat(b));
     };
-    vm.addProtocol("mul", { type: [["string"], ["number"]], run: (_, { 0: a, 1: b }) => Ok(repeat(a, b)), describe() { }, doc: "Repeats strings" });
-    vm.addProtocol("mul", { type: [["number"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(repeat(b, a)), describe() { }, doc: "Repeats strings" });
+    vm.addProtocol("mul", { type: [["string"], ["number"]], run: (_, { 0: a, 1: b }) => Ok(repeat(a, b)), doc: "Repeats strings" });
+    vm.addProtocol("mul", { type: [["number"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(repeat(b, a)), doc: "Repeats strings" });
     mathHelper("/", "div", "inv", (a, b) => float(a) / float(b), a => 1 / a, a => 1 / float(a), "Divides numbers.\nIn the case of one number, returns the multiplicative inverse (i.e. the reciprocal).");
     mathHelper("%", "mod", undefined, numberOp((a, b) => a % b), id, id, "Computes the modulo of two numbers.");
     mathHelper("pow", "pow", undefined, numberOp((a, b) => a ** b), id, id, "Computes the power of numbers.\nHowever, this function still folds from the right like the other math functions, so unlike how power is notated mathematically (where `a^b^c^d^e` means `a^(b^(c^(d^e)))`), `[\"pow\", a, b, c, d, e]` is interpreted as `(((a^b)^c)^d)^e`.");
@@ -729,8 +687,8 @@ Expands into a [[macro]].
         if (a > b) return Ok(!!(c & Relation.GREATER));
         throw "unreachable";
     };
-    vm.addProtocol("cmp", { type: [["number", "bigint"], ["number", "bigint"], ["number"]], run: compareFn, describe() { }, doc: "Compares numbers" });
-    vm.addProtocol("cmp", { type: [["string"], ["string"], ["number"]], run: compareFn, describe() { }, doc: "Compares strings" });
+    vm.addProtocol("cmp", { type: [["number", "bigint"], ["number", "bigint"], ["number"]], run: compareFn, doc: "Compares numbers" });
+    vm.addProtocol("cmp", { type: [["string"], ["string"], ["number"]], run: compareFn, doc: "Compares strings" });
     vm.addProtocol("cmp", {
         type: [[true], [true], ["number"]],
         run(_, { 0: a, 1: b, 2: c }) {
@@ -738,7 +696,6 @@ Expands into a [[macro]].
             if ((!!(c & Relation.GREATER)) !== (!!(c & Relation.LESS))) return Err(`No ordering defined for ${stringify(theTypeName(typeOf(a)))} and ${stringify(theTypeName(typeOf(b)))}`);
             return Ok(!!(c & Relation.LESS));
         },
-        describe() { },
         doc: "Compares any items"
     });
 
@@ -912,6 +869,30 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
     // (concat part1 part2...)
     return ["concat"].concat(parts);
 }
+
+const ONE_UNDERSCORE_QUOTED: CallableSignature = {
+    params: [{
+        name: "_",
+        required: false,
+        flags: [],
+        defaultExpr: undefined,
+        lazy: Laziness.QUOTED,
+    }],
+    rest: undefined,
+    kwRest: undefined,
+};
+
+const ALL_UNDERSCORE_QUOTED: CallableSignature = {
+    params: [],
+    rest: {
+        name: "_",
+        required: false,
+        flags: [],
+        defaultExpr: undefined,
+        lazy: Laziness.QUOTED,
+    },
+    kwRest: undefined,
+};
 
 // MARK: JSON based standard library!
 // const STANDARD_LIBRARY = ["begin",

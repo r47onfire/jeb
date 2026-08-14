@@ -8,8 +8,8 @@ import { JebVM } from "../vm";
 import { NOTHING } from "./define";
 
 export class ObjectPropertyReference extends Reference {
-    constructor(public obj: any, public name: PropertyKey) { super(); }
-    get(_vm: JebVM, _type: AccessType, shouldBind: boolean) {
+    constructor(type: AccessType, public obj: any, public name: PropertyKey) { super(type); }
+    get(_vm: JebVM, shouldBind: boolean) {
         var value = this.obj[this.name];
         if (shouldBind && typeof value === "function") value = value.bind(this.obj);
         return value;
@@ -22,29 +22,32 @@ export class ObjectPropertyReference extends Reference {
 }
 
 export class VariableReference extends Reference {
-    constructor(public env: Env, public name: string) { super(); }
-    get(vm: JebVM, type: AccessType) {
-        const result = this.env.get(this.name);
-        return result.ok ? result.data : this.referenceError(vm, type);
+    notFoundMessage: string;
+    constructor(type: AccessType, public env: Env, public name: string) {
+        super(type);
+        this.notFoundMessage = type === AccessType.PROPERTY ? `module has no property ${stringify(this.name)}` :
+            `${type === AccessType.VARIABLE ? "variable" : "function"} ${stringify(this.name)} not found`;
     }
-    set(vm: JebVM, value: any, type: AccessType, create: boolean, readonly: boolean) {
+    get(vm: JebVM) {
+        const result = this.env.get(this.name);
+        return result.ok ? result.data : this.referenceError(vm);
+    }
+    set(vm: JebVM, value: any, create: boolean, readonly: boolean) {
         if (create) {
             if (readonly) this.env.addConst(this.name, value);
             else this.env.add(this.name, value);
         } else {
             const didSet = this.env.set(this.name, value);
             if (didSet === undefined) {
-                this.referenceError(vm, type);
+                this.referenceError(vm);
             } else if (!didSet) {
                 vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(this.name)} is a constant`, {});
             }
         }
         if (isinstance(value, Lambda)) value.name ??= this.name;
     }
-    protected referenceError(vm: JebVM, type: AccessType): typeof NOTHING {
-        vm.pushCommand("jeb:throw", "jeb:reference_error",
-            type === AccessType.PROPERTY ? `module has no property ${stringify(this.name)}` :
-                `${type === AccessType.VARIABLE ? "variable" : "function"} ${stringify(this.name)} not found`, {});
+    protected referenceError(vm: JebVM): typeof NOTHING {
+        vm.pushCommand("jeb:throw", "jeb:reference_error", this.notFoundMessage, {});
         return NOTHING;
     }
 }

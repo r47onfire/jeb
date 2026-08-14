@@ -52,21 +52,25 @@ export const typeOf = (x: any): Type => { const t = typeof x; if (t === "object"
 export type TypeValue<T extends Type> = T extends true ? any : T extends keyof TypeMap ? TypeMap[T] : T extends abstract new (...args: any[]) => infer U ? U : never;
 export type TypeArrayValue<T extends Type[][], D extends Record<number, any>> = number extends T["length"] ? TypeValue<T[number][number]> : T extends [...infer Head extends Type[][], infer Tail extends Type[]] ? [...TypeArrayValue<Head, D>, Head["length"] extends keyof D ? D[Head["length"]] : TypeValue<Tail[number]>] : [];
 
-export interface ProtocolObj<R, T extends Type[][], D extends Record<number, any>, I, F> {
+
+export interface BaseProtocolObj<R, T extends Type[][], D extends Record<number, any>, F> {
     /**
      * The type specialization that this protocol works with.
      */
     type: T;
     run(this: unknown, vm: JebVM, args: TypeArrayValue<T, D>, flags: F): R;
     /**
-     * Get metadata about the object. Only meaningful for the type of the first argument.
-     */
-    describe(this: unknown, vm: JebVM, obj: TypeValue<T[0][number]>): I;
-    /**
      * Documentation string for this protocol implementation.
      */
     doc: string;
 }
+export interface DescribedProtocolObj<R, T extends Type[][], D extends Record<number, any>, I, F> extends BaseProtocolObj<R, T, D, F> {
+    /**
+     * Get metadata about the object. Only meaningful for the type of the first argument.
+     */
+    describe(this: unknown, vm: JebVM, obj: TypeValue<T[0][number]>): I;
+}
+export type ProtocolObj<R, T extends Type[][], D extends Record<number, any>, I, F> = I extends void ? BaseProtocolObj<R, T, D, F> : DescribedProtocolObj<R, T, D, I, F>;
 
 export type ProtocolsList<R = unknown, T extends Type[][] = Type[][], D extends Record<number, any> = {}, I = unknown, F = unknown> = ProtocolObj<R, T, D, I, F>[];
 
@@ -95,6 +99,7 @@ export interface ApplyOrEvalFlags {
 
 export interface AccessFlags {
     field: PropertyKey;
+    type: AccessType;
 }
 
 export const enum AccessType {
@@ -107,15 +112,16 @@ export const enum AccessType {
  * Represents a slot that can be assigned to
  */
 export abstract class Reference {
+    constructor(public type: AccessType) { }
     /**
      * Returns the current value, or returns `NOTHING` and throws an error (in the VM, not Javascript) if it's not readable.
      */
-    abstract get(vm: JebVM, accessType: AccessType, shouldBind: boolean): any | typeof NOTHING;
+    abstract get(vm: JebVM, shouldBind: boolean): any | typeof NOTHING;
     /**
      * Set the value of the slot to the provided value,
      * or throws an error if it's readonly. The stack should not be modified either way.
      */
-    abstract set(vm: JebVM, value: any, accessType: AccessType, createIfNotFound: boolean, makeConstant: boolean): void;
+    abstract set(vm: JebVM, value: any, createIfNotFound: boolean, makeConstant: boolean): void;
 }
 
 export interface JEBProtocols {
@@ -124,7 +130,7 @@ export interface JEBProtocols {
     apply: ProtocolsList<void, [Type[]], {}, ApplyMetadata, ApplyOrEvalFlags>;
     eval: ProtocolsList<void, [Type[]], {}, void, ApplyOrEvalFlags>;
     access: ProtocolsList<Reference | typeof NOTHING, [Type[]], {}, void, AccessFlags>;
-    unwrap: ProtocolsList<any, [[typeof Wrapper]], {}, { name: string } | void, void>;
+    unwrap: ProtocolsList<void, [(typeof Wrapper)[]], {}, void, void>;
     // Math protocols
     add: BinaryProtocolToResult;
     abs: UnaryProtocolToResult;
@@ -174,5 +180,5 @@ export const getProtocolHandler = (protocols: Partial<JEBProtocols>, fast: boole
             if (fast) break;
         }
     }
-    return [bestHandler, typeNames.map(t => stringify(t ?? "unknown"))];
+    return [bestHandler, typeNames.map(t => t ?? "unknown")];
 }
