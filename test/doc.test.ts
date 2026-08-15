@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isString } from "lib0/function";
-import { AccessorParsers, ApplierParsers, DocMetadata, DocMetadataParser, DocNode, EmptyTag, EvaluatorParsers, FunctionOrMacroParsers, JebVM, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs, theTypeName, Type } from "../src";
+import { AccessorParsers, ApplierParsers, DocMetadata, DocMetadataParser, DocNode, EmptyTag, EvaluatorParsers, FunctionOrMacroParsers, JebVM, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs, theTypeName, Type, UnwrapperParsers } from "../src";
 
 describe("inline parsing", () => {
     test.each<[string, string, DocNode[]]>([
@@ -115,6 +115,14 @@ describe("parse builtins docstrings", () => {
     describe("accessors", () => {
         test.each<[string, string]>(new JebVM().protocols.access!.map(t2p))("%s", (_, doc) => {
             const parsed = parseDoc(doc, AccessorParsers);
+            expect(parsed).toBeDefined();
+            expect(parsed!.body.length).toBeGreaterThan(0);
+        });
+    });
+
+    describe("unwrapers", () => {
+        test.each<[string, string]>(new JebVM().protocols.unwrap!.map(t2p))("%s", (_, doc) => {
+            const parsed = parseDoc(doc, UnwrapperParsers);
             expect(parsed).toBeDefined();
             expect(parsed!.body.length).toBeGreaterThan(0);
         });

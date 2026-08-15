@@ -1,6 +1,6 @@
 import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
-import { CallableSignature, Laziness } from "../callable";
+import { CallableSignature, Laziness, LonghandArgument } from "../callable";
 import { Env } from "../env";
 import { wrapThrowToError } from "../errors";
 import { JebVM } from "../vm";
@@ -16,16 +16,16 @@ const enum DoargsWhere {
 export class DoargsState {
     #params: CallableSignature;
     #argsObj: Record<string, any> = {};
-    #currentEnv: Env;
+    #callEnv: Env;
     #closureEnv: Env | undefined;
     #givenArgs: any[];
     #rawArgsIndex = 0;
     #paramsIndex = 0;
     #seenKeyword = false;
     #seenByName: Record<string, DoargsWhere> = {};
-    constructor(params: CallableSignature, current: Env, closure: Env | undefined, given: any[]) {
+    constructor(params: CallableSignature, call: Env, closure: Env | undefined, given: any[]) {
         this.#params = params;
-        this.#currentEnv = current;
+        this.#callEnv = call;
         this.#closureEnv = closure;
         this.#givenArgs = given;
         if (params.rest) {
@@ -36,12 +36,12 @@ export class DoargsState {
         }
     }
     run(vm: JebVM, first: boolean) {
-        for (; ; first = false) {
+        for (; ; first = true) {
             // There are three phases to the argument processing:
             // 1. Prepare argument value.
             // 2. Optionally evaluate it if needed.
             // 3. Store the value to the arguments object.
-            const argValue = first ? this.#prepareValue() : vm.popData();
+            const argValue = first ? this.#prepareNextValue(vm) : vm.popData();
             // prepareValue returns NOTHING if it pushed opcodes to do something,
             // otherwise it returns the value as-is
             if (argValue === NOTHING) return;
@@ -49,12 +49,53 @@ export class DoargsState {
         }
     }
     // Also prepares evaluation or handles end-of-arguments
-    #prepareValue() {
-        console.log(this.#inspect());
-        throw new Error("TODO: Prep argument value");
+    #prepareNextValue(vm: JebVM) {
+        const paramsList = this.#params.params, argv = this.#givenArgs;
+        const curParamIndex = this.#paramsIndex, curArgvIndex = this.#rawArgsIndex;
+
+        const evalHelper = (env: Env, data: any, param?: LonghandArgument<any, any>) => {
+            vm.pushCommand("jeb:doargs/loop", this, false);
+            vm.pushCommand("jeb:unwrap", ["splat", "keyword"].concat(param?.flags));
+            vm.pushCommand("jeb:eval");
+            vm.pushData(data);
+            vm.currentEnv = env;
+            return NOTHING;
+        };
+
+        const doneHelper = () => {
+            vm.currentEnv = this.#callEnv;
+            vm.pushData(this.#argsObj);
+            return NOTHING;
+        };
+
+        if (curArgvIndex < argv.length) {
+            if (curParamIndex >= paramsList.length) {
+                // If rest argument is lazy, slice off everything at once and wrap it
+                const { lazy, name } = this.#params.rest ?? {};
+                if (lazy === Laziness.QUOTED) {
+                    this.#argsObj[name] = argv.slice(curArgvIndex);
+                    return doneHelper();
+                }
+            }
+            const value = argv[curArgvIndex]!;
+            const param = paramsList[curParamIndex];
+            if (param && param.lazy !== Laziness.NONE) return wrapLazyValue(param.lazy, value, this.#callEnv);
+            return evalHelper(this.#callEnv, value, param);
+        }
+
+        if (curParamIndex >= paramsList.length) {
+            // Done!
+            return doneHelper();
+        }
+
+        const param = paramsList[curParamIndex]!;
+        if (!param.required) {
+            return evalHelper(this.#closureEnv ? vm.createEnv(this.#callEnv, this.#closureEnv) : vm.createEnv(this.#callEnv), param.defaultExpr, param);
+        } else {
+            throw new Error(`missing required parameter ${stringify(param.name)}`);
+        }
     }
     #storeArgumentAndAdvance(argValue: any) {
-        console.log("storing argument", argValue);
         if (isinstance(argValue, KeywordArg)) {
             this.#storeKeyword(argValue);
         } else if (isinstance(argValue, SplatArg)) {
@@ -72,6 +113,7 @@ export class DoargsState {
             this.#storePositional(argValue, false);
             this.#paramsIndex++;
         }
+        this.#rawArgsIndex++;
     }
     #assertNotSpecial(value: any) {
         if (isinstance(value, KeywordArg) || isinstance(value, SplatArg)) {
@@ -79,38 +121,44 @@ export class DoargsState {
         }
     }
     #storeKeyword({ obj, name }: KeywordArg) {
-        if (!this.#params.params.some(({ name: name2 }) => name !== name2)) {
+        if (!this.#params.params.some(({ name: name2 }) => name === name2)) {
             const p = this.#params.kwRest;
             if (p) {
                 this.#argsObj[p.name][name] = obj;
                 return;
             }
-            throw new Error(`Invalid keyword argument ${stringify(name)}`);
+            throw new Error(`unexpected keyword argument ${stringify(name)}`);
         }
         this.#seenKeyword = true;
         this.#put(obj, name, DoargsWhere.KEYWORD);
     }
     #storePositional(value: any, isFromSpread: boolean) {
+        if (this.#seenKeyword) {
+            throw new Error("keyword argument can't follow positional argument");
+        }
         this.#assertNotSpecial(value);
         const pList = this.#params.params, index = this.#paramsIndex;
         if (index >= pList.length) {
             const p = this.#params.rest;
             if (p) {
+                if (p.lazy !== Laziness.NONE && isFromSpread) {
+                    throw new Error("cannot unpack spread argument into lazy rest parameter");
+                }
                 this.#argsObj[p.name].push(value);
                 return;
             }
-            throw new Error(`Too many ${isFromSpread ? "elements in spread argument" : "arguments"}`);
+            throw new Error(`too many ${isFromSpread ? "elements in spread argument" : "arguments"}`);
         }
         const { name, lazy } = pList[index]!;
         if (lazy !== Laziness.NONE && isFromSpread) {
-            throw new Error("Cannot unpack spread argument into lazy parameter");
+            throw new Error("cannot unpack spread argument into lazy parameter");
         }
         this.#put(value, name, DoargsWhere.POSITIONAL);
     }
     #put(obj: any, name: string, as: DoargsWhere) {
         const g = this.#seenByName[name];
         if (g) {
-            throw new Error(`Argument ${stringify(name)} already given as ${g === DoargsWhere.KEYWORD ? "keyword" : "positional"} argument`);
+            throw new Error(`argument ${stringify(name)} already given as ${g === DoargsWhere.KEYWORD ? "keyword" : "positional"} argument`);
         }
         this.#seenByName[name] = as;
         this.#argsObj[name] = obj;
@@ -127,6 +175,10 @@ export class DoargsState {
     }
 }
 
+const wrapLazyValue = (laziness: Laziness.LAZY | Laziness.QUOTED, given: any, env: Env) => {
+    return laziness === Laziness.QUOTED ? given : new Block(env, given); // lmao Block doesn't exist yet, this is on purpose
+}
+
 export const registerDoargs = (vm: JebVM) => {
     defineOpcode(vm, "jeb:doargs", (vm, { 0: params, 1: env }) => {
         const given = vm.popData();
@@ -134,7 +186,7 @@ export const registerDoargs = (vm: JebVM) => {
         const { params: { length }, rest } = params;
         if (!length && rest) {
             if (rest.lazy !== Laziness.NONE) {
-                vm.pushData({ [rest.name]: rest.lazy === Laziness.QUOTED ? given : new Block(vm.currentEnv, given) }); // lmao Block doesn't exist yet, this is on purpose
+                vm.pushData({ [rest.name]: wrapLazyValue(rest.lazy, given, vm.currentEnv) });
                 return;
             }
         }

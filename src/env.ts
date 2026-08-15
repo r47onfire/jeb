@@ -21,7 +21,7 @@ export class Env {
         if (hasOwn(this.bindings, name)) {
             return Ok(this.bindings[name]);
         }
-        for (var i = 0; i < this.parents.length; i++) {
+        for (var i = this.parents.length - 1; i >= 0; i--) {
             const result = this.parents[i]!.get(name);
             if (result.ok) return result;
         }

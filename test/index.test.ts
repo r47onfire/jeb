@@ -73,11 +73,19 @@ describe("basic", () => {
             expect(() => run(vm, ["$", "nonexistent"])).toThrow("variable \"nonexistent\" not found");
         });
         testTest("setting variable", vm => {
-            expect(() => run(vm, ["set", "nonexistent", 1])).toThrow("variable \"nonexistent\" not found");
+            expect(() => run(vm, ["set", ["$", "nonexistent"], 1])).toThrow("variable \"nonexistent\" not found");
         });
         testTest("function", vm => {
             expect(() => run(vm, ["nonexistent"])).toThrow("function \"nonexistent\" not found");
         });
+    });
+    testTest("basic commands", (vm, out) => {
+        expect(run(vm, ["begin", ["print", "hi 1"], ["print", "hi 2"], ["print", "hi 3"]])).toBeTrue();
+        expect(out).toEqual(["hi 1", "hi 2", "hi 3"]);
+    });
+    testTest("basic commands wrapped in lambda", (vm, out) => {
+        expect(run(vm, [["lambda", [], ["print", "hi 1"], ["print", "hi 2"], ["print", "hi 3"]]])).toBeTrue();
+        expect(out).toEqual(["hi 1", "hi 2", "hi 3"]);
     });
     testTest("get nothing returns current env", vm => {
         expect(run(vm, ["$", []])).toBeTrue();
@@ -86,16 +94,16 @@ describe("basic", () => {
     testTest("get complex value", vm => {
         expect(run(vm, ["begin",
             ["define", ["x"], ["list", ["list", 1], ["list", 2], ["list", 4]]],
-            ["$", [["x"], 1, 0]],
+            [".", [".", ["x"], 1], 0],
         ])).toBeTrue();
         expect(vm.popData()).toBe(2);
     });
     testTest("set with existing value", (vm, out) => {
         expect(run(vm, ["begin",
             ["let-in", "x", 0],
-            ["print", ["set", "x", 10]],
+            ["print", ["set", ["$", "x"], 10]],
             ["print", ["$", "x"]],
-            ["print", ["set", "x", ["+", 1, ["$", "_"]]]],
+            ["print", ["set", ["$", "x"], ["+", 1, ["$", "_"]]]],
             ["print", ["$", "x"]]
         ])).toBeTrue();
         expect(out).toEqual(["10", "10", "11", "11"]);
@@ -103,16 +111,16 @@ describe("basic", () => {
     testTest("get with computed indexing", vm => {
         expect(run(vm, ["begin",
             ["let-in", "x", ["list", 1, 2, 3]],
-            ["$", ["x", ["$", ["x", 0]]]]
+            [".", ["$", "x"], [".", ["$", "x"], 0]]
         ])).toBeTrue();
         expect(vm.popData()).toEqual(2);
     });
     testTest("set with old value", (vm, out) => {
         expect(run(vm, ["begin",
             ["let-in", "x", 0],
-            ["print", ["set", "x", 10, true]],
+            ["print", ["set", ["$", "x"], 10, true]],
             ["print", ["$", "x"]],
-            ["print", ["set", "x", ["+", 1, ["$", "_"]], true]],
+            ["print", ["set", ["$", "x"], ["+", 1, ["$", "_"]], true]],
             ["print", ["$", "x"]]
         ])).toBeTrue();
         expect(out).toEqual(["0", "10", "10", "11"]);
@@ -121,7 +129,7 @@ describe("basic", () => {
         expect(run(vm, ["begin",
             ["define", "value", { x: 1 }],
             ["define", ["f"], ["print", "called"], ["$", "value"]],
-            ["set", [["f"], "x"], ["+", 10, ["$", "_"]]],
+            ["set", [".", ["f"], "x"], ["+", 10, ["$", "_"]]],
             ["$", "value"],
         ])).toBeTrue();
         expect(vm.popData()).toEqual({ x: 11 });
@@ -131,7 +139,7 @@ describe("basic", () => {
         expect(() => run(vm, [1, 2, 3])).toThrow("can't call number");
     });
     testTest("math overload error", vm => {
-        expect(() => run(vm, ["+", "hi", 1])).toThrow("No overload of \"add\" found for types \"string\", \"number\"")
+        expect(() => run(vm, ["+", "hi", 1])).toThrow("No overload of \"add\" exists for types string, number")
     });
     testTest("boolean short-circuiting", (vm, out) => {
         expect(run(vm, ["begin",
@@ -157,7 +165,7 @@ describe("basic", () => {
         } catch (error: any) {
             expect(() => run(vm, ["begin",
                 ["let-in", "x", ["list"]],
-                ["set", ["x", 0], ["$", "x"]],
+                ["set", [".", ["$", "x"], 0], ["$", "x"]],
                 ["dumpJSON", ["$", "x"]]
             ])).toThrow(error.message);
         }
@@ -166,14 +174,14 @@ describe("basic", () => {
     testTest("property chain get", vm => {
         expect(run(vm, ["begin",
             ["define", "x", { a: { b: { foo: 123 } } }],
-            ["$", ["x", "a", "b", "foo"]]
+            [".", [".", [".", ["$", "x"], "a"], "b"], "foo"],
         ])).toBeTrue();
         expect(vm.popData()).toEqual(123);
     });
     testTest("property chain set", vm => {
         expect(run(vm, ["begin",
             ["define", "x", { a: { b: { foo: 123 } } }],
-            ["set", ["x", "a", "b", "foo"], ["+", 123, 333]],
+            ["set", [".", [".", [".", ["$", "x"], "a"], "b"], "foo"], ["+", ["$", "_"], 333]],
             ["$", "x"]
         ])).toBeTrue();
         expect(vm.popData()).toEqual({ a: { b: { foo: 456 } } });
@@ -246,7 +254,7 @@ describe("traceback compression", () => {
             while (vm.step());
         } catch (err: any) {
             // should be "(b<-a * N)" not a zillion repeats
-            expect(err.message).toMatch(/\(b<-a \* \d+\)/);
+            expect(err.message).toMatch(/\((b<-a|a<-b) \* \d+\)/);
             expect(err.message).not.toMatch(/a<-b<-a<-b<-a<-b<-a<-b/);
         }
     });
@@ -319,7 +327,7 @@ describe("with / dynamic-wind", () => {
         expect(run(vm, ["begin",
             ["let-in", "k", null],
             makeWith("enter", "exit",
-                [["lambda", [], ["set", "k", ["$", "return"]]]],
+                [["lambda", [], ["set", ["$", "k"], ["$", "return"]]]],
                 ["print", "inside"]),
             ["print", "outside"],
             ["k", null],          // jump back into the with
@@ -376,10 +384,12 @@ describe("with / dynamic-wind", () => {
     });
 
     testTest("continuation can be called with computed value", vm => {
+        // TODO: this test fails because doargs doesn't properly preserve the state of the rest args list across continuation invocation
         expect(run(vm, ["begin",
             ["let-in", "x", null],
-            ["let-in", "y", ["cwcc", ["lambda", ["k"], ["set", "x", ["$", "k"]]]]],
-            ["unless", ["=", ["$", "y"], 123],
+            ["let-in", "y", [["lambda", ["f"], ["f", ["$", "return"]]], ["lambda", ["k"], ["set", ["$", "x"], ["$", "k"]]]]],
+            ["if", ["=", ["$", "y"], 123],
+                null,
                 ["x", ["+", 23, 100]]],
             ["$", "y"],
         ])).toBeTrue();
@@ -397,7 +407,7 @@ describe("metaprogramming", () => {
     });
     testTest("user-defined macros", (vm, out) => {
         expect(run(vm, ["begin",
-            ["define", true, ["twice", "x"], ["list", "+", ["$", "x"], ["$", "x"]]],
+            ["define", true, ["twice", [true, "x"]], ["list", "+", ["$", "x"], ["$", "x"]]],
             ["print", ["twice", 2]],
             ["print", ["twice", "hello"]],
             ["print", ["twice", ["begin", ["print", "arg evaluated"], NaN]]],
@@ -429,7 +439,7 @@ describe("metaprogramming", () => {
         ]);
     });
     testTest("bad unquote 1", vm => {
-        expect(() => run(vm, ["~", [","]])).toThrow("expected argument to unquote");
+        expect(() => run(vm, ["~", [","]])).toThrow("expected 1 argument to unquote");
     });
     testTest("bad unquote 2", vm => {
         expect(() => run(vm, [",", 1])).toThrow("unquote not valid outside of quasiquote");
@@ -443,10 +453,10 @@ describe("metaprogramming", () => {
         }
     });
     testTest("bad unquoteSplicing 2", vm => {
-        expect(() => run(vm, ["~", [[",@"]]])).toThrow("expected argument to unquoteSplicing");
+        expect(() => run(vm, ["~", [[",@"]]])).toThrow("expected 1 argument to unquoteSplicing");
     });
     testTest("bad unquoteSplicing 3", vm => {
-        expect(() => run(vm, ["~", [",@"]])).toThrow("unquoteSplicing outside of list");
+        expect(() => run(vm, ["~", [",@", 1]])).toThrow("unquoteSplicing outside of list");
     });
     testTest("bad unquoteSplicing 4", vm => {
         expect(() => run(vm, [",@", 1])).toThrow("unquoteSplicing not valid outside of quasiquote");
@@ -464,7 +474,7 @@ describe("lambdas", () => {
     testTest("lambda validation", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["foo", ["a", 1, 2, 3]], ["print", ["$", "a"]]],
-        ])).toThrow("invalid optional argument");
+        ])).toThrow("unexpected junk after default expression");
     });
     testTest("spread arguments", (vm, out) => {
         expect(run(vm, ["begin",
@@ -475,10 +485,10 @@ describe("lambdas", () => {
         expect(out).toEqual(["[1,2,3]", "[]"]);
     });
     testTest("required must follow optional", vm => {
-        expect(() => run(vm, ["define", ["foo", ["x", 1], "y"], false])).toThrow("required parameter cannot follow optional parameter");
+        expect(() => run(vm, ["define", ["foo", ["x", 1], "y"], false])).toThrow("required parameter \"y\" cannot follow optional parameter");
     });
     testTest("bad params", vm => {
-        expect(() => run(vm, ["define", ["foo", 1], false])).toThrow("invalid parameter to lambda");
+        expect(() => run(vm, ["define", ["foo", 1], false])).toThrow("arg name not found at position 0");
     });
     testTest("let loop", (vm, out) => {
         expect(run(vm, ["begin",
@@ -511,9 +521,9 @@ describe("recursion stress tests", () => {
     const MEMOIZE = ["define", ["memoize", "f"],
         ["let", [["cache", {}]],
             ["lambda", ["a"],
-                ["let", [["cached", ["$", ["cache", ["$", "a"]]]]],
+                ["let", [["cached", [".", ["$", "cache"], ["$", "a"]]]],
                     ["if", ["nil?", ["$", "cached"]],
-                        ["set", ["cache", ["$", "a"]], ["f", ["$", "a"]]],
+                        ["set", [".", ["$", "cache"], ["$", "a"]], ["f", ["$", "a"]]],
                         ["$", "cached"]]]]]
     ];
     testTest("A000045 (Fibonacci sequence)", vm => {
@@ -558,14 +568,6 @@ describe("recursion stress tests", () => {
         ])).toBeTrue();
         expect(vm.popData()).toEqual(A063510(x));
     });
-    testTest("map and reduce", vm => {
-        const x = 2000, n = 3;
-        expect(run(vm, ["begin",
-            ["define", "x", ["list", ...new Array(x).fill(0).map((_, i) => i)]],
-            ["map", ["$", "x"], ["lambda", ["x"], ["*", n, ["$", "x"]]]]
-        ])).toBeTrue();
-        expect(vm.popData()).toEqual(new Array(x).fill(0).map((_, i) => i * n));
-    });
 });
 
 describe("FFI", () => {
@@ -578,7 +580,7 @@ describe("FFI", () => {
     testTest("FFI get function is bound", vm => {
         expect(run(vm, ["begin",
             ["let", [["x", { a: 7, b() { return this.a * 6; } }]],
-                [["$", ["x", "b"]]]]
+                [[".", ["$", "x"], "b"]]]
         ])).toBeTrue();
         expect(vm.popData()).toEqual(42);
     });

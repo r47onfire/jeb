@@ -157,10 +157,10 @@ export const OpcodeParsers: Record<string, DocMetadataParser> = {
     prop: ParamTag,
     // Stack-effect diagram
     sed(lines, tag) {
-        if (lines.length !== 1) throw new Error("Expected 1 line to sed tag for opcode");
+        if (lines.length !== 1) throw new Error("expected 1 line to sed tag for opcode");
         const line = lines[0]!;
         const parts = line.split("--");
-        if (parts.length !== 2) throw new Error("Expected -- to separate 2 halves in sed tag for opcode");
+        if (parts.length !== 2) throw new Error("expected -- to separate 2 halves in sed tag for opcode");
         return {
             tag,
             description: [...parameterChunks(parts[0]!), "--", ...parameterChunks(parts[1]!)],
@@ -226,6 +226,11 @@ export const EvaluatorParsers: Record<string, DocMetadataParser> = ApplierParser
  * Metadata parsers used for the {@link JEBProtocols.access access} protocol's docstring
  */
 export const AccessorParsers: Record<string, DocMetadataParser> = ApplierParsers;
+
+/**
+ * Metadata parsers used for the {@link JEBProtocols.unwrap unwrap} protocol's docstring
+ */
+export const UnwrapperParsers: Record<string, DocMetadataParser> = ApplierParsers;
 
 /**
  * Parsed documentation data for something (e.g. builtin function, lambda)

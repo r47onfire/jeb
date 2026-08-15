@@ -88,12 +88,15 @@ export const createSignature = <const S extends readonly ShorthandArgument<any, 
             if (typeof arg === "boolean") throw new Error(`invalid boolean flag at position ${i}`);
             if (isArray(arg[j])) flags = arg[j++] as string[];
             if (typeof arg[j] === "boolean") lazy = arg[j++] ? Laziness.QUOTED : Laziness.LAZY;
-            if (!isString(arg[j])) throw new Error(`arg name not found at position ${i}`);
+            if (!isString(arg[j])) {
+                throw new Error(`arg name not found at position ${i}`);
+            }
             name = arg[j++] as string;
             if (j < arg.length) {
                 required = false;
-                defaultExpr = arg[j];
+                defaultExpr = arg[j++];
             }
+            if (j < arg.length) throw new Error("unexpected junk after default expression");
         }
         if (!required) seenOptional = true;
         else if (seenOptional) throw new Error(`required parameter ${stringify(name)} cannot follow optional parameter`);
@@ -105,6 +108,7 @@ export const createSignature = <const S extends readonly ShorthandArgument<any, 
                 if (processed.rest !== undefined) throw new Error(`duplicate rest argument ${stringify(name)} (${stringify(processed.rest.name)} already exists)`);
                 processed.rest = assembledArg;
             } else {
+                if (lazy !== Laziness.NONE) throw new Error(`keyword rest param cannot be lazy`);
                 if (processed.kwRest !== undefined) throw new Error(`duplicate keyword rest argument ${stringify(name)} (${stringify(processed.kwRest.name)} already exists)`);
                 processed.kwRest = assembledArg;
             }

@@ -53,7 +53,7 @@ export class JebVM {
     }
     getProtocol<N extends keyof JEBProtocols, T extends boolean>(fast: boolean, assert: T, name: N, args: Tuple<any, ArgcForName<N>>): JEBProtocols[N][number] | (T extends true ? never : undefined) {
         const { 0: res, 1: types } = getProtocolHandler(this.protocols, fast, name, args);
-        if (assert && !res) throw new Error(`No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${types.map(s => stringify(s)).join(",")}`);
+        if (assert && !res) throw new Error(`No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${types.join(", ")}`);
         return res!;
     }
     pushData(value: any) {
@@ -113,6 +113,7 @@ export class JebVM {
     start(code: any) {
         if (llLength(this.commandStack) > 0) throw new Error("VM is already running");
         this.pushData(code);
+        this.pushCommand("jeb:unwrap", []);
         this.pushCommand("jeb:eval");
     }
     /**
@@ -232,7 +233,6 @@ export class JebVM {
         return new Continuation(this, extraOps);
     }
     fatalError(type: string, message: string): never {
-
         return jsError(type, message, this.tracebackArray());
     }
 }

@@ -45,9 +45,7 @@ export const compressStackTree = (nodes: StackTreeNode[]): StackTreeNode[] => {
             while (
                 i + patternLen * (repeatCount + 1) <= nodes.length &&
                 patternsEqual(nodes, i, i + patternLen * repeatCount, patternLen)
-            ) {
-                repeatCount++;
-            }
+            ) repeatCount++;
 
             // Keep the match that repeats most times (tiebreak by longer pattern)
             if (repeatCount > 1 && (repeatCount > bestCount || (repeatCount === bestCount && patternLen > bestLen))) {
@@ -141,9 +139,7 @@ export const wrapThrowToError = <T>(vm: JebVM, kind: string, f: () => T) => {
     try {
         return f();
     } catch (e) {
-        vm.pushCommand("jeb:throw", kind, String(e), {
-            return: vm.cc(),
-        });
+        vm.pushCommand("jeb:throw", kind, String(e), {});
         return NOTHING;
     }
 }

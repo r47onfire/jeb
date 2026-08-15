@@ -1,3 +1,4 @@
+import { isinstance } from "@r47onfire/game-math";
 import { isArray } from "lib0/array";
 import { undefinedToNull } from "lib0/conditions";
 import { id, isString } from "lib0/function";
@@ -96,6 +97,7 @@ Examples:
     defineEvaluator(vm, [Array], (vm, { 0: code }, { tail }) => {
         if (code.length > 0) {
             vm.pushCommand("jeb:apply", code.slice(1), tail);
+            vm.pushCommand("jeb:unwrap", []);
             vm.pushCommand("jeb:eval");
             vm.pushData(code[0]);
         } else {
@@ -122,24 +124,18 @@ Examples:
         if (name && !tail) vm.pushCommand("jeb:tb_pop");
         if (macro) vm.pushCommand("jeb:eval");
         applier.run(vm, [func], { tail: tail ?? false });
-        if (name) vm.pushCommand("jeb:tb_push", name);
+        if (name) vm.pushCommand("jeb:tb_push", name, tail);
         vm.pushCommand("jeb:doargs", signature, closureEnv);
         vm.pushData(argv);
     },
-        `.imm expressions alreadyEvaluated tailcall
+        `.imm expressions tailcall
 ..param {code[]} expressions
-..param {false} alreadyEvaluated
-..param {boolean?} [tailcall=false]
-.imm values alreadyEvaluated tailcall
-..param {any[]} values
-..param {true} alreadyEvaluated
 ..param {boolean?} [tailcall=false]
 .sed functor -- result
 .throws jeb:type_error - when the object is not callable
 .throws jeb:value_error - when the argument count is wrong
 . Pops the top value from the stack and calls it with the provided arguments.
-If \`alreadyEvaluated\` is false, the arguments are interpreted as unevaluated expressions and the applier for the function or macro can choose to evaluate or not evaluate them.
-If \`alreadyEvaluated\` is true, they are interpreted as values and the applier should not evaluate them, even if it isn't a macro.`);
+The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.`);
     registerDoargs(vm);
     registerUnwrap(vm);
     // MARK: string applier
@@ -166,34 +162,31 @@ If \`alreadyEvaluated\` is true, they are interpreted as values and the applier 
 As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the former would be invalid in conventional Lisp.`);
     // MARK: builtin applier
     defineApplier(vm, [BuiltinFunction],
-        (vm, { 0: func }) => vm.pushCommand("jeb:call/builtin", func),
+        (vm, { 0: func }) => vm.pushCommand("jeb:builtin/invoke", func),
         (_, func) => func,
         "Wrapper for a Javascript function that gives it a few properties to make it easier for JEB to call it.");
-    defineOpcode(vm, "jeb:call/builtin", (vm, { 0: func }) => checkNothingOrPush(vm, func.impl(vm.popData(), vm)), null);
+    defineOpcode(vm, "jeb:builtin/invoke", (vm, { 0: func }) => checkNothingOrPush(vm, func.impl(vm.popData(), vm)), null);
 
     // MARK: variables
     defineAccessor(vm, ["object"], (_, { 0: object }, { field, type }) => new ObjectPropertyReference(type, object, field), "Default object property accessor.");
-    defineAccessor(vm, [Env], (_, { 0: object }, { field, type }) => new VariableReference(type, object, field as string), "Accessor for variables from an environment.");
-    defineOpcode(vm, "jeb:index/access", (vm, { 0: type }) => {
+    defineAccessor(vm, [Env], (_, { 0: env }, { field, type }) => new VariableReference(type, env, field as string), "Accessor for variables from an environment.");
+    defineOpcode(vm, "jeb:index", (vm, { 0: type }) => {
         const field = vm.popData() as PropertyKey;
         const obj = vm.popData();
         const accessor = vm.getProtocol(true, false, "access", [obj]);
         if (!accessor) {
-            vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(theTypeName(typeOf(obj)))} is not subscriptable`, {});
+            vm.pushCommand("jeb:throw", "jeb:type_error", `${theTypeName(typeOf(obj))} is not subscriptable`, {});
             return;
         }
-        checkNothingOrPush(vm, accessor.run(vm, obj, { field, type }));
-    }, null);
-    defineOpcode(vm, "jeb:index", (vm, { 0: name, 1: type }) => {
-        vm.pushCommand("jeb:index/access", type);
-        vm.pushCommand("jeb:eval");
-        vm.pushData(name);
+        checkNothingOrPush(vm, accessor.run(vm, [obj], { field, type }));
     },
         `.sed obj name -- lvalue
 .param {code} name - evaluated
 .throws jeb:type_error - if the object can't be indexed
 . Finds an Accessor for the object and pushes the LValue for the given field.`);
-    defineOpcode(vm, "jeb:get", (vm, { 0: shouldBind }) => checkNothingOrPush(vm, (vm.popData() as Reference).get(vm, shouldBind)),
+    defineOpcode(vm, "jeb:get", (vm, { 0: shouldBind }) => {
+        checkNothingOrPush(vm, (vm.popData() as Reference).get(vm, shouldBind))
+    },
         `.imm accessType shouldBind
 .param {AccessType} accessType
 .param {boolean?} [shouldBind=false]
@@ -211,18 +204,28 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 . Takes an LValue on the top of the stack and calls the \`set()\` method with the next item in the stack as the value to set.`);
     defineBuiltin(vm, "$", ["name"], false, ({ name }, vm) => {
         vm.pushCommand("jeb:wrap", ReferenceWrapper);
-        vm.pushCommand("jeb:index", name, AccessType.VARIABLE);
-        return vm.currentEnv;
+        vm.pushCommand("jeb:index", AccessType.VARIABLE);
+        vm.pushData(vm.currentEnv);
+        return name;
     }, `.func ($ name)
 ..param {string} name
 .throws jeb:reference_error - if the name is not defined anywhere
 .returns {any}
 . Look up the variable with this name in the current environment.`);
+    defineBuiltin(vm, ".", ["obj", "name"], false, ({ obj, name }, vm) => {
+        vm.pushCommand("jeb:wrap", ReferenceWrapper);
+        vm.pushCommand("jeb:index", AccessType.PROPERTY);
+        vm.pushData(obj);
+        return name;
+    },
+        `.func (. obj name)
+..param {any} obj
+..param {PropertyKey} name
+. Returns a reference to the \`obj[name]\`.`);
     defineOpcode(vm, "jeb:set/internal/nested", vm => vm.pushData({ _: vm.popData() }), null);
     defineOpcode(vm, "jeb:set/internal", (vm, { 0: valueExpr, 1: old }) => {
         const lambda = new Lambda(false, true, undefined, ONE_UNDERSCORE_QUOTED, [valueExpr], vm.currentEnv, "");
         // accessor is first on stack
-        vm.pushCommand("jeb:apply/resetEnv", vm.currentEnv);
         if (old) vm.pushCommand("jeb:shuffle", 1, []);
         vm.pushCommand("jeb:set");
         vm.pushCommand("jeb:shuffle", 2, [1, 0]);
@@ -232,26 +235,22 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
         vm.pushCommand("jeb:get", true);
         vm.pushCommand("jeb:shuffle", 1, [0, 0]);
     }, null);
-    defineBuiltin(vm, "set", [[["ref"], "ref"], "value", ["old", false]], false, ({ ref, value, old }, vm) => {
+    defineBuiltin(vm, "set", [[["ref"], "ref"], [true, "value"], ["old", false]], false, ({ ref, value, old }, vm) => {
+        if (!isinstance(ref, ReferenceWrapper)) {
+            vm.pushCommand("jeb:throw", "jeb:type_error", "cannot assign to " + theTypeName(typeOf(ref)), {});
+            return NOTHING;
+        }
         vm.pushCommand("jeb:set/internal", value, old);
-        vm.pushData(ref);
-        return NOTHING;
-    }, `.macro (set name value old)
-..param {string} name
-..param {T} value
-...injected {U} _ - old value of field
-..param {boolean?} [old=false]
-.macro (set (name properties...) value old)
-The properties will be used to index the object, and the last one will be used to set the property.
-..param {string} name
-..param {string} properties...
+        return ref.obj;
+    }, `.macro (set slot value old)
+..param {reference} slot
 ..param {T} value
 ...injected {U} _ - old value of field
 ..param {boolean?} [old=false]
 ..throws jeb:value_error - if the array of names is malformed
 .throws jeb:reference_error - if the value is not defined anywhere
 .returns {old ? U : T}
-. Set the value of the variable in the environment in which it is defined, and returns the new or value as determined by \`old\`.`);
+. Changes the value of the slot, and returns the new or old value as determined by \`old\`.`);
 
     // MARK: error handling
     defineOpcode(vm, "jeb:throw", (vm, { 0: type, 1: message, 2: context }) => {
@@ -360,7 +359,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         vm.pushCommand("jeb:ffi/invokeFunction", f);
     }, (_, f) => ({
         name: `[JS function ${f.name || "<no name>"}]`,
-        signature: ALL_UNDERSCORE_QUOTED,
+        signature: ALL_UNDERSCORE_NORMAL,
         macro: (f as any).MACRO ?? false,
     }),
         `JEB's FFI can call Javascript functions. JEB does not check the \`.length\` of the function since it is wrong in some cases.
@@ -374,18 +373,17 @@ Some errors also include a *restart* as part of their \`context\` - this will be
 . \`true\` if the object is Javascript \`undefined\` or \`null\`. Any other value (including \`false\`, \`""\`, or \`[]\`) is considered not-null, even though it might still be falsy.`);
 
     // MARK: lambda applier
-    defineApplier(vm, [Lambda], (vm, { 0: lambda }, { tail }) => {
-        if (!tail || lambda.isMacro) vm.pushCommand("jeb:lambda/invoke/resetEnv", vm.currentEnv);
-        vm.pushCommand("jeb:lambda/invoke", lambda, tail);
-    }, (_, lambda) => ({
-        name: lambda.isImplicit ? undefined : lambda.name ?? (lambda.isMacro ? "[macro]" : "[lambda]"),
-        macro: lambda.isMacro,
-        signature: lambda.signature,
-    }),
+    defineApplier(vm, [Lambda], (vm, { 0: lambda }, { tail }) => vm.pushCommand("jeb:lambda/invoke", lambda, tail),
+        (_, lambda) => ({
+            name: lambda.isImplicit ? undefined : lambda.name ?? (lambda.isMacro ? "[macro]" : "[lambda]"),
+            macro: lambda.isMacro,
+            signature: lambda.signature,
+            closureEnv: lambda.closureEnv,
+        }),
         "\"Compiled\" wrapper for a function or macro defined entirely out of JEB code (which is just JSON).");
     defineOpcode(vm, "jeb:lambda/invoke/resetEnv", (vm, { 0: env }) => vm.currentEnv = env, null);
     defineOpcode(vm, "jeb:lambda/invoke", (vm, { 0: lambda, 1: tail }) => {
-        if (!tail || lambda.isMacro) vm.pushCommand("jeb:lambda/invoke/resetEnv", vm.currentEnv);
+        if (!tail) vm.pushCommand("jeb:lambda/invoke/resetEnv", vm.currentEnv);
         const argvObject = vm.popData();
         const callEnv = vm.createEnv(lambda.closureEnv);
         for (var { 0: name, 1: value } of Object.entries(argvObject)) callEnv.add(name, value);
@@ -476,7 +474,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 ..sed condition -- ???`);
 
     // MARK: Scheme analogs
-    defineBuiltin(vm, "if", ["condition", [true, "then"], [true, "else"]], false, ({ condition, then, else: else_ }, vm) => {
+    defineBuiltin(vm, "if", ["condition", [true, "then"], [true, "else", null]], false, ({ condition, then, else: else_ }, vm) => {
         vm.pushCommand("jeb:if", then, else_);
         vm.pushData(condition);
         return NOTHING;
@@ -501,7 +499,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
             const body = args.slice(2);
             const params = bindings.map(b => b[0]);
             const initializers = bindings.map(b => b[1]);
-            vm.pushData([["lambda", true, [loopname], ["set", loopname, ["lambda", true, params, ...body]], [loopname, ...initializers]], null]);
+            vm.pushData([["lambda", true, [loopname], ["set", ["$", loopname], ["lambda", true, params, ...body]], [loopname, ...initializers]], null]);
         } else {
             // rewrite (let ((x 1) (y 2)) body) to ((lambda (x y) body) 1 2)
             const bindings = args[0] as [string, any][];
@@ -520,8 +518,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 .param {code} body...
 . Each of the pairs' *expression*s will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.`);
 
-    defineBuiltin(vm, "let-in", [[true, "pairs"], true], false, (ao, vm) => {
-        const args = ao.pairs!;
+    defineBuiltin(vm, "let-in", ["pairs", true], false, ({ pairs: args }, vm) => {
         if ((args.length & 1) > 0) {
             vm.pushCommand("jeb:throw", "jeb:syntax_error", "let-in should have an even number of arguments", {});
             return NOTHING;
@@ -693,7 +690,7 @@ Expands into a [[macro]].
         type: [[true], [true], ["number"]],
         run(_, { 0: a, 1: b, 2: c }) {
             if (a === b) return Ok(!!(c & Relation.EQUAL));
-            if ((!!(c & Relation.GREATER)) !== (!!(c & Relation.LESS))) return Err(`No ordering defined for ${stringify(theTypeName(typeOf(a)))} and ${stringify(theTypeName(typeOf(b)))}`);
+            if ((!!(c & Relation.GREATER)) !== (!!(c & Relation.LESS))) return Err(`No ordering defined for ${theTypeName(typeOf(a))} and ${theTypeName(typeOf(b))}`);
             return Ok(!!(c & Relation.LESS));
         },
         doc: "Compares any items"
@@ -855,7 +852,7 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
             buffer.push(el);
         }
         else if (same(el[0], "unquoteSplicing")) {
-            if (el.length !== 2) throw new Error("expected argument to unquoteSplicing");
+            if (el.length !== 2) throw new Error("expected 1 argument to unquoteSplicing");
             flush();
             parts.push(el[1]); // ,@x → will be spliced by concat
         } else {
@@ -890,6 +887,18 @@ const ALL_UNDERSCORE_QUOTED: CallableSignature = {
         flags: [],
         defaultExpr: undefined,
         lazy: Laziness.QUOTED,
+    },
+    kwRest: undefined,
+};
+
+const ALL_UNDERSCORE_NORMAL: CallableSignature = {
+    params: [],
+    rest: {
+        name: "_",
+        required: false,
+        flags: [],
+        defaultExpr: undefined,
+        lazy: Laziness.NONE,
     },
     kwRest: undefined,
 };

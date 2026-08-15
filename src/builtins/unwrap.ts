@@ -26,8 +26,8 @@ export const registerUnwrap = (vm: JebVM) => {
 .param {string[]} dontUnwrap
 .sed value -- unwrapped
 . Unwraps all wrappers from the value, unless the value's wrapper has a tag in the given list of \`dontUnwrap\`.`);
-    defineUnwrapper(vm, [ReferenceWrapper], (vm, { 0: wrapper }) => {
-        vm.pushData(wrapper.obj);
+    defineUnwrapper(vm, [ReferenceWrapper], (vm, { 0: { obj } }) => {
         vm.pushCommand("jeb:get", true);
+        vm.pushData(obj);
     }, "Unwraps a reference");
 }

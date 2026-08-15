@@ -18,9 +18,8 @@ export interface JEBOpcode {
     "jeb:unwrap": [flagsNotToUnwrap: string[]];
     "jeb:wrap": [cls: new (...args: any[]) => Wrapper, ...args: unknown[]];
     "jeb:apply/string-trampoline": [tail: boolean];
-    "jeb:call/builtin": [func: BuiltinFunction];
-    "jeb:index/access": [type: AccessType];
-    "jeb:index": [name: any, accessType: AccessType];
+    "jeb:builtin/invoke": [func: BuiltinFunction];
+    "jeb:index": [accessType: AccessType];
     "jeb:get": [shouldBind: boolean];
     "jeb:set": [create?: boolean, readonly?: boolean];
     "jeb:set/internal/nested": [];
