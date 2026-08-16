@@ -52,8 +52,8 @@ export class JebVM {
         (this.protocols[name] ??= [] as any[]).push(impl);
     }
     getProtocol<N extends keyof JEBProtocols, T extends boolean>(fast: boolean, assert: T, name: N, args: Tuple<any, ArgcForName<N>>): JEBProtocols[N][number] | (T extends true ? never : undefined) {
-        const { 0: res, 1: types } = getProtocolHandler(this.protocols, fast, name, args);
-        if (assert && !res) throw new Error(`No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${types.join(", ")}`);
+        const res = getProtocolHandler(this.protocols, fast, name, args);
+        if (assert && !res) throw new Error(`No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${args.map(x => theTypeName(typeOf(x))).join(", ")}`);
         return res!;
     }
     pushData(value: any) {

@@ -155,11 +155,10 @@ export type FlagsForName<N extends keyof JEBProtocols> = JEBProtocols[N] extends
 export type InfoForName<N extends keyof JEBProtocols> = JEBProtocols[N] extends ProtocolsList<any, any, any, any, infer N> ? N : never;
 export type FnTypeForName<N extends keyof JEBProtocols> = JEBProtocols[N][number]["run"];
 
-export const getProtocolHandler = (protocols: Partial<JEBProtocols>, fast: boolean, name: PropertyKey, args: any[]): [handler: ProtocolObj<any, any[], {}, any, any> | undefined, assumedTypes: string[]] => {
+export const getProtocolHandler = (protocols: Partial<JEBProtocols>, fast: boolean, name: PropertyKey, args: any[]): ProtocolObj<any, any[], {}, any, any> | undefined => {
     const implList = protocols[name];
     if (!implList) throw new Error(`protocol ${stringify(name)} doesn't exist`);
     var bestScore = 0, bestHandler = undefined;
-    var typeNames = args.map(_ => { }) as (string | undefined)[];
     handlers: for (var i = implList.length - 1; i >= 0; i--) {
         var score = 0;
         const handler = implList[i]! as ProtocolObj<any, any[], {}, any, any>;
@@ -168,7 +167,6 @@ export const getProtocolHandler = (protocols: Partial<JEBProtocols>, fast: boole
             const item = args[j], typeUnion = type[j] as Type[];
             const myScore = pow(typeUnion.map(type => {
                 const score = typeMatches(item, type);
-                if (score > 0) typeNames[j] ??= theTypeName(type);
                 return score;
             }).reduce(add, 0), 1 / typeUnion.length);
             if (myScore === 0) continue handlers; // None match, this one can't be used
@@ -180,5 +178,5 @@ export const getProtocolHandler = (protocols: Partial<JEBProtocols>, fast: boole
             if (fast) break;
         }
     }
-    return [bestHandler, typeNames.map(t => t ?? "unknown")];
+    return bestHandler;
 }
