@@ -48,7 +48,8 @@ export const loadBuiltins = (vm: JebVM) => {
         for (var i = 0; i < indices.length; i++) {
             vm.pushData(items[indices[i]!]!);
         }
-    }, `.imm count indices
+    },
+        `.imm count indices
 .param {number} count
 .param {number[]} indices
 . Pops \`count\` items off the stack, and then pushes the items back on in the order defined by \`indices\`.

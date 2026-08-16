@@ -1,18 +1,18 @@
-import { stringify } from "lib0/json";
+import { LinkedList, LinkedList_length, LinkedList_pop, LinkedList_popN, LinkedList_push } from "@r47onfire/game-math";
 import { loadBuiltins } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
 import { createStackInnerNode, createStackLeafNode, jsError, StackTreeNode } from "./errors";
-import { Linked, LinkedList, llLength, llPop, llPopN, llPush } from "./linked_list";
-import { ArgcForName, getProtocolHandler, JEBProtocols } from "./protocol";
-import { Tuple } from "./utils";
 import { JEBOpcode } from "./opcode_types";
+import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
+import { Tuple } from "./utils";
 
 /**
  * Data for the command
  */
 export type Command = [opcode: keyof JEBOpcode, ...immediateArgs: any[]];
-export interface StackCount extends Linked<string> {
+export interface StackCount {
+    readonly name: string;
     readonly count: number;
     readonly isTailCalled: boolean;
 }
@@ -37,7 +37,7 @@ export class JebVM {
     /** whether the VM is paused */
     paused = false;
     /** callstack entries */
-    tracebackStack!: StackCount | null;
+    tracebackStack!: LinkedList<StackCount>;
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
     opcodes: Partial<{ [K in keyof JEBOpcode]: [impl: OpcodeFunction<K>, doc: string | null] }> = {};
@@ -57,20 +57,20 @@ export class JebVM {
         return res!;
     }
     pushData(value: any) {
-        this.dataStack = llPush(this.dataStack, value);
+        this.dataStack = LinkedList_push(this.dataStack, value);
     }
     #checkStack(n: number) {
-        if (llLength(this.dataStack) < n) throw new Error("Data stack underflow");
+        if (LinkedList_length(this.dataStack) < n) throw new Error("Data stack underflow");
     }
     popNData(n: number) {
         this.#checkStack(n);
-        const { 0: values, 1: rest } = llPopN(this.dataStack!, n);
+        const { 0: values, 1: rest } = LinkedList_popN(this.dataStack!, n);
         this.dataStack = rest;
         return values.reverse();
     }
     popData() {
         this.#checkStack(1);
-        const { 0: value, 1: rest } = llPop(this.dataStack!);
+        const { 0: value, 1: rest } = LinkedList_pop(this.dataStack!);
         this.dataStack = rest;
         return value;
     }
@@ -79,11 +79,11 @@ export class JebVM {
         return this.dataStack!.value;
     }
     pushCommand<T extends keyof JEBOpcode>(name: T, ...args: JEBOpcode[T]) {
-        this.commandStack = llPush(this.commandStack, [name, ...args]);
+        this.commandStack = LinkedList_push(this.commandStack, [name, ...args]);
     }
     #popCommand() {
-        if (llLength(this.commandStack) === 0) throw new Error("Opcode stack underflow");
-        const { 0: value, 1: rest } = llPop(this.commandStack!);
+        if (LinkedList_length(this.commandStack) === 0) throw new Error("Opcode stack underflow");
+        const { 0: value, 1: rest } = LinkedList_pop(this.commandStack!);
         this.commandStack = rest;
         return value;
     }
@@ -97,7 +97,7 @@ export class JebVM {
      */
     step() {
         if (this.paused) return false;
-        if (llLength(this.commandStack) === 0) return false;
+        if (LinkedList_length(this.commandStack) === 0) return false;
         const command = this.#popCommand();
         const opcode = this.opcodes[command[0]];
         if (!opcode) throw new Error(`Unknown opcode: ${command[0]}`);
@@ -111,7 +111,7 @@ export class JebVM {
      * @throws if the VM is already running (i.e. there are commands on the command stack)
      */
     start(code: any) {
-        if (llLength(this.commandStack) > 0) throw new Error("VM is already running");
+        if (LinkedList_length(this.commandStack) > 0) throw new Error("VM is already running");
         this.pushData(code);
         this.pushCommand("jeb:unwrap", []);
         this.pushCommand("jeb:eval");
@@ -129,7 +129,7 @@ export class JebVM {
      * Gets the length of the command stack.
      */
     get recursionDepth() {
-        return llLength(this.commandStack);
+        return LinkedList_length(this.commandStack);
     }
     /**
      * If the {@link recursionDepth} is larger than the given length, adds an error to the command stack
@@ -157,9 +157,9 @@ export class JebVM {
             prevCount = 0;
         };
         while (stack) {
-            if (prevName !== stack.value) flush();
-            prevName = stack.value;
-            prevCount += stack.count;
+            if (prevName !== stack.value.name) flush();
+            prevName = stack.value.name;
+            prevCount += stack.value.count;
             stack = stack.next;
         }
         flush();
@@ -172,21 +172,11 @@ export class JebVM {
      */
     pushTraceback(func: string, tailcallHint: boolean) {
         const top = this.tracebackStack;
-        if (top && top.value === func && top.isTailCalled === tailcallHint) {
+        if (top && top.value.name === func && top.value.isTailCalled === tailcallHint) {
             // same name and type = just bump the counter
-            this.tracebackStack = {
-                value: func,
-                count: top.count + 1,
-                next: top.next,
-                isTailCalled: tailcallHint
-            };
+            this.tracebackStack = LinkedList_push(top.next, { name: func, count: top.value.count + 1, isTailCalled: tailcallHint });
         } else {
-            this.tracebackStack = {
-                value: func,
-                count: 1,
-                next: top,
-                isTailCalled: tailcallHint
-            };
+            this.tracebackStack = LinkedList_push(top, { name: func, count: 1, isTailCalled: tailcallHint });
         }
     }
     /**
@@ -197,7 +187,7 @@ export class JebVM {
         if (!cur) throw new Error("Traceback stack underflow");
 
         // drop all TCO'ed frames
-        while (cur && cur.isTailCalled) {
+        while (cur && cur.value.isTailCalled) {
             cur = cur.next;
         }
 
@@ -208,13 +198,8 @@ export class JebVM {
         }
 
         // normal frame pop
-        if (cur.count > 1) {
-            this.tracebackStack = {
-                value: cur.value,
-                count: cur.count - 1,
-                next: cur.next,
-                isTailCalled: false
-            };
+        if (cur.value.count > 1) {
+            this.tracebackStack = LinkedList_push(cur.next, { ...cur.value, count: cur.value.count - 1 });
         } else {
             this.tracebackStack = cur.next;
         }

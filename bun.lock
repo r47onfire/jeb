@@ -5,7 +5,7 @@
     "": {
       "name": "@r47onfire/jeb",
       "dependencies": {
-        "@r47onfire/game-math": "github:r47onfire/game-math#6b31f9921f2c53c78e37c0f78a1c3d03931c4a98",
+        "@r47onfire/game-math": "github:r47onfire/game-math",
         "lib0": "^0.2.117",
         "ts-res": "github:r47onfire/ts-res",
       },
@@ -16,11 +16,11 @@
     },
   },
   "packages": {
-    "@r47onfire/game-math": ["@r47onfire/game-math@github:r47onfire/game-math#6b31f99", { "dependencies": { "lib0": "^0.2.117" } }, "r47onfire-game-math-6b31f99", "sha512-ARRUk1CYXRZNiGntoVY6879t3295LO8KGfw95VglJoWt8ujzx6DJ0Ht3Z8ejHFZVD+s8asA9F7MJiVxaUEg4zg=="],
+    "@r47onfire/game-math": ["@r47onfire/game-math@github:r47onfire/game-math#b8c28cc", { "dependencies": { "lib0": "^0.2.117" } }, "r47onfire-game-math-b8c28cc", "sha512-mI+v1y5akx79amW23JSEVZi3BPgZRtiCO06a/vsSua/R//DIaPIMn9KQWfBs2PVzr6KKYRpDIXKS15cZSKHt+g=="],
 
     "@types/bun": ["@types/bun@1.3.14", "", { "dependencies": { "bun-types": "1.3.14" } }, "sha512-h1hFqFVcvAvD9j9K7ZW7vd82aSA+rTdznZa+5bwvCwqSB1jmmfLcbIWhOLx1/+boy/xmjgCs/OMUL8hRJSmnPw=="],
 
-    "@types/node": ["@types/node@26.1.2", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-Vu4a5UFA9rIIFJ7rB/Vaafh9lrCQszopTCx6KjFboXTGQbPNasehVR5TEiithSDGyd1DEiUByggTZsg8jukeIg=="],
+    "@types/node": ["@types/node@26.2.0", "", { "dependencies": { "undici-types": "~8.3.0" } }, "sha512-5IviulTZeRNp2vAJ514cc/HUlY5nZ9fCbq9DMyC52BrhFZACo3nI0R7qBxhQmo/d27NFe96ur/b7Wwxklda+kg=="],
 
     "anymatch": ["anymatch@3.1.3", "", { "dependencies": { "normalize-path": "^3.0.0", "picomatch": "^2.0.4" } }, "sha512-KMReFUr0B4t+D+OBkjR3KYqvocp2XaSzO55UcB6mgQMd3KbcE+mWTyvVV7D/zsdEbNnV6acZUutkiHQXvTr1Rw=="],
 

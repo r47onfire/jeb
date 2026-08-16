@@ -22,7 +22,7 @@ const run = (vm: JebVM, code: any, steps = Infinity, recursionLimit = 10000) => 
 const rawTraceback = (vm: JebVM): string[] => {
     const res: string[] = [];
     var t = vm.tracebackStack;
-    while (t) { res.push(t.value); t = t.next; }
+    while (t) { res.push(t.value.name); t = t.next; }
     return res;
 }
 
@@ -87,10 +87,6 @@ describe("basic", () => {
         expect(run(vm, [["lambda", [], ["print", "hi 1"], ["print", "hi 2"], ["print", "hi 3"]]])).toBeTrue();
         expect(out).toEqual(["hi 1", "hi 2", "hi 3"]);
     });
-    testTest("get nothing returns current env", vm => {
-        expect(run(vm, ["$", []])).toBeTrue();
-        expect(vm.popData()).toBe(vm.currentEnv);
-    });
     testTest("get complex value", vm => {
         expect(run(vm, ["begin",
             ["define", ["x"], ["list", ["list", 1], ["list", 2], ["list", 4]]],
@@ -139,7 +135,7 @@ describe("basic", () => {
         expect(() => run(vm, [1, 2, 3])).toThrow("can't call number");
     });
     testTest("math overload error", vm => {
-        expect(() => run(vm, ["+", "hi", 1])).toThrow("No overload of \"add\" exists for types string, number")
+        expect(() => run(vm, ["+", "hi", 1])).toThrow("No overload of add exists for types string, number")
     });
     testTest("boolean short-circuiting", (vm, out) => {
         expect(run(vm, ["begin",

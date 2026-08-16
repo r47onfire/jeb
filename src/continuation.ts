@@ -1,5 +1,5 @@
+import { LinkedList, LinkedList_pushAll } from "@r47onfire/game-math";
 import { Env } from "./env";
-import { LinkedList, llPushArray } from "./linked_list";
 import { Command, JebVM, StackCount } from "./vm";
 
 /**
@@ -15,12 +15,12 @@ export class Continuation<T extends JebVM = JebVM> {
     /** Closed-over dynamic wind stack in progress */
     winders: DynamicWind;
     /** Closed-over traceback stack in progress */
-    traceback: StackCount | null;
+    traceback: LinkedList<StackCount>;
     /** Other saved state */
     state: { [K in T["copyableState"][number]]: T[K] };
     constructor(vm: T, extraOps: Command[]) {
         this.env = vm.currentEnv;
-        this.commands = llPushArray(vm.commandStack, extraOps);
+        this.commands = LinkedList_pushAll(vm.commandStack, extraOps);
         this.data = vm.dataStack;
         this.winders = vm.curDynamicWind;
         this.traceback = vm.tracebackStack;
