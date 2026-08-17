@@ -14,38 +14,50 @@ const enum DoargsWhere {
 }
 
 export class DoargsState {
-    #params: CallableSignature;
-    #argsObj: Record<string, any> = {};
-    #callEnv: Env;
-    #closureEnv: Env | undefined;
-    #givenArgs: any[];
-    #rawArgsIndex = 0;
-    #paramsIndex = 0;
-    #seenKeyword = false;
-    #seenByName: Record<string, DoargsWhere> = {};
-    constructor(params: CallableSignature, call: Env, closure: Env | undefined, given: any[]) {
+    readonly #params: CallableSignature;
+    readonly #argsObj: Record<string, any>;
+    readonly #callEnv: Env;
+    readonly #closureEnv: Env | undefined;
+    readonly #givenArgs: any[];
+    readonly #rawArgsIndex: number;
+    readonly #paramsIndex: number;
+    readonly #seenKeyword: boolean;
+    readonly #seenByName: Readonly<Record<string, DoargsWhere>>;
+
+    constructor(params: CallableSignature, call: Env, closure: Env | undefined, given: any[], argsObj: Record<string, any> = {}, rawArgsIndex = 0, paramsIndex = 0, seenKeyword = false, seenByName: Record<string, DoargsWhere> = {}) {
         this.#params = params;
         this.#callEnv = call;
         this.#closureEnv = closure;
         this.#givenArgs = given;
-        if (params.rest) {
+        this.#argsObj = argsObj;
+        this.#rawArgsIndex = rawArgsIndex;
+        this.#paramsIndex = paramsIndex;
+        this.#seenKeyword = seenKeyword;
+        this.#seenByName = seenByName;
+        if (params.rest && !(params.rest.name in this.#argsObj)) {
             this.#argsObj[params.rest.name] = [];
         }
-        if (params.kwRest) {
+        if (params.kwRest && !(params.kwRest.name in this.#argsObj)) {
             this.#argsObj[params.kwRest.name] = {};
         }
     }
+
+    #update({ argsObj = this.#argsObj, seenByName = this.#seenByName, rawArgsIndex = this.#rawArgsIndex, paramsIndex = this.#paramsIndex, seenKeyword = this.#seenKeyword } = {}) {
+        return new DoargsState(this.#params, this.#callEnv, this.#closureEnv, this.#givenArgs, argsObj, rawArgsIndex, paramsIndex, seenKeyword, seenByName);
+    }
+
     run(vm: JebVM, first: boolean) {
+        var state: DoargsState = this;
         for (; ; first = true) {
             // There are three phases to the argument processing:
             // 1. Prepare argument value.
             // 2. Optionally evaluate it if needed.
             // 3. Store the value to the arguments object.
-            const argValue = first ? this.#prepareNextValue(vm) : vm.popData();
+            const argValue = first ? state.#prepareNextValue(vm) : vm.popData();
             // prepareValue returns NOTHING if it pushed opcodes to do something,
             // otherwise it returns the value as-is
             if (argValue === NOTHING) return;
-            this.#storeArgumentAndAdvance(argValue);
+            state = state.#storeArgumentAndAdvance(argValue);
         }
     }
     // Also prepares evaluation or handles end-of-arguments
@@ -71,10 +83,14 @@ export class DoargsState {
         if (curArgvIndex < argv.length) {
             if (curParamIndex >= paramsList.length) {
                 // If rest argument is lazy, slice off everything at once and wrap it
-                const { lazy, name } = this.#params.rest ?? {};
-                if (lazy === Laziness.QUOTED) {
-                    this.#argsObj[name] = argv.slice(curArgvIndex);
-                    return doneHelper();
+                if (this.#params.rest) {
+                    const { lazy, name } = this.#params.rest;
+                    if (lazy !== Laziness.NONE) {
+                        const argsObj = { ...this.#argsObj, [name!]: wrapLazyValue(lazy, argv.slice(curArgvIndex), this.#callEnv) };
+                        vm.currentEnv = this.#callEnv;
+                        vm.pushData(argsObj);
+                        return NOTHING;
+                    }
                 }
             }
             const value = argv[curArgvIndex]!;
@@ -95,44 +111,51 @@ export class DoargsState {
             throw new Error(`missing required parameter ${stringify(param.name)}`);
         }
     }
+
     #storeArgumentAndAdvance(argValue: any) {
         if (isinstance(argValue, KeywordArg)) {
-            this.#storeKeyword(argValue);
-        } else if (isinstance(argValue, SplatArg)) {
+            return this.#storeKeyword(argValue);
+        }
+        if (isinstance(argValue, SplatArg)) {
             if (argValue.isKeyword) {
                 throw new Error("Keyword splat arg not implemented yet");
             }
-            const values = [...argValue.obj]; // Force an error thrown if it's not iterable
+            const values = [...argValue.obj];
+            var state: DoargsState = this;
             for (var i = 0; i < values.length; i++) {
                 const value = values[i];
-                this.#assertNotSpecial(value);
-                this.#storePositional(value, true);
-                this.#paramsIndex++;
+                state.#assertNotSpecial(value);
+                state = state.#storePositional(value, true, 1, 0);
             }
-        } else {
-            this.#storePositional(argValue, false);
-            this.#paramsIndex++;
+            return state.#update({ rawArgsIndex: state.#rawArgsIndex + 1 });
         }
-        this.#rawArgsIndex++;
+        return this.#storePositional(argValue, false, 1, 1);
     }
     #assertNotSpecial(value: any) {
         if (isinstance(value, KeywordArg) || isinstance(value, SplatArg)) {
             throw new Error("TODO: what happens when a keyword/splat wrapper is inside another argument wrapper?");
         }
     }
+
     #storeKeyword({ obj, name }: KeywordArg) {
         if (!this.#params.params.some(({ name: name2 }) => name === name2)) {
             const p = this.#params.kwRest;
             if (p) {
-                this.#argsObj[p.name][name] = obj;
-                return;
+                return this.#update({
+                    argsObj: { ...this.#argsObj, [p.name]: { ...(this.#argsObj[p.name] ?? {}), [name]: obj } },
+                    rawArgsIndex: this.#rawArgsIndex + 1,
+                });
             }
             throw new Error(`unexpected keyword argument ${stringify(name)}`);
         }
-        this.#seenKeyword = true;
-        this.#put(obj, name, DoargsWhere.KEYWORD);
+        return this.#update({
+            argsObj: { ...this.#argsObj, [name]: obj },
+            seenByName: { ...this.#seenByName, [name]: DoargsWhere.KEYWORD },
+            rawArgsIndex: this.#rawArgsIndex + 1,
+            seenKeyword: true,
+        });
     }
-    #storePositional(value: any, isFromSpread: boolean) {
+    #storePositional(value: any, isFromSpread: boolean, paramsDelta: number, rawDelta: number): DoargsState {
         if (this.#seenKeyword) {
             throw new Error("keyword argument can't follow positional argument");
         }
@@ -144,8 +167,11 @@ export class DoargsState {
                 if (p.lazy !== Laziness.NONE && isFromSpread) {
                     throw new Error("cannot unpack spread argument into lazy rest parameter");
                 }
-                this.#argsObj[p.name].push(value);
-                return;
+                return this.#update({
+                    argsObj: { ...this.#argsObj, [p.name]: [...(this.#argsObj[p.name] ?? []), value] },
+                    paramsIndex: this.#paramsIndex + paramsDelta,
+                    rawArgsIndex: this.#rawArgsIndex + rawDelta,
+                });
             }
             throw new Error(`too many ${isFromSpread ? "elements in spread argument" : "arguments"}`);
         }
@@ -153,15 +179,16 @@ export class DoargsState {
         if (lazy !== Laziness.NONE && isFromSpread) {
             throw new Error("cannot unpack spread argument into lazy parameter");
         }
-        this.#put(value, name, DoargsWhere.POSITIONAL);
-    }
-    #put(obj: any, name: string, as: DoargsWhere) {
         const g = this.#seenByName[name];
         if (g) {
             throw new Error(`argument ${stringify(name)} already given as ${g === DoargsWhere.KEYWORD ? "keyword" : "positional"} argument`);
         }
-        this.#seenByName[name] = as;
-        this.#argsObj[name] = obj;
+        return this.#update({
+            argsObj: { ...this.#argsObj, [name]: value },
+            seenByName: { ...this.#seenByName, [name]: DoargsWhere.POSITIONAL },
+            paramsIndex: this.#paramsIndex + paramsDelta,
+            rawArgsIndex: this.#rawArgsIndex + rawDelta,
+        });
     }
     #inspect() {
         return {
