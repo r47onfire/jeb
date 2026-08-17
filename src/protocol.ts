@@ -165,12 +165,12 @@ export const getProtocolHandler = (protocols: Partial<JEBProtocols>, fast: boole
         const type = handler.type;
         for (var j = type.length - 1; j >= 0; j--) {
             const item = args[j], typeUnion = type[j] as Type[];
-            const myScore = pow(typeUnion.map(type => {
-                const score = typeMatches(item, type);
-                return score;
-            }).reduce(add, 0), 1 / typeUnion.length);
-            if (myScore === 0) continue handlers; // None match, this one can't be used
-            score += myScore;
+            var unionSum = 0;
+            for (var k = 0; k < typeUnion.length; k++) {
+                unionSum += typeMatches(item, typeUnion[k]!);
+            }
+            if (unionSum === 0) continue handlers; // None match, this one can't be used
+            score += pow(unionSum, 1 / typeUnion.length);
         }
         if (score > bestScore) {
             bestScore = score;
