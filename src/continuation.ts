@@ -100,7 +100,7 @@ export class DynamicWind<T extends JebVM = JebVM> {
             i = parentsOfTo.indexOf(fp);
             if (i !== -1) break;
             if (fp.handler?.exit) {
-                intOps.push(["jeb:apply", [true, null, null, null], true]);
+                intOps.push(["jeb:apply", [true, null], true]);
                 intOps.push(["jeb:shuffle", 1, []]);
                 intData.push(fp.handler.exit);
             }

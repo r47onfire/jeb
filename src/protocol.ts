@@ -9,6 +9,7 @@ import { Env } from "./env";
 import { Relation } from "./math";
 import { JebVM } from "./vm";
 import { Wrapper } from "./wrapper";
+import { JEBError } from "./errors";
 
 /**
  * Thing that can be used to match a type of an object. `true` = any
@@ -157,7 +158,7 @@ export type FnTypeForName<N extends keyof JEBProtocols> = JEBProtocols[N][number
 
 export const getProtocolHandler = (protocols: Partial<JEBProtocols>, fast: boolean, name: PropertyKey, args: any[]): ProtocolObj<any, any[], {}, any, any> | undefined => {
     const implList = protocols[name];
-    if (!implList) throw new Error(`protocol ${stringify(name)} doesn't exist`);
+    if (!implList) throw new JEBError(`protocol ${stringify(name)} doesn't exist`);
     var bestScore = 0, bestHandler = undefined;
     handlers: for (var i = implList.length - 1; i >= 0; i--) {
         var score = 0;

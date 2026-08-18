@@ -6,7 +6,7 @@ export { BuiltinFunction, CallableClass, Lambda } from "./callable";
 export { Continuation, DynamicWind, type Windable } from "./continuation";
 export * from "./doc";
 export { Env } from "./env";
-export { compressStackTree, createStackInnerNode, createStackLeafNode, jsError, resultToError, type StackTreeNode } from "./errors";
+export { ALL_ERRORS, compressStackTree, createStackInnerNode, createStackLeafNode, JEBError, JEBRecursionError, JEBStateError, JEBSyntaxError, JEBTypeError, JEBValueError, type StackTreeNode } from "./errors";
 export { numberOp, Relation, type BinaryFun } from "./math";
 export { AccessType, theTypeName, typeMatches, typeOf, type BaseProtocolObj, type DescribedProtocolObj, type JEBProtocols, type Reference as LValue, type ProtocolObj, type ProtocolsList, type Type, type TypeArrayValue, type TypeValue } from "./protocol";
 export { JebVM, type Command, type OpcodeFunction, type StackCount } from "./vm";

@@ -5,6 +5,7 @@ import { type HasDocstring } from "./doc";
 import { Env } from "./env";
 import { Writable } from "./utils";
 import { JebVM } from "./vm";
+import { JEBStateError, JEBSyntaxError } from "./errors";
 
 const setPrototypeOf = Object.setPrototypeOf;
 
@@ -85,37 +86,37 @@ export const createSignature = <const S extends readonly ShorthandArgument<any, 
         if (isString(arg)) {
             name = arg;
         } else {
-            if (typeof arg === "boolean") throw new Error(`invalid boolean flag at position ${i}`);
+            if (typeof arg === "boolean") throw new JEBSyntaxError(`invalid boolean flag at position ${i}`);
             if (isArray(arg[j])) flags = arg[j++] as string[];
             if (typeof arg[j] === "boolean") lazy = arg[j++] ? Laziness.QUOTED : Laziness.LAZY;
             if (!isString(arg[j])) {
-                throw new Error(`arg name not found at position ${i}`);
+                throw new JEBSyntaxError(`arg name not found at position ${i}`);
             }
             name = arg[j++] as string;
             if (j < arg.length) {
                 required = false;
                 defaultExpr = arg[j++];
             }
-            if (j < arg.length) throw new Error("unexpected junk after default expression");
+            if (j < arg.length) throw new JEBSyntaxError("unexpected junk after default expression");
         }
         if (!required) seenOptional = true;
-        else if (seenOptional) throw new Error(`required parameter ${stringify(name)} cannot follow optional parameter`);
+        else if (seenOptional) throw new JEBSyntaxError(`required parameter ${stringify(name)} cannot follow optional parameter`);
         const assembledArg: Writable<LonghandArgument<string, string[]>> = { name, required, defaultExpr, lazy, flags };
         if (typeof next === "boolean") {
-            if (!required) throw new Error(`argument ${stringify(name)} cannot have a default as it is a ${next ? "" : "keyword "}rest argument`);
+            if (!required) throw new JEBSyntaxError(`argument ${stringify(name)} cannot have a default as it is a ${next ? "" : "keyword "}rest argument`);
             assembledArg.required = false;
             if (next) {
-                if (processed.rest !== undefined) throw new Error(`duplicate rest argument ${stringify(name)} (${stringify(processed.rest.name)} already exists)`);
+                if (processed.rest !== undefined) throw new JEBSyntaxError(`duplicate rest argument ${stringify(name)} (${stringify(processed.rest.name)} already exists)`);
                 processed.rest = assembledArg;
             } else {
-                if (lazy !== Laziness.NONE) throw new Error(`keyword rest param cannot be lazy`);
-                if (processed.kwRest !== undefined) throw new Error(`duplicate keyword rest argument ${stringify(name)} (${stringify(processed.kwRest.name)} already exists)`);
+                if (lazy !== Laziness.NONE) throw new JEBSyntaxError(`keyword rest param cannot be lazy`);
+                if (processed.kwRest !== undefined) throw new JEBSyntaxError(`duplicate keyword rest argument ${stringify(name)} (${stringify(processed.kwRest.name)} already exists)`);
                 processed.kwRest = assembledArg;
             }
             i++;
         } else {
-            if (processed.rest !== undefined) throw new Error(`rest arg ${stringify(processed.rest.name)} must not have non-rest arguments after it`);
-            if (processed.kwRest !== undefined) throw new Error(`keyword rest arg ${stringify(processed.kwRest.name)} must not have non-rest arguments after it`);
+            if (processed.rest !== undefined) throw new JEBSyntaxError(`rest arg ${stringify(processed.rest.name)} must not have non-rest arguments after it`);
+            if (processed.kwRest !== undefined) throw new JEBSyntaxError(`keyword rest arg ${stringify(processed.kwRest.name)} must not have non-rest arguments after it`);
             processed.params.push(assembledArg);
         }
     }
@@ -224,12 +225,12 @@ export class Lambda<S extends CallableSignature<any, any, any>> extends Callable
      * JEB lambdas are currently not callable via javascript.
      */
     __call__(): never {
-        throw new Error("Cannot call JEB lambda.");
+        throw new JEBStateError("Cannot call JEB lambda.");
     }
     /**
      * JEB lambda are not class constructors.
      */
     __new__(): never {
-        throw new Error("Cannot construct from JEB lambda.");
+        throw new JEBStateError("Cannot construct from JEB lambda.");
     }
 }

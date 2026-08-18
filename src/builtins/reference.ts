@@ -2,7 +2,7 @@ import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
 import { Lambda } from "../callable";
 import { Env } from "../env";
-import { wrapThrowToError } from "../errors";
+import { JEBRecursionError, JEBReferenceError, JEBTypeError, wrapThrowToError } from "../errors";
 import { AccessType, Reference } from "../protocol";
 import { JebVM } from "../vm";
 import { NOTHING } from "./define";
@@ -15,7 +15,7 @@ export class ObjectPropertyReference extends Reference {
         return value;
     }
     set(vm: JebVM, value: any) {
-        wrapThrowToError(vm, "jeb:type_error", () => {
+        wrapThrowToError(vm, JEBTypeError, () => {
             this.obj[this.name] = value;
         });
     }
@@ -29,8 +29,7 @@ export class VariableReference extends Reference {
             `${type === AccessType.VARIABLE ? "variable" : "function"} ${stringify(this.name)} not found`;
     }
     get(vm: JebVM) {
-        const result = this.env.get(this.name);
-        return result.ok ? result.data : this.referenceError(vm);
+        return this.env.get(this.name).else(() => this.referenceError());
     }
     set(vm: JebVM, value: any, create: boolean, readonly: boolean) {
         if (create) {
@@ -39,15 +38,14 @@ export class VariableReference extends Reference {
         } else {
             const didSet = this.env.set(this.name, value);
             if (didSet === undefined) {
-                this.referenceError(vm);
+                this.referenceError();
             } else if (!didSet) {
-                vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(this.name)} is a constant`, {});
+                throw new JEBTypeError(`${stringify(this.name)} is a constant`);
             }
         }
         if (isinstance(value, Lambda)) value.name ??= this.name;
     }
-    protected referenceError(vm: JebVM): typeof NOTHING {
-        vm.pushCommand("jeb:throw", "jeb:reference_error", this.notFoundMessage, {});
-        return NOTHING;
+    protected referenceError(): never {
+        throw new JEBReferenceError(this.notFoundMessage);
     }
 }

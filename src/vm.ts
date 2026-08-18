@@ -1,11 +1,13 @@
-import { LinkedList, LinkedList_length, LinkedList_pop, LinkedList_popN, LinkedList_push } from "@r47onfire/game-math";
+import { isinstance, LinkedList, LinkedList_length, LinkedList_pop, LinkedList_popN, LinkedList_push } from "@r47onfire/game-math";
+import { min } from "lib0/math";
 import { loadBuiltins } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
-import { createStackInnerNode, createStackLeafNode, jsError, StackTreeNode } from "./errors";
+import { createStackInnerNode, createStackLeafNode, JEBError, JEBRecursionError, JEBTypeError, StackTreeNode } from "./errors";
 import { JEBOpcode } from "./opcode_types";
 import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
 import { Tuple } from "./utils";
+import { isArray } from "lib0/array";
 
 /**
  * Data for the command
@@ -35,7 +37,7 @@ export class JebVM {
     /** current dynamic wind stack (linked list / tree) */
     curDynamicWind!: DynamicWind;
     /** whether the VM is paused */
-    paused = false;
+    paused!: boolean;
     /** callstack entries */
     tracebackStack!: LinkedList<StackCount>;
     /** Environment that all builtins live in */
@@ -53,14 +55,14 @@ export class JebVM {
     }
     getProtocol<N extends keyof JEBProtocols, T extends boolean>(fast: boolean, assert: T, name: N, args: Tuple<any, ArgcForName<N>>): JEBProtocols[N][number] | (T extends true ? never : undefined) {
         const res = getProtocolHandler(this.protocols, fast, name, args);
-        if (assert && !res) throw new Error(`No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${args.map(x => theTypeName(typeOf(x))).join(", ")}`);
+        if (assert && !res) throw new JEBTypeError(`No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${args.map(x => theTypeName(typeOf(x))).join(", ")}`);
         return res!;
     }
     pushData(value: any) {
         this.dataStack = LinkedList_push(this.dataStack, value);
     }
     #checkStack(n: number) {
-        if (LinkedList_length(this.dataStack) < n) throw new Error("Data stack underflow");
+        if (LinkedList_length(this.dataStack) < n) throw new JEBError("Data stack underflow");
     }
     popNData(n: number) {
         this.#checkStack(n);
@@ -82,7 +84,7 @@ export class JebVM {
         this.commandStack = LinkedList_push(this.commandStack, [name, ...args]);
     }
     #popCommand() {
-        if (LinkedList_length(this.commandStack) === 0) throw new Error("Opcode stack underflow");
+        if (LinkedList_length(this.commandStack) === 0) throw new JEBError("Opcode stack underflow");
         const { 0: value, 1: rest } = LinkedList_pop(this.commandStack!);
         this.commandStack = rest;
         return value;
@@ -100,8 +102,15 @@ export class JebVM {
         if (LinkedList_length(this.commandStack) === 0) return false;
         const command = this.#popCommand();
         const opcode = this.opcodes[command[0]];
-        if (!opcode) throw new Error(`Unknown opcode: ${command[0]}`);
-        opcode[0](this, command.slice(1));
+        if (!opcode) throw new JEBError(`Unknown opcode: ${command[0]}`);
+        try {
+            opcode[0](this, command.slice(1));
+        } catch (e) {
+            if (isArray(e) && e.length === 3 && isinstance(e[1], JEBError)) throw e[1];
+            if (!isinstance(e, JEBError)) throw e;
+            e.traceback ??= this.tracebackArray();
+            this.pushCommand("jeb:throw", e);
+        }
         return true;
     }
 
@@ -121,6 +130,7 @@ export class JebVM {
      * Does not clear the global or builtins env.
      */
     reset() {
+        this.paused = false;
         this.commandStack = this.dataStack = this.tracebackStack = null;
         this.currentEnv = this.createEnv(this.builtinsEnv);
         this.curDynamicWind = new DynamicWind(this);
@@ -138,14 +148,14 @@ export class JebVM {
      */
     checkRecursion(length: number) {
         if (this.recursionDepth > length) {
-            this.pushCommand("jeb:throw", "jeb:recursion_error", "too much recursion", {});
+            this.pushCommand("jeb:throw", new JEBRecursionError("too much recursion", {}, this.tracebackArray()));
         }
     }
     /**
      * Returns the names of the functions in the call stack, with innermost first
      * @returns list of stack entries, with only 1-element repeats compressed.
      */
-    tracebackArray() {
+    tracebackArray(numToDrop = 0) {
         var stack = this.tracebackStack;
         const parts: StackTreeNode[] = [];
         var prevName: string | undefined, prevCount = 0;
@@ -158,8 +168,10 @@ export class JebVM {
         };
         while (stack) {
             if (prevName !== stack.value.name) flush();
+            const off = min(stack.value.count, numToDrop);
+            prevCount += stack.value.count - off;
+            numToDrop -= off;
             prevName = stack.value.name;
-            prevCount += stack.value.count;
             stack = stack.next;
         }
         flush();
@@ -184,7 +196,7 @@ export class JebVM {
      */
     popTraceback() {
         var cur = this.tracebackStack;
-        if (!cur) throw new Error("Traceback stack underflow");
+        if (!cur) throw new JEBError("Traceback stack underflow");
 
         // drop all TCO'ed frames
         while (cur && cur.value.isTailCalled) {
@@ -217,7 +229,7 @@ export class JebVM {
     cc(...extraOps: Command[]) {
         return new Continuation(this, extraOps);
     }
-    fatalError(type: string, message: string): never {
-        return jsError(type, message, this.tracebackArray());
+    fatalError(error: JEBError): never {
+        throw [, error, ,];
     }
 }

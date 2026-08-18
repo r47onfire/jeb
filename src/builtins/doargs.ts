@@ -2,7 +2,7 @@ import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
 import { CallableSignature, Laziness, LonghandArgument } from "../callable";
 import { Env } from "../env";
-import { wrapThrowToError } from "../errors";
+import { JEBError, JEBSyntaxError, JEBValueError, wrapThrowToError } from "../errors";
 import { JebVM } from "../vm";
 import { KeywordArg, SplatArg } from "../wrapper";
 import { defineOpcode, NOTHING } from "./define";
@@ -18,16 +18,18 @@ export class DoargsState {
     readonly #argsObj: Record<string, any>;
     readonly #callEnv: Env;
     readonly #closureEnv: Env | undefined;
+    readonly #noEvalMode: boolean;
     readonly #givenArgs: any[];
     readonly #rawArgsIndex: number;
     readonly #paramsIndex: number;
     readonly #seenKeyword: boolean;
     readonly #seenByName: Readonly<Record<string, DoargsWhere>>;
 
-    constructor(params: CallableSignature, call: Env, closure: Env | undefined, given: any[], argsObj: Record<string, any> = {}, rawArgsIndex = 0, paramsIndex = 0, seenKeyword = false, seenByName: Record<string, DoargsWhere> = {}) {
+    constructor(params: CallableSignature, call: Env, closure: Env | undefined, noEval: boolean, given: any[], argsObj: Record<string, any> = {}, rawArgsIndex = 0, paramsIndex = 0, seenKeyword = false, seenByName: Record<string, DoargsWhere> = {}) {
         this.#params = params;
         this.#callEnv = call;
         this.#closureEnv = closure;
+        this.#noEvalMode = noEval;
         this.#givenArgs = given;
         this.#argsObj = argsObj;
         this.#rawArgsIndex = rawArgsIndex;
@@ -43,7 +45,7 @@ export class DoargsState {
     }
 
     #update({ argsObj = this.#argsObj, seenByName = this.#seenByName, rawArgsIndex = this.#rawArgsIndex, paramsIndex = this.#paramsIndex, seenKeyword = this.#seenKeyword } = {}) {
-        return new DoargsState(this.#params, this.#callEnv, this.#closureEnv, this.#givenArgs, argsObj, rawArgsIndex, paramsIndex, seenKeyword, seenByName);
+        return new DoargsState(this.#params, this.#callEnv, this.#closureEnv, this.#noEvalMode, this.#givenArgs, argsObj, rawArgsIndex, paramsIndex, seenKeyword, seenByName);
     }
 
     run(vm: JebVM, first: boolean) {
@@ -86,6 +88,7 @@ export class DoargsState {
                 if (this.#params.rest) {
                     const { lazy, name } = this.#params.rest;
                     if (lazy !== Laziness.NONE) {
+                        if (this.#noEvalMode) throw new JEBSyntaxError("lazy parameter not allowed here");
                         const argsObj = { ...this.#argsObj, [name!]: wrapLazyValue(lazy, argv.slice(curArgvIndex), this.#callEnv) };
                         vm.currentEnv = this.#callEnv;
                         vm.pushData(argsObj);
@@ -95,8 +98,11 @@ export class DoargsState {
             }
             const value = argv[curArgvIndex]!;
             const param = paramsList[curParamIndex];
-            if (param && param.lazy !== Laziness.NONE) return wrapLazyValue(param.lazy, value, this.#callEnv);
-            return evalHelper(this.#callEnv, value, param);
+            if (param && param.lazy !== Laziness.NONE) {
+                if (this.#noEvalMode) throw new JEBSyntaxError("lazy parameter not allowed here");
+                return wrapLazyValue(param.lazy, value, this.#callEnv);
+            }
+            return this.#noEvalMode ? value : evalHelper(this.#callEnv, value, param);
         }
 
         if (curParamIndex >= paramsList.length) {
@@ -108,7 +114,7 @@ export class DoargsState {
         if (!param.required) {
             return evalHelper(this.#closureEnv ? vm.createEnv(this.#callEnv, this.#closureEnv) : vm.createEnv(this.#callEnv), param.defaultExpr, param);
         } else {
-            throw new Error(`missing required parameter ${stringify(param.name)}`);
+            throw new JEBValueError(`missing required parameter ${stringify(param.name)}`);
         }
     }
 
@@ -118,7 +124,7 @@ export class DoargsState {
         }
         if (isinstance(argValue, SplatArg)) {
             if (argValue.isKeyword) {
-                throw new Error("Keyword splat arg not implemented yet");
+                throw new JEBError("Keyword splat arg not implemented yet");
             }
             const values = [...argValue.obj];
             var state: DoargsState = this;
@@ -133,7 +139,7 @@ export class DoargsState {
     }
     #assertNotSpecial(value: any) {
         if (isinstance(value, KeywordArg) || isinstance(value, SplatArg)) {
-            throw new Error("TODO: what happens when a keyword/splat wrapper is inside another argument wrapper?");
+            throw new JEBError("TODO: what happens when a keyword/splat wrapper is inside another argument wrapper?");
         }
     }
 
@@ -146,7 +152,7 @@ export class DoargsState {
                     rawArgsIndex: this.#rawArgsIndex + 1,
                 });
             }
-            throw new Error(`unexpected keyword argument ${stringify(name)}`);
+            throw new JEBValueError(`unexpected keyword argument ${stringify(name)}`);
         }
         return this.#update({
             argsObj: { ...this.#argsObj, [name]: obj },
@@ -157,7 +163,7 @@ export class DoargsState {
     }
     #storePositional(value: any, isFromSpread: boolean, paramsDelta: number, rawDelta: number): DoargsState {
         if (this.#seenKeyword) {
-            throw new Error("keyword argument can't follow positional argument");
+            throw new JEBSyntaxError("keyword argument can't follow positional argument");
         }
         this.#assertNotSpecial(value);
         const pList = this.#params.params, index = this.#paramsIndex;
@@ -165,7 +171,7 @@ export class DoargsState {
             const p = this.#params.rest;
             if (p) {
                 if (p.lazy !== Laziness.NONE && isFromSpread) {
-                    throw new Error("cannot unpack spread argument into lazy rest parameter");
+                    throw new JEBValueError("cannot unpack spread argument into lazy rest parameter");
                 }
                 return this.#update({
                     argsObj: { ...this.#argsObj, [p.name]: [...(this.#argsObj[p.name] ?? []), value] },
@@ -173,15 +179,15 @@ export class DoargsState {
                     rawArgsIndex: this.#rawArgsIndex + rawDelta,
                 });
             }
-            throw new Error(`too many ${isFromSpread ? "elements in spread argument" : "arguments"}`);
+            throw new JEBValueError(`too many ${isFromSpread ? "elements in spread argument" : "arguments"}`);
         }
         const { name, lazy } = pList[index]!;
         if (lazy !== Laziness.NONE && isFromSpread) {
-            throw new Error("cannot unpack spread argument into lazy parameter");
+            throw new JEBValueError("cannot unpack spread argument into lazy parameter");
         }
         const g = this.#seenByName[name];
         if (g) {
-            throw new Error(`argument ${stringify(name)} already given as ${g === DoargsWhere.KEYWORD ? "keyword" : "positional"} argument`);
+            throw new JEBValueError(`argument ${stringify(name)} already given as ${g === DoargsWhere.KEYWORD ? "keyword" : "positional"} argument`);
         }
         return this.#update({
             argsObj: { ...this.#argsObj, [name]: value },
@@ -207,7 +213,7 @@ const wrapLazyValue = (laziness: Laziness.LAZY | Laziness.QUOTED, given: any, en
 }
 
 export const registerDoargs = (vm: JebVM) => {
-    defineOpcode(vm, "jeb:doargs", (vm, { 0: params, 1: env }) => {
+    defineOpcode(vm, "jeb:doargs", (vm, { 0: params, 1: env, 2: noEval }) => {
         const given = vm.popData();
         // Optimization: test if it's all one rest lazy parameter, just special-case that
         const { params: { length }, rest } = params;
@@ -217,14 +223,12 @@ export const registerDoargs = (vm: JebVM) => {
                 return;
             }
         }
-        vm.pushCommand("jeb:doargs/loop", new DoargsState(params, vm.currentEnv, env, given), true);
+        vm.pushCommand("jeb:doargs/loop", new DoargsState(params, vm.currentEnv, env, noEval, given), true);
     },
         `.imm params env
 .param {CallableSignature} params - the signature of the thing being called
 .param {Env?} env - the closure environment that the default parameters need
 .sed argslist -- argsobj
 . Processes the given arguments list into the named arguments object as determined by the signature.`);
-    defineOpcode(vm, "jeb:doargs/loop", (vm, { 0: state, 1: first }) => {
-        wrapThrowToError(vm, "jeb:value_error", () => state.run(vm, first));
-    }, null);
+    defineOpcode(vm, "jeb:doargs/loop", (vm, { 0: state, 1: first }) => wrapThrowToError(vm, JEBValueError, () => state.run(vm, first)), null);
 }

@@ -1,7 +1,74 @@
-import { javaHash, rotate32 } from "@r47onfire/game-math";
-import { Err, Ok, Result } from "ts-res";
+import { isinstance, javaHash, rotate32 } from "@r47onfire/game-math";
 import { NOTHING } from "./builtins/define";
 import { JebVM } from "./vm";
+
+export const ALL_ERRORS: Record<string, typeof JEBError> = {};
+
+/**
+ * Generic base class for an error thrown by a JEB program.
+ */
+export class JEBError extends Error {
+    /** The name of the error type */
+    get tag() { return "jeb:runtime_error"; }
+    constructor(message: string, public context: Record<string, any> = {}, public traceback?: StackTreeNode[]) {
+        super(message, { cause: context.cause });
+        ALL_ERRORS[this.tag] ??= new.target;
+    }
+    toString() {
+        return `(${this.tag}) ${this.message}${this.traceback ? `\nVM stack: ${formatStackTraceCompact(compressStackTree(this.traceback))}` : ""}`
+    }
+}
+
+/**
+ * Variable not found.
+ */
+export class JEBReferenceError extends JEBError {
+    get tag() { return "jeb:reference_error"; }
+}
+
+/**
+ * Value was correct type but out of range.
+ */
+export class JEBValueError extends JEBError {
+    get tag() { return "jeb:value_error"; }
+}
+
+/**
+ * Value was wrong type.
+ */
+export class JEBTypeError extends JEBError {
+    get tag() { return "jeb:type_error"; }
+}
+
+/**
+ * Malformed usage or syntax.
+ */
+export class JEBSyntaxError extends JEBError {
+    get tag() { return "jeb:syntax_error"; }
+}
+
+/**
+ * Program tried to operate on something previously invalidated.
+ */
+export class JEBStateError extends JEBError {
+    get tag() { return "jeb:state_error"; }
+}
+
+/**
+ * Too many recursive calls.
+ */
+export class JEBRecursionError extends JEBError {
+    get tag() { return "jeb:recursion_error"; }
+}
+
+[
+    JEBError,
+    JEBReferenceError,
+    JEBValueError,
+    JEBTypeError,
+    JEBStateError,
+    JEBRecursionError,
+].forEach(e => new e(""));
 
 const STACKFRAME_JOINER = "<-";
 
@@ -113,17 +180,8 @@ export const formatStackTraceCompact = (nodes: StackTreeNode[]): string => {
 };
 
 /**
- * Formats the stack nicely and then throws the error
- * @param type type string for the error
- * @param message message of the error
- * @param stackTree The compressed stack tree from the VM
- */
-export const jsError = (type: string, message: string, stackTree: StackTreeNode[]): never => {
-    throw new Error(`(${type}) ${message}\nVM stack: ${formatStackTraceCompact(compressStackTree(stackTree))}`);
-}
-/**
- * Runs the function, and if it throws an error, pushes that error to be caught by JEB
- * code and returns {@link NOTHING}, otherwise returns the function result.
+ * Runs the function, and if it throws an error that isn't a {@link JEBError},
+ * wraps it in the given error type and re-throws it, otherwise returns the function result.
  * @param vm VM we're running in
  * @param kind Kind of JEB error a thrown error causes
  * @param f The function to catch errors from
@@ -135,39 +193,13 @@ export const jsError = (type: string, message: string, stackTree: StackTreeNode[
  *         () => doSomethingThatMayThrow(vm, args[0])));
  * ```
  */
-export const wrapThrowToError = <T>(vm: JebVM, kind: string, f: () => T) => {
+export const wrapThrowToError = <T>(vm: JebVM, kind: new (message: string) => JEBError, f: () => T) => {
     try {
         return f();
     } catch (e) {
-        vm.pushCommand("jeb:throw", kind, String(e), {});
-        return NOTHING;
+        if (isinstance(e, JEBError)) throw e;
+        throw new kind(String(e));
     }
-}
-/**
- * Runs the function, and if it returns a {@link Err} result, queues the error to be
- * caught by JEB code and returns {@link NOTHING}, otherwise if it's an {@link Ok}
- * just returns the result.
- * @param vm VM we're running in
- * @param kind Kind of JEB error an {@link Err} causes
- * @param result The result to look at or {@link NOTHING} (so it can be chained from a call to {@link wrapThrowToError})
- * @returns The result of the function or {@link NOTHING} if the function threw
- * @example
- * ```
- * defineBuiltin(vm, "test", null, false, false,
- *     (vm, args) => resultToError(vm, "test:testError",
- *         doSomethingThatReturnsAResult(vm, args[0])));
- * ```
- */
-export const resultToError = <T>(vm: JebVM, kind: string, result: Result<T, any> | typeof NOTHING) => {
-    if (result !== NOTHING) {
-        if (result.ok) {
-            return result.data;
-        }
-        vm.pushCommand("jeb:throw", kind, result.error, {
-            return: vm.cc(),
-        });
-    }
-    return NOTHING;
 }
 
 /**

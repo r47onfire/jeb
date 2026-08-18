@@ -2,6 +2,7 @@ import { DoargsState } from "./builtins/doargs";
 import { BuiltinFunction, CallableSignature, Lambda } from "./callable";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
+import { JEBError } from "./errors";
 import { AccessType } from "./protocol";
 import { Command } from "./vm";
 import { Wrapper } from "./wrapper";
@@ -12,8 +13,8 @@ export interface JEBOpcode {
     "jeb:tb_push": [func: string, tail?: boolean];
     "jeb:shuffle": [n: number, pushIndices: number[]];
     "jeb:eval": [tail?: boolean];
-    "jeb:apply": [argv: any[], tail?: boolean];
-    "jeb:doargs": [signature: CallableSignature, dynamicEnv: Env | undefined];
+    "jeb:apply": [argv: any[], tail?: boolean, noEval?: boolean];
+    "jeb:doargs": [signature: CallableSignature, dynamicEnv: Env | undefined, noEval: boolean];
     "jeb:doargs/loop": [state: DoargsState, first: boolean];
     "jeb:unwrap": [flagsNotToUnwrap: string[]];
     "jeb:wrap": [cls: new (...args: any[]) => Wrapper, ...args: unknown[]];
@@ -24,7 +25,7 @@ export interface JEBOpcode {
     "jeb:set": [create?: boolean, readonly?: boolean];
     "jeb:set/internal/nested": [];
     "jeb:set/internal": [valueExpr: any, returnOldValue: boolean];
-    "jeb:throw": [type: string, message: string, context: Record<string, any>];
+    "jeb:throw": [err: JEBError];
     "jeb:with/setup": [dw: DynamicWind, varname: string | null];
     "jeb:with/install": [dw: DynamicWind];
     "jeb:with/teardown": [];

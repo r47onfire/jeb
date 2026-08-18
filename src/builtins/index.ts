@@ -9,7 +9,7 @@ import { Err, Ok, Result } from "ts-res";
 import { BuiltinFunction, CallableSignature, createSignature, Lambda, Laziness } from "../callable";
 import { Continuation, Windable } from "../continuation";
 import { Env } from "../env";
-import { checkNothingOrPush, resultToError, wrapThrowToError } from "../errors";
+import { ALL_ERRORS, checkNothingOrPush, JEBError, JEBSyntaxError, JEBTypeError, JEBValueError, wrapThrowToError } from "../errors";
 import { float, numberOp, Relation } from "../math";
 import { AccessType, Reference, theTypeName, typeOf } from "../protocol";
 import { JebVM } from "../vm";
@@ -19,6 +19,7 @@ import { registerDoargs } from "./doargs";
 import { implicitBegin } from "./implicitBegin";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { registerUnwrap } from "./unwrap";
+import { Writable } from "../utils";
 
 // TODO: split this all up
 // MARK: loadBuiltins()
@@ -101,32 +102,26 @@ Examples:
             vm.pushCommand("jeb:unwrap", []);
             vm.pushCommand("jeb:eval");
             vm.pushData(code[0]);
-        } else {
-            vm.pushCommand("jeb:throw", "jeb:value_error", "can't evaluate empty array", {
-                return: vm.cc(),
-            });
         }
+        else throw new JEBValueError("can't evaluate empty array", { return: vm.cc() });
     },
         `Calls the first item as a function.
 .throws jeb:type_error - if the first item is not callable
 .throws jeb:value_error - if the list is empty`);
 
     // MARK: apply
-    defineOpcode(vm, "jeb:apply", (vm, { 0: argv, 1: tail }) => {
+    defineOpcode(vm, "jeb:apply", (vm, { 0: argv, 1: tail, 2: noEval }) => {
         const func = vm.popData();
         const applier = vm.getProtocol(true, false, "apply", [func]);
         if (!applier) {
-            vm.pushCommand("jeb:throw", "jeb:type_error", `can't call ${theTypeName(typeOf(func))}`, {
-                return: vm.cc(),
-            });
-            return;
+            throw new JEBTypeError(`can't call ${theTypeName(typeOf(func))}`, { return: vm.cc() });
         }
         const { name, macro, signature, closureEnv } = applier.describe(vm, func);
         if (name && !tail) vm.pushCommand("jeb:tb_pop");
         if (macro) vm.pushCommand("jeb:eval");
         applier.run(vm, [func], { tail: tail ?? false });
         if (name) vm.pushCommand("jeb:tb_push", name, tail);
-        vm.pushCommand("jeb:doargs", signature, closureEnv);
+        vm.pushCommand("jeb:doargs", signature, closureEnv, noEval ?? false);
         vm.pushData(argv);
     },
         `.imm expressions tailcall
@@ -176,8 +171,7 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
         const obj = vm.popData();
         const accessor = vm.getProtocol(true, false, "access", [obj]);
         if (!accessor) {
-            vm.pushCommand("jeb:throw", "jeb:type_error", `${theTypeName(typeOf(obj))} is not subscriptable`, {});
-            return;
+            throw new JEBTypeError(`${theTypeName(typeOf(obj))} is not subscriptable`);
         }
         checkNothingOrPush(vm, accessor.run(vm, [obj], { field, type }));
     },
@@ -238,12 +232,12 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
     }, null);
     defineBuiltin(vm, "set", [[["ref"], "ref"], [true, "value"], ["old", false]], false, ({ ref, value, old }, vm) => {
         if (!isinstance(ref, ReferenceWrapper)) {
-            vm.pushCommand("jeb:throw", "jeb:type_error", "cannot assign to " + theTypeName(typeOf(ref)), {});
-            return NOTHING;
+            throw new JEBTypeError(`cannot assign to ${theTypeName(typeOf(ref))}`);
         }
         vm.pushCommand("jeb:set/internal", value, old);
         return ref.obj;
-    }, `.macro (set slot value old)
+    },
+        `.macro (set slot value old)
 ..param {reference} slot
 ..param {T} value
 ...injected {U} _ - old value of field
@@ -254,46 +248,46 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 . Changes the value of the slot, and returns the new or old value as determined by \`old\`.`);
 
     // MARK: error handling
-    defineOpcode(vm, "jeb:throw", (vm, { 0: type, 1: message, 2: context }) => {
-        if (vm.curDynamicWind.parent) {
+    defineOpcode(vm, "jeb:throw", (vm, { 0: err }) => {
+        while (vm.curDynamicWind.parent) {
             // call exit handler with error details
             // if it returns true, it means the error was handled and we can continue execution
             const dw = vm.curDynamicWind;
             vm.curDynamicWind = dw.parent!;
             dw.restore(vm);
             if (dw.handler?.exit) {
-                vm.pushCommand("jeb:if", null, ["jeb:throw", type, message, context], true);
-                vm.pushCommand("jeb:apply", [false, type, message, context]);
-                vm.pushData(dw.handler?.exit);
-            } else {
-                vm.pushCommand("jeb:throw", type, message, context);
+                vm.pushCommand("jeb:if", null, ["jeb:throw", err], true);
+                vm.pushCommand("jeb:apply", [false, err], false, true);
+                vm.pushData(dw.handler.exit);
+                return;
             }
-            return;
         }
         // if there's nothing to catch the error, just throw it back to JavaScript
-        vm.fatalError(type, message);
+        vm.fatalError(err);
     },
-        `.imm type message context
-.param {string} type
-.param {string} message
-.param {object} context
+        `.imm err
+.param {JEBError} err
 .sed -- (does not return)
-. Triggers an error with the specified type, error, and context.`);
-    defineBuiltin(vm, "error", ["type", "message", "context"], false, ({ type, message, context }, vm) => {
-        vm.pushCommand("jeb:throw", type, message, context);
-        return NOTHING;
-    }, `.func (error type message context)
-..param {string} type
-..param {string} message
-..param {object} context
+. Throws the error, but allows [[with]] handlers to catch it before throwing to Javascript.`);
+    defineBuiltin(vm, "throw", ["err"], false, ({ err }, vm) => {
+        if (!isinstance(err, JEBError)) throw new JEBTypeError("errors must inherit from JEBError");
+        throw err;
+    },
+        `.func (throw err)
+..param {JEBError} err
 .returns {never}
-. Throw an error with the specified type, message, and context value. If we're inside a [[with]] block, it will trigger the \`exit\` handler of the context object to possibly handle the error. If the error is not handled, it will be thrown as a Javascript error, causing the program to halt.
-\`type\` is recommended to be a namespaced string, such as \`foo:bar\`, to prevent collisions.`);
+. Throw an error. If we're inside a [[with]] block, it will trigger the \`exit\` handler of the context object to possibly handle the error.
+If the error is not handled, it will be thrown as a Javascript error, causing the program to halt.`);
+    defineBuiltin(vm, "err", [["message", "no message"], ["type", ,], ["up", 0]], false, ({ message, type, up }, vm) => new (ALL_ERRORS[type] ?? class extends JEBError { get tag() { return type } })(message, {}, vm.tracebackArray(up)),
+        `.func (err message type up)
+..param {string?} [message="no message"]
+..param {string?} type - type code for error (to look up the correct class)
+..param {number?} [up=0] - number of stack frames to drop (in order to e.g. attribute the error to the caller)
+. Creates a new error object, but does not actually throw it (use [[throw]] for that).`);
     // MARK: with
     defineBuiltin(vm, "with", [[true, "binding"], "context", [true, "body"], true], false, ({ binding, context, body }, vm) => {
         if (!isString(binding) && binding !== null) {
-            vm.pushCommand("jeb:throw", "jeb:type_error", "expected variable name or null as first argument to \"with\"", {});
-            return;
+            throw new JEBTypeError("expected variable name or null as first argument to \"with\"")
         }
         // Capture "from" here so that it doesn't capture the "with/teardown" opcode
         const dw = vm.newDynamicWind();
@@ -304,15 +298,16 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
         vm.pushCommand("jeb:with/setup", dw, binding);
         vm.pushData(context);
         return NOTHING;
-    }, `.macro (with varname context body...)
+    },
+        `.macro (with varname context body...)
 ..param {string | null} varname
 ...receives {T} - Return value of the \`enter\` handler (if present)
 ..param {object} handlers
 ...prop {(continuation: boolean) => T} [enter=null]
 When entering the block, the \`enter\` hook will be called with \`true\` or \`false\` to indicate if the entry is due to a continuation or not. The first time the block is entered, the return value of the \`enter\` hook will be bound to the \`varname\`.
-...prop {(continuation: boolean, type: string | null, message: string | null, context: object | null) => boolean} exit
-When exiting the block, the \`exit\` hook will be called. \`continuation\` is as with the \`enter\` handler (indicating if the block exit is due to a continuation or not), and \`type\`, \`message\`, and \`context\` will be \`null\` if there is no error being handled, or non-\`null\` if there is an error in progess. The \`exit\` handler can return \`true\` to indicate that it has handled the error, and prevent it from propagating up the call stack.
-Some errors also include a *restart* as part of their \`context\` - this will be a continuation that when invoked, will jump back to the expression that caused the error and resume execution with the substituted value.
+...prop {(continuation: boolean, err: JEBError | null) => boolean} exit
+When exiting the block, the \`exit\` hook will be called. \`continuation\` is as with the \`enter\` handler (indicating if the block exit is due to a continuation or not), and \`err\` will be \`null\` if there is no error being handled, or non-\`null\` if there is an error in progess. The \`exit\` handler can return \`true\` to indicate that it has handled the error, and prevent it from propagating up the call stack.
+Some errors also include a *restart* as part of their \`.context\` - this will be a continuation that when invoked, will jump back to the expression that caused the error and resume execution with the substituted value. It is usually named \`return\`.
 ..param {code} body...
 .throws jeb:type_error - if \`varname\` is null or \`handlers\` is not an object.
 . Used to manage error handling, contextual resources, and continuation tracking.`);
@@ -322,8 +317,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
         const context = vm.popData() as Windable;
         const notObject = typeof context !== "object" || context === null;
         if (notObject || !("enter" in context || "exit" in context)) {
-            vm.pushCommand("jeb:throw", "jeb:type_error", notObject ? "context manager should be an object" : "context manager should have 'enter' and/or 'exit' handlers", {});
-            return;
+            throw new JEBTypeError(notObject ? "context manager should be an object" : "context manager should have 'enter' and/or 'exit' handlers");
         }
         dw.setHandler(context);
         // set up the winder to be installed AFTER the enter handler runs, so that errors thrown by this handler won't be caught by the exit handler
@@ -345,13 +339,13 @@ Some errors also include a *restart* as part of their \`context\` - this will be
     }, null);
 
     defineOpcode(vm, "jeb:with/teardown", vm => {
-        if (!vm.curDynamicWind.parent) throw new Error("Dynamic wind stack underflow");
+        if (!vm.curDynamicWind.parent) throw new JEBError("Dynamic wind stack underflow");
         const dw = vm.curDynamicWind;
         vm.curDynamicWind = dw.parent!;
         if (!dw.handler?.exit) return;
         // discard the exit handler's result
         vm.pushCommand("jeb:shuffle", 1, []);
-        vm.pushCommand("jeb:apply", [false, null, null, null]);
+        vm.pushCommand("jeb:apply", [false, null]);
         vm.pushData(dw.handler.exit);
     }, null);
 
@@ -365,7 +359,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
     }),
         `JEB's FFI can call Javascript functions. JEB does not check the \`.length\` of the function since it is wrong in some cases.
 .throws jeb:ffi_error - if the FFI'ed function throws an error`);
-    defineOpcode(vm, "jeb:ffi/invokeFunction", (vm, { 0: f }) => checkNothingOrPush(vm, wrapThrowToError(vm, "jeb:ffi_error", () => f(...vm.popData()._))), null);
+    defineOpcode(vm, "jeb:ffi/invokeFunction", (vm, { 0: f }) => vm.pushData(wrapThrowToError(vm, JEBError, () => f(...vm.popData()._))), null);
 
     defineBuiltin(vm, "nil?", ["value"], false, ({ value }) => undefinedToNull(value) === null,
         `.func (nil? value)
@@ -405,9 +399,7 @@ Some errors also include a *restart* as part of their \`context\` - this will be
                 docstring = body[0];
                 body = body.slice(1);
             }
-            const signature = wrapThrowToError(vm, "jeb:syntax_error", () => createSignature(params));
-            if (signature === NOTHING) return signature;
-            return new Lambda(isMacro, isImplicit, undefined, signature, body, vm.currentEnv, docstring);
+            return new Lambda(isMacro, isImplicit, undefined, wrapThrowToError(vm, JEBSyntaxError, () => createSignature(params)), body, vm.currentEnv, docstring);
         },
             `.macro (${name} (parameters...) body...) (${name} true (parameters...) docstring body...)
 The form with \`true\` right after the \`${kind}\` defines it as an implicit ${kind}, where the special \`return\` continuation is not injected and the call will not show up in the traceback of an error (it would normally show as \`[${kind}]\` unless assigned to a name).
@@ -477,9 +469,9 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
     // MARK: Scheme analogs
     defineBuiltin(vm, "if", ["condition", [true, "then"], [true, "else", null]], false, ({ condition, then, else: else_ }, vm) => {
         vm.pushCommand("jeb:if", then, else_);
-        vm.pushData(condition);
-        return NOTHING;
-    }, `.macro (if cond then else)
+        return condition;
+    },
+        `.macro (if cond then else)
 ..param {code} cond - condition; always evaluated
 ..param {code} then - case to be evaluated if \`cond\` is truthy
 ..param {code} [else=null] - case to be evaluated if \`cond\` is falsy
@@ -521,8 +513,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 
     defineBuiltin(vm, "let-in", ["pairs", true], false, ({ pairs: args }, vm) => {
         if ((args.length & 1) > 0) {
-            vm.pushCommand("jeb:throw", "jeb:syntax_error", "let-in should have an even number of arguments", {});
-            return NOTHING;
+            throw new JEBSyntaxError("let-in should have an even number of arguments");
         }
         var value;
         const newEnv = vm.createEnv(vm.currentEnv);
@@ -530,8 +521,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
             const name = args[i];
             value = args[i + 1];
             if (!isString(name)) {
-                vm.pushCommand("jeb:throw", "jeb:syntax_error", "let-in name must be a string", {});
-                return NOTHING;
+                throw new JEBSyntaxError("let-in name must be a string");
             }
             newEnv.add(name, value);
         }
@@ -574,11 +564,10 @@ Functions much like [[let]] but with an implicit block after it that continues t
             const body = args.slice(1);
             setHelper(funcName, ["lambda", params, ...body]);
         }
-        else {
-            vm.pushCommand("jeb:throw", "jeb:syntax_error", "invalid define syntax", {});
-        }
+        else throw new JEBSyntaxError("invalid define syntax");
         return NOTHING;
-    }, `.macro (define name value)
+    },
+        `.macro (define name value)
 Defines a simple name=value.
 ..param {string} name
 ...receives {T}
@@ -606,14 +595,13 @@ Expands into a [[macro]].
             var f: () => Result<any, any>;
             if (b === NOTHING) {
                 if (op1 === undefined) {
-                    vm.pushCommand("jeb:throw", "jeb:type_error", `${stringify(op2)} is not defined for one argument`, {});
-                    return NOTHING;
+                    throw new JEBTypeError(`${stringify(op2)} is not defined for one argument`);
                 }
                 f = () => vm.getProtocol(false, true, op1, [a]).run(vm, [a]);
             } else {
                 f = () => vm.getProtocol(false, true, op2, [a, b]).run(vm, [a, b]);
             }
-            return resultToError(vm, "jeb:type_error", wrapThrowToError(vm, "jeb:type_error", f));
+            return wrapThrowToError(vm, JEBTypeError, f).else(e => { throw new JEBTypeError(String(e)); })
         }, `.func (${operator} a [b])
 ..param {any} a
 ..param {any?} b
@@ -652,13 +640,9 @@ Expands into a [[macro]].
             if (a.length < 2) return true;
             for (var i = 1; i < a.length; i++) {
                 const arg = [a[i - 1], a[i], bits] as [any, any, Relation];
-                const res = wrapThrowToError(vm, "jeb:type_error", () => vm.getProtocol(false, true, "cmp", arg).run(vm, arg));
-                if (res === NOTHING) return;
+                const res = wrapThrowToError(vm, JEBTypeError, () => vm.getProtocol(false, true, "cmp", arg).run(vm, arg));
                 if (!res.ok) {
-                    vm.pushCommand("jeb:throw", "jeb:type_error", "comparison error: " + res.error, {
-                        return: vm.cc(),
-                    });
-                    return NOTHING;
+                    throw new JEBTypeError("comparison error: " + res.error, { return: vm.cc() });
                 }
                 if (!res.data) return false;
             }
@@ -733,8 +717,7 @@ Evaluates \`a\`, if the result is ${shortCircuitOn ? "truthy" : "falsy"}, return
             try {
                 out.push(...arg);
             } catch (e) {
-                vm.pushCommand("jeb:throw", "jeb:type_error", String(e), {});
-                return NOTHING;
+                throw new JEBTypeError(String(e), { cause: e });
             }
         }
         return out;
@@ -750,36 +733,33 @@ If an argument is not a list, the value is coerced to a list using the Javascrip
 .returns {code}
 . Prevents its argument from being evaluated.`);
     alias(vm, "quote", "'");
-    defineBuiltin(vm, "quasiquote", [[true, "value"]], true, ({ value }, vm) =>
-        wrapThrowToError(vm, "jeb:value_error", () => processQuasiquote(vm, value, 1)),
+    defineBuiltin(vm, "quasiquote", [[true, "value"]], true, ({ value }, vm) => processQuasiquote(vm, value, 1),
         `.macro (quasiquote value) | (~ value) | ~value
 ..param {any} value
 .returns {any}
 . Prevents \`value\` from being evaluated, but walks the elements and replaces [[unquote]] and [[unquoteSplicing]] with the results of evaluating their arguments. The argument to [[unquoteSplicing]] must be a list.`);
     alias(vm, "quasiquote", "~");
 
-    defineBuiltin(vm, "unquote", [[true, "value"]], false, (_, vm) => (vm.pushCommand("jeb:throw", "jeb:syntax_error", "unquote" + " not valid outside of quasiquote", {
-        return: vm.cc(),
-    }), NOTHING), `.macro (unquote value) | (, value) | ,value
+    defineBuiltin(vm, "unquote", [[true, "value"]], false, (_, vm) => { throw new JEBSyntaxError("unquote" + " not valid outside of quasiquote", { return: vm.cc() }); },
+        `.macro (unquote value) | (, value) | ,value
 .returns {never}
 .throws jeb:syntax_error - when called as a normal function outside of a [[quasiquote]].
 . Marks a value to be interpolated inside a [[quasiquote]].`);
-    defineBuiltin(vm, "unquoteSplicing", [[true, "value"]], false, (_, vm) => (vm.pushCommand("jeb:throw", "jeb:syntax_error", "unquoteSplicing" + " not valid outside of quasiquote", {
-        return: vm.cc(),
-    }), NOTHING), `.macro (unquoteSplicing value) | (,@ value) | ,@value
+    defineBuiltin(vm, "unquoteSplicing", [[true, "value"]], false, (_, vm) => { throw new JEBSyntaxError("unquoteSplicing" + " not valid outside of quasiquote", { return: vm.cc() }); },
+        `.macro (unquoteSplicing value) | (,@ value) | ,@value
 .returns {never}
 .throws jeb:syntax_error - when called as a normal function outside of a [[quasiquote]].
 . Marks a list to be interpolated via splicing inside a [[quasiquote]].`);
     alias(vm, "unquote", ",");
     alias(vm, "unquoteSplicing", ",@");
 
-    defineBuiltin(vm, "parseJSON", ["json"], false, ({ json }, vm) => wrapThrowToError(vm, "jeb:value_error", () => parse(json)),
+    defineBuiltin(vm, "parseJSON", ["json"], false, ({ json }, vm) => wrapThrowToError(vm, JEBValueError, () => parse(json)),
         `.func (parseJSON json)
 ..param {string} json
 .throws jeb:value_error - if the string is not valid JSON
 .returns {any}
 . Parses the string using \`JSON.parse()\` and returns the object.`);
-    defineBuiltin(vm, "dumpJSON", ["value"], false, ({ value }, vm) => wrapThrowToError(vm, "jeb:value_error", () => stringify(value)),
+    defineBuiltin(vm, "dumpJSON", ["value"], false, ({ value }, vm) => wrapThrowToError(vm, JEBValueError, () => stringify(value)),
         `.func (dumpJSON value)
 ..param {any} value
 .throws jeb:value_error - if \`value\` contains something that can't be serialized, such as a function or circular reference
@@ -818,18 +798,18 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
 
     // ,x
     if (same(head, "unquote")) {
-        if (form.length !== 2) throw new Error("expected 1 argument to unquote");
+        if (form.length !== 2) throw new JEBSyntaxError("expected 1 argument to unquote");
         return depth === 1 ? arg : ["list", "unquote", processQuasiquote(vm, arg, depth - 1)];
     }
     // ,@x
     if (same(head, "unquoteSplicing")) {
-        if (form.length !== 2) throw new Error("expected 1 argument to unquoteSplicing");
+        if (form.length !== 2) throw new JEBSyntaxError("expected 1 argument to unquoteSplicing");
         if (depth !== 1) return ["list", "unquoteSplicing", processQuasiquote(vm, arg, depth - 1)];
-        throw new Error("unquoteSplicing outside of list");
+        throw new JEBSyntaxError("unquoteSplicing outside of list");
     }
     // nested `
     if (same(head, "quasiquote")) {
-        if (form.length !== 2) throw new Error("expected 1 argument to quasiquote");
+        if (form.length !== 2) throw new JEBSyntaxError("expected 1 argument to quasiquote");
         return ["list", "quasiquote", processQuasiquote(vm, arg, depth + 1)];
     }
 
@@ -853,7 +833,7 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
             buffer.push(el);
         }
         else if (same(el[0], "unquoteSplicing")) {
-            if (el.length !== 2) throw new Error("expected 1 argument to unquoteSplicing");
+            if (el.length !== 2) throw new JEBSyntaxError("expected 1 argument to unquoteSplicing");
             flush();
             parts.push(el[1]); // ,@x → will be spliced by concat
         } else {
