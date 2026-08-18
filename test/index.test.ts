@@ -7,7 +7,7 @@ const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) =>
     const vm = new JebVM();
     const out: string[] = [];
     // simple print hook for the tests
-    defineBuiltin(vm, "print", ["args", true], false, ({ args }) => void out.push(args.map(String).join(" ")), "test print");
+    defineBuiltin(vm, "print", ["args", true], ({ args }) => void out.push(args.map(String).join(" ")), "test print");
     test(name, () => testBody(vm, out));
 }
 
@@ -84,8 +84,8 @@ describe("basic", () => {
         expect(run(vm, ["begin", ["print", "hi 1"], ["print", "hi 2"], ["print", "hi 3"]])).toBeTrue();
         expect(out).toEqual(["hi 1", "hi 2", "hi 3"]);
     });
-    testTest("basic commands wrapped in lambda", (vm, out) => {
-        expect(run(vm, [["lambda", [], ["print", "hi 1"], ["print", "hi 2"], ["print", "hi 3"]]])).toBeTrue();
+    testTest("basic commands wrapped in fn", (vm, out) => {
+        expect(run(vm, [["fn", [], ["print", "hi 1"], ["print", "hi 2"], ["print", "hi 3"]]])).toBeTrue();
         expect(out).toEqual(["hi 1", "hi 2", "hi 3"]);
     });
     testTest("get complex value", vm => {
@@ -281,9 +281,9 @@ describe("with / dynamic-wind", () => {
     const makeWith = (begin: string, end: string, ...body: any[]) => {
         return ["with", null,
             {
-                enter: ["lambda", ["k"],
+                enter: ["fn", ["k"],
                     ["print", begin, ["$", "k"]]],
-                exit: ["lambda", ["k", "err"],
+                exit: ["fn", ["k", "err"],
                     ["print",
                         end,
                         ["$", "k"],
@@ -319,7 +319,7 @@ describe("with / dynamic-wind", () => {
         expect(run(vm, ["begin",
             ["let-in", "k", null],
             makeWith("enter", "exit",
-                [["lambda", [], ["set", ["$", "k"], ["$", "return"]]]],
+                [["fn", [], ["set", ["$", "k"], ["$", "return"]]]],
                 ["print", "inside"]),
             ["print", "outside"],
             ["k", null],          // jump back into the with
@@ -344,7 +344,7 @@ describe("with / dynamic-wind", () => {
     testTest("continuation escapes with (after runs once)", (vm, out) => {
         // escape from inside with via a continuation captured outside
         expect(run(vm, ["begin",
-            [["lambda", [],
+            [["fn", [],
                 makeWith("enter", "exit",
                     ["print", "inside"],
                     ["return", null],
@@ -379,7 +379,7 @@ describe("with / dynamic-wind", () => {
         // TODO: this test fails because doargs doesn't properly preserve the state of the rest args list across continuation invocation
         expect(run(vm, ["begin",
             ["let-in", "x", null],
-            ["let-in", "y", [["lambda", ["f"], ["f", ["$", "return"]]], ["lambda", ["k"], ["set", ["$", "x"], ["$", "k"]]]]],
+            ["let-in", "y", [["fn", ["f"], ["f", ["$", "return"]]], ["fn", ["k"], ["set", ["$", "x"], ["$", "k"]]]]],
             ["if", ["=", ["$", "y"], 123],
                 null,
                 ["x", ["+", 23, 100]]],
@@ -399,12 +399,12 @@ describe("metaprogramming", () => {
     });
     testTest("user-defined macros", (vm, out) => {
         expect(run(vm, ["begin",
-            ["define", true, ["twice", [true, "x"]], ["list", "+", ["$", "x"], ["$", "x"]]],
+            ["define", ["twice", [true, "x"]], ["macro", ["list", "+", ["$", "x"], ["$", "x"]]]],
             ["print", ["twice", 2]],
             ["print", ["twice", "hello"]],
-            ["print", ["twice", ["begin", ["print", "arg evaluated"], NaN]]],
+            ["let", [["a", 4]], ["print", ["twice", ["begin", ["print", "arg evaluated"], ["$", "a"]]]]]
         ])).toBeTrue();
-        expect(out).toEqual(["4", "hellohello", "arg evaluated", "arg evaluated", "NaN"]);
+        expect(out).toEqual(["4", "hellohello", "arg evaluated", "arg evaluated", "8"]);
     });
     testTest("quote/quasiquote", (vm, out) => {
         expect(run(vm, ["begin",
@@ -419,6 +419,7 @@ describe("metaprogramming", () => {
             ["print", ["dumpJSON", ["'", ["foo", "bar", [",", ["$", "a"]]]]]],
             ["print", ["dumpJSON", ["~", ["foo", "bar", [",", ["$", "x"]]]]]],
             ["print", ["dumpJSON", ["~", ["foo", "bar", [",@", ["$", "x"]]]]]],
+            ["let", [["y", ["list", 1, 2, 3]]], ["print", ["dumpJSON", ["~", ["foo", "bar", [",@", ["$", "y"]]]]]]],
         ])).toBeTrue();
         expect(out).toEqual([
             stringify(["foo", "bar", "baz"]),
@@ -428,6 +429,7 @@ describe("metaprogramming", () => {
             stringify(["foo", "bar", [",", ["$", "a"]]]),
             stringify(["foo", "bar", [4, 5, 6]]),
             stringify(["foo", "bar", 4, 5, 6]),
+            stringify(["foo", "bar", 1, 2, 3]),
         ]);
     });
     testTest("bad unquote 1", vm => {
@@ -455,15 +457,15 @@ describe("metaprogramming", () => {
     });
 });
 
-describe("lambdas", () => {
-    testTest("lambda optional dynamic env", (vm, out) => {
+describe("fns", () => {
+    testTest("fn optional dynamic env", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["foo", ["a", ["$", "x"]]], ["print", ["$", "a"]]],
             ["let", [["x", "hello"]], ["foo"], ["foo", "goodbye"]],
         ])).toBeTrue();
         expect(out).toEqual(["hello", "goodbye"]);
     });
-    testTest("lambda validation", vm => {
+    testTest("fn validation", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["foo", ["a", 1, 2, 3]], ["print", ["$", "a"]]],
         ])).toThrow("unexpected junk after default expression");
@@ -512,7 +514,7 @@ describe("recursion stress tests", () => {
     const MEMOIZE_F = (f: (a: bigint) => bigint) => { const cache: Record<number, bigint> = {}; return (a: bigint) => (cache[a as any] ??= f(a)) }
     const MEMOIZE = ["define", ["memoize", "f"],
         ["let", [["cache", {}]],
-            ["lambda", ["a"],
+            ["fn", ["a"],
                 ["let", [["cached", [".", ["$", "cache"], ["$", "a"]]]],
                     ["if", ["nil?", ["$", "cached"]],
                         ["set", [".", ["$", "cache"], ["$", "a"]], ["f", ["$", "a"]]],
@@ -523,7 +525,7 @@ describe("recursion stress tests", () => {
         const fibonacci = MEMOIZE_F(a => a < 2 ? a : fibonacci(a - 1n) + fibonacci(a - 2n));
         expect(run(vm, ["begin",
             MEMOIZE,
-            ["define", "fibonacci", ["memoize", ["lambda", ["a"],
+            ["define", "fibonacci", ["memoize", ["fn", ["a"],
                 ["if", ["<", ["$", "a"], 2],
                     ["$", "a"],
                     ["+",
@@ -538,7 +540,7 @@ describe("recursion stress tests", () => {
         const q = MEMOIZE_F(a => a < 3 ? 1n : q(a - q(a - 1n)) + q(a - q(a - 2n)));
         expect(run(vm, ["begin",
             MEMOIZE,
-            ["define", "q", ["memoize", ["lambda", ["a"],
+            ["define", "q", ["memoize", ["fn", ["a"],
                 ["if", ["<", ["$", "a"], 3],
                     1,
                     ["+",
@@ -579,10 +581,10 @@ describe("FFI", () => {
     testTest("FFI function callbacks", (vm, out) => {
         const thrice = (f: (x: string) => void, x: string) => (f(x), f(x), f(x));
         expect(() => run(vm, ["begin",
-            ["let", [["x", ["lambda", ["x"], ["print", ["$", "x"]]]]],
+            ["let", [["x", ["fn", ["x"], ["print", ["$", "x"]]]]],
                 [thrice, ["$", "x"], "hi"],
                 [thrice, ["$", "x"], "bye"]]
-        ])).toThrow("Cannot call JEB lambda.");
+        ])).toThrow("Cannot call JEB fn.");
         // expect(out).toEqual(["hi", "hi", "hi", "bye", "bye", "bye"]);
     });
 });

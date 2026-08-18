@@ -31,3 +31,10 @@ export class ReferenceWrapper extends Wrapper {
     flag = "ref" as const;
     declare obj: Reference;
 }
+
+/**
+ * Wrapper for a macro result
+ */
+export class MacroWrapper extends Wrapper {
+    flag = "macro" as const;
+}

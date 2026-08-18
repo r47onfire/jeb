@@ -2,7 +2,7 @@ export { loadBuiltins } from "./builtins";
 export { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, defineUnwrapper, NOTHING } from "./builtins/define";
 export { implicitBegin } from "./builtins/implicitBegin";
 export { ObjectPropertyReference, VariableReference } from "./builtins/reference";
-export { BuiltinFunction, CallableClass, Lambda } from "./callable";
+export { BuiltinFunction, CallableClass, Fun } from "./callable";
 export { Continuation, DynamicWind, type Windable } from "./continuation";
 export * from "./doc";
 export { Env } from "./env";

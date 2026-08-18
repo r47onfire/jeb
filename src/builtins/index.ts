@@ -6,14 +6,14 @@ import { parse, stringify } from "lib0/json";
 import { add } from "lib0/math";
 import { keys } from "lib0/object";
 import { Err, Ok, Result } from "ts-res";
-import { BuiltinFunction, CallableSignature, createSignature, Lambda, Laziness } from "../callable";
+import { BuiltinFunction, CallableSignature, createSignature, Fun, Laziness } from "../callable";
 import { Continuation, Windable } from "../continuation";
 import { Env } from "../env";
 import { ALL_ERRORS, checkNothingOrPush, JEBError, JEBSyntaxError, JEBTypeError, JEBValueError, wrapThrowToError } from "../errors";
 import { float, numberOp, Relation } from "../math";
 import { AccessType, Reference, theTypeName, typeOf } from "../protocol";
 import { JebVM } from "../vm";
-import { ReferenceWrapper } from "../wrapper";
+import { MacroWrapper, ReferenceWrapper } from "../wrapper";
 import { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, NOTHING } from "./define";
 import { registerDoargs } from "./doargs";
 import { implicitBegin } from "./implicitBegin";
@@ -72,11 +72,17 @@ Examples:
 .param {boolean?} [tailcall=false]
 .sed value -- evaled
 . Evaluates the top item of the stack. An array gets interpreted as a call and passed to [[jeb:apply]], an object has all its properties evaluated and reassembled, and anything else is treated as a literal and left as-is.`);
-    defineBuiltin(vm, "eval", ["arg"], false, ({ arg }, vm) => { vm.pushData(arg); vm.pushCommand("jeb:eval"); return NOTHING; },
+    defineBuiltin(vm, "eval", ["arg"], ({ arg }, vm) => { vm.pushData(arg); vm.pushCommand("jeb:eval"); return NOTHING; },
         `.func (eval arg)
-..param {any} arg
+..param {code} arg
 .returns {any}
 . Evaluates \`arg\` in the current environment.`);
+
+    defineBuiltin(vm, "macro", ["code"], ({code}) => new MacroWrapper(code),
+        `.func (macro code)
+..param {code} code
+. Wraps the code in a special object that causes it to be evaluated using [[eval]] in the scope of where it was used and the result of the evaluation used in place of the actual code object.
+This can be used to create an unhygienic syntactic macro by returning the wrapper immediately.`)
 
     defineEvaluator(vm, ["object"], (vm, { 0: code }) => {
         if (code === null) {
@@ -116,9 +122,8 @@ Examples:
         if (!applier) {
             throw new JEBTypeError(`can't call ${theTypeName(typeOf(func))}`, { return: vm.cc() });
         }
-        const { name, macro, signature, closureEnv } = applier.describe(vm, func);
+        const { name, signature, closureEnv } = applier.describe(vm, func);
         if (name && !tail) vm.pushCommand("jeb:tb_pop");
-        if (macro) vm.pushCommand("jeb:eval");
         applier.run(vm, [func], { tail: tail ?? false });
         if (name) vm.pushCommand("jeb:tb_push", name, tail);
         vm.pushCommand("jeb:doargs", signature, closureEnv, noEval ?? false);
@@ -197,17 +202,18 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 .param {boolean?} [readonly=false]
 .sed value lvalue -- value
 . Takes an LValue on the top of the stack and calls the \`set()\` method with the next item in the stack as the value to set.`);
-    defineBuiltin(vm, "$", ["name"], false, ({ name }, vm) => {
+    defineBuiltin(vm, "$", ["name"], ({ name }, vm) => {
         vm.pushCommand("jeb:wrap", ReferenceWrapper);
         vm.pushCommand("jeb:index", AccessType.VARIABLE);
         vm.pushData(vm.currentEnv);
         return name;
-    }, `.func ($ name)
+    },
+        `.func ($ name)
 ..param {string} name
 .throws jeb:reference_error - if the name is not defined anywhere
 .returns {any}
 . Look up the variable with this name in the current environment.`);
-    defineBuiltin(vm, ".", ["obj", "name"], false, ({ obj, name }, vm) => {
+    defineBuiltin(vm, ".", ["obj", "name"], ({ obj, name }, vm) => {
         vm.pushCommand("jeb:wrap", ReferenceWrapper);
         vm.pushCommand("jeb:index", AccessType.PROPERTY);
         vm.pushData(obj);
@@ -219,18 +225,18 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 . Returns a reference to the \`obj[name]\`.`);
     defineOpcode(vm, "jeb:set/internal/nested", vm => vm.pushData({ _: vm.popData() }), null);
     defineOpcode(vm, "jeb:set/internal", (vm, { 0: valueExpr, 1: old }) => {
-        const lambda = new Lambda(false, true, undefined, ONE_UNDERSCORE_QUOTED, [valueExpr], vm.currentEnv, "");
+        const fn = new Fun(true, undefined, ONE_UNDERSCORE_QUOTED, [valueExpr], vm.currentEnv, "");
         // accessor is first on stack
         if (old) vm.pushCommand("jeb:shuffle", 1, []);
         vm.pushCommand("jeb:set");
         vm.pushCommand("jeb:shuffle", 2, [1, 0]);
-        vm.pushCommand("jeb:lambda/invoke", lambda, false);
+        vm.pushCommand("jeb:fn/invoke", fn, false);
         vm.pushCommand("jeb:set/internal/nested");
         if (old) vm.pushCommand("jeb:shuffle", 2, [1, 0, 1]);
         vm.pushCommand("jeb:get", true);
         vm.pushCommand("jeb:shuffle", 1, [0, 0]);
     }, null);
-    defineBuiltin(vm, "set", [[["ref"], "ref"], [true, "value"], ["old", false]], false, ({ ref, value, old }, vm) => {
+    defineBuiltin(vm, "set", [[["ref"], "ref"], [true, "value"], ["old", false]], ({ ref, value, old }, vm) => {
         if (!isinstance(ref, ReferenceWrapper)) {
             throw new JEBTypeError(`cannot assign to ${theTypeName(typeOf(ref))}`);
         }
@@ -269,7 +275,7 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 .param {JEBError} err
 .sed -- (does not return)
 . Throws the error, but allows [[with]] handlers to catch it before throwing to Javascript.`);
-    defineBuiltin(vm, "throw", ["err"], false, ({ err }, vm) => {
+    defineBuiltin(vm, "throw", ["err"], ({ err }, vm) => {
         if (!isinstance(err, JEBError)) throw new JEBTypeError("errors must inherit from JEBError");
         throw err;
     },
@@ -278,14 +284,14 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 .returns {never}
 . Throw an error. If we're inside a [[with]] block, it will trigger the \`exit\` handler of the context object to possibly handle the error.
 If the error is not handled, it will be thrown as a Javascript error, causing the program to halt.`);
-    defineBuiltin(vm, "err", [["message", "no message"], ["type", ,], ["up", 0]], false, ({ message, type, up }, vm) => new (ALL_ERRORS[type] ?? class extends JEBError { get tag() { return type } })(message, {}, vm.tracebackArray(up)),
+    defineBuiltin(vm, "err", [["message", "no message"], ["type", ,], ["up", 0]], ({ message, type, up }, vm) => new (ALL_ERRORS[type] ?? class extends JEBError { get tag() { return type } })(message, {}, vm.tracebackArray(up)),
         `.func (err message type up)
 ..param {string?} [message="no message"]
 ..param {string?} type - type code for error (to look up the correct class)
 ..param {number?} [up=0] - number of stack frames to drop (in order to e.g. attribute the error to the caller)
 . Creates a new error object, but does not actually throw it (use [[throw]] for that).`);
     // MARK: with
-    defineBuiltin(vm, "with", [[true, "binding"], "context", [true, "body"], true], false, ({ binding, context, body }, vm) => {
+    defineBuiltin(vm, "with", [[true, "binding"], "context", [true, "body"], true], ({ binding, context, body }, vm) => {
         if (!isString(binding) && binding !== null) {
             throw new JEBTypeError("expected variable name or null as first argument to \"with\"")
         }
@@ -361,66 +367,62 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
 .throws jeb:ffi_error - if the FFI'ed function throws an error`);
     defineOpcode(vm, "jeb:ffi/invokeFunction", (vm, { 0: f }) => vm.pushData(wrapThrowToError(vm, JEBError, () => f(...vm.popData()._))), null);
 
-    defineBuiltin(vm, "nil?", ["value"], false, ({ value }) => undefinedToNull(value) === null,
+    defineBuiltin(vm, "nil?", ["value"], ({ value }) => undefinedToNull(value) === null,
         `.func (nil? value)
 ..param {any} value
 .returns {boolean}
 . \`true\` if the object is Javascript \`undefined\` or \`null\`. Any other value (including \`false\`, \`""\`, or \`[]\`) is considered not-null, even though it might still be falsy.`);
 
-    // MARK: lambda applier
-    defineApplier(vm, [Lambda], (vm, { 0: lambda }, { tail }) => vm.pushCommand("jeb:lambda/invoke", lambda, tail),
-        (_, lambda) => ({
-            name: lambda.isImplicit ? undefined : lambda.name ?? (lambda.isMacro ? "[macro]" : "[lambda]"),
-            macro: lambda.isMacro,
-            signature: lambda.signature,
-            closureEnv: lambda.closureEnv,
+    // MARK: fn applier
+    defineApplier(vm, [Fun], (vm, { 0: fn }, { tail }) => vm.pushCommand("jeb:fn/invoke", fn, tail),
+        (_, fn) => ({
+            name: fn.isImplicit ? undefined : fn.name ?? "[anonymous]",
+            signature: fn.signature,
+            closureEnv: fn.closureEnv,
         }),
         "\"Compiled\" wrapper for a function or macro defined entirely out of JEB code (which is just JSON).");
-    defineOpcode(vm, "jeb:lambda/invoke/resetEnv", (vm, { 0: env }) => vm.currentEnv = env, null);
-    defineOpcode(vm, "jeb:lambda/invoke", (vm, { 0: lambda, 1: tail }) => {
-        if (!tail) vm.pushCommand("jeb:lambda/invoke/resetEnv", vm.currentEnv);
+    defineOpcode(vm, "jeb:fn/invoke/resetEnv", (vm, { 0: env }) => vm.currentEnv = env, null);
+    defineOpcode(vm, "jeb:fn/invoke", (vm, { 0: fn, 1: tail }) => {
+        if (!tail) vm.pushCommand("jeb:fn/invoke/resetEnv", vm.currentEnv);
         const argvObject = vm.popData();
-        const callEnv = vm.createEnv(lambda.closureEnv);
+        const callEnv = vm.createEnv(fn.closureEnv);
         for (var { 0: name, 1: value } of Object.entries(argvObject)) callEnv.add(name, value);
-        if (!lambda.isImplicit) callEnv.add("return", vm.cc());
+        if (!fn.isImplicit) callEnv.add("return", vm.cc());
         vm.currentEnv = callEnv;
-        return implicitBegin(vm, lambda.body);
+        return implicitBegin(vm, fn.body);
     }, null);
-    const lambdaHelper = (name: string, isMacro: boolean, kind: string, extra: string) => {
-        defineBuiltin(vm, name, [[true, "params"], [true, "body"], true], false, ({ params, body }, vm) => {
-            var isImplicit = false;
-            if (typeof params === "boolean") {
-                isImplicit = params;
-                params = body[0];
-                body = body.slice(1);
-            }
-            var docstring = "";
-            if (isString(body[0]) && body.length > 1) {
-                docstring = body[0];
-                body = body.slice(1);
-            }
-            return new Lambda(isMacro, isImplicit, undefined, wrapThrowToError(vm, JEBSyntaxError, () => createSignature(params)), body, vm.currentEnv, docstring);
-        },
-            `.macro (${name} (parameters...) body...) (${name} true (parameters...) docstring body...)
-The form with \`true\` right after the \`${kind}\` defines it as an implicit ${kind}, where the special \`return\` continuation is not injected and the call will not show up in the traceback of an error (it would normally show as \`[${kind}]\` unless assigned to a name).
+
+    defineBuiltin(vm, "fn", [[true, "params"], [true, "body"], true], ({ params, body }, vm) => {
+        var isImplicit = false;
+        if (typeof params === "boolean") {
+            isImplicit = params;
+            params = body[0];
+            body = body.slice(1);
+        }
+        var docstring = "";
+        if (isString(body[0]) && body.length > 1) {
+            docstring = body[0];
+            body = body.slice(1);
+        }
+        return new Fun(isImplicit, undefined, createSignature(params), body, vm.currentEnv, docstring);
+    },
+        `.macro (fn (parameters...) body...) (fn true (parameters...) docstring body...)
+The form with \`true\` right after the \`fn\` defines it as an implicit function, where the special \`return\` continuation is not injected and the call will not show up in the traceback of an error (it would normally show as \`[anonymous]\` unless assigned to a name).
 ..param {...} parameters - list of parameter names and flags
 There are many forms that the paremeter can take to control is behavior at call time:
 * \`bare string name\` - normal required parameter.
-* \`[string name, default]\` - the parameter is optional, and if it is not provided in a call, then the value of \`default\` is evaluated in a dynamic environment of both the environment in which the ${kind} was defined, as well as the environment from which it was called.
-* \`[true, string name]\` - defines the parameter to be a macro control parameter; the value the ${kind} body sees is the **unevaluated AST** of the expression instead of the result of evaluating the expression
-* \`[false, string name]\` - defines the parameter to be a "lazy" parameter; the value the ${kind} body sees is a [[block]] wrapper object for the expression's unevaluated AST instead
-* \`[flags list, string name]\` - normal required parameter, except that return values wrapped with special wrappers matching names in the flags list are **not** unwrapped, allowing the ${kind} body to operate on the wrapper itself directly
+* \`[string name, default]\` - the parameter is optional, and if it is not provided in a call, then the value of \`default\` is evaluated in a dynamic environment of both the environment in which the function was defined, as well as the environment from which it was called.
+* \`[true, string name]\` - defines the parameter to be a macro control parameter; the value the function body sees is the **unevaluated AST** of the expression instead of the result of evaluating the expression
+* \`[false, string name]\` - defines the parameter to be a "lazy" parameter; the value the function body sees is a [[block]] wrapper object for the expression's unevaluated AST instead
+* \`[flags list, string name]\` - normal required parameter, except that return values wrapped with special wrappers matching names in the flags list are **not** unwrapped, allowing the function body to operate on the wrapper itself directly
 * \`[flags list, string name, default]\` - same as above with flags and default semantics
 * \`[flags list, false, string name]\` - same as block wrapper form with flags to prevent unwrapping of other types
 * \`true\` or \`false\` after a parameter - defines the parameter to be a rest parameter (for \`true\`) or keyword rest parameter (for \`false\`) that will be an array or object at runtime filled with all the positional or keyword arguments given after it. It cannot have a default since defining it as a rest parameter implicitly defines the default as \`[]\` or \`{}\`.
-..param {string} docstring - Defines the documentation string for this ${kind}. The first element of the body will only be interpreted as a docstring if there is at least one statement after it (rendering the string otherwise pointless).
-..param {code} body... - Statements to be executed in sequence (as with [[begin]]) to calculate the return value of the ${kind}.
-...injected {Continuation} return - if the first element after the \`${name}\` is not \`true\`, a continuation jumping back to where the ${kind} was called from is injected into the \`return\` variable.
-.returns {Lambda}
-. Returns a new anonymous ${kind} with the specified parameters, documentation string, and body.${extra}`);
-    }
-    lambdaHelper("lambda", false, "function", "");
-    lambdaHelper("macro", true, "macro", "\nA macro differs from a normal function in that the return value of the macro is assumed to be an executable AST rather than just data, and is evaluated again the the scope that the macro was called from (and errors arising from this code will say 'expanded from macro [name]' in the traceback).");
+..param {string} docstring - Defines the documentation string for this function. The first element of the body will only be interpreted as a docstring if there is at least one statement after it (rendering the string otherwise pointless).
+..param {code} body... - Statements to be executed in sequence (as with [[begin]]) to calculate the return value of the function.
+...injected {Continuation} return - if the first element after \`fn\` is not \`true\`, a continuation jumping back to where the function was called from is injected into the \`return\` variable.
+.returns {Fun}
+. Returns a new anonymous function with the specified parameters, documentation string, and body.`);
 
     // MARK: continuation applier
     defineApplier(vm, [Continuation], (vm, { 0: k }) => {
@@ -467,7 +469,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 ..sed condition -- ???`);
 
     // MARK: Scheme analogs
-    defineBuiltin(vm, "if", ["condition", [true, "then"], [true, "else", null]], false, ({ condition, then, else: else_ }, vm) => {
+    defineBuiltin(vm, "if", ["condition", [true, "then"], [true, "else", null]], ({ condition, then, else: else_ }, vm) => {
         vm.pushCommand("jeb:if", then, else_);
         return condition;
     },
@@ -477,41 +479,42 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 ..param {code} [else=null] - case to be evaluated if \`cond\` is falsy
 .returns {any}`);
 
-    defineBuiltin(vm, "begin", [[true, "body"], true], false, ({ body }, vm) => implicitBegin(vm, body!),
+    defineBuiltin(vm, "begin", [[true, "body"], true], ({ body }, vm) => implicitBegin(vm, body!),
         `.macro (begin body...)
 ..param {code} body...
 .returns {any | null} - null if \`body\` is empty, otherwise returns the result of the last body statement
 . Runs each of the body statements in order.`);
 
-    defineBuiltin(vm, "let", [[true, "__args"], true], false, (ao, vm) => {
+    defineBuiltin(vm, "let", [[true, "__args"], true], (ao, vm) => {
         const args = ao.__args!;
         if (isString(args[0])) {
-            // rewrite (let loop ((x 1) (y 2)) body) to ((lambda (loop) (set! loop (lambda (x y) body)) (loop 1 2)) null)
+            // rewrite (let loop ((x 1) (y 2)) body) to ((fn (loop) (set! loop (fn (x y) body)) (loop 1 2)) null)
             const loopname = args[0];
             const bindings = args[1] as [string, any][];
             const body = args.slice(2);
             const params = bindings.map(b => b[0]);
             const initializers = bindings.map(b => b[1]);
-            vm.pushData([["lambda", true, [loopname], ["set", ["$", loopname], ["lambda", true, params, ...body]], [loopname, ...initializers]], null]);
+            vm.pushData([["fn", true, [loopname], ["set", ["$", loopname], ["fn", true, params, ...body]], [loopname, ...initializers]], null]);
         } else {
-            // rewrite (let ((x 1) (y 2)) body) to ((lambda (x y) body) 1 2)
+            // rewrite (let ((x 1) (y 2)) body) to ((fn (x y) body) 1 2)
             const bindings = args[0] as [string, any][];
             const body = args.slice(1);
             const params = bindings.map(b => b[0]);
             const initializers = bindings.map(b => b[1]);
-            vm.pushData([["lambda", true, params, ...body], ...initializers]);
+            vm.pushData([["fn", true, params, ...body], ...initializers]);
         }
         vm.pushCommand("jeb:eval");
         return NOTHING;
-    }, `.macro (let pairs body...)
+    },
+        `.macro (let pairs body...)
 .macro (let loopname pairs body...)
-..param {string} loopname - variable name in which a reference to the entire \`let\` is put. \`let\` just expands to a [[lambda]] expression, and the loopname variable allows \`body\` to recursively call that \`lambda\`.
+..param {string} loopname - variable name in which a reference to the entire \`let\` is put. \`let\` just expands to a [[fn]] expression, and the loopname variable allows \`body\` to recursively call that \`fn\`.
 ...receives {(...names: (typeof pairs)[number][1]) => any}
 .param {[name: string, expression: code][]} pairs
 .param {code} body...
 . Each of the pairs' *expression*s will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.`);
 
-    defineBuiltin(vm, "let-in", ["pairs", true], false, ({ pairs: args }, vm) => {
+    defineBuiltin(vm, "let-in", ["pairs", true], ({ pairs: args }, vm) => {
         if ((args.length & 1) > 0) {
             throw new JEBSyntaxError("let-in should have an even number of arguments");
         }
@@ -535,7 +538,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 . Creates a new environment with the given name-value pairs as its bindings, and switches to it. Everything after this will be in the new environment.
 Functions much like [[let]] but with an implicit block after it that continues to the end of the outer block instead of explicit.`);
 
-    defineBuiltin(vm, "define", [[true, "definition"], true], false, (ao, vm) => {
+    defineBuiltin(vm, "define", [[true, "definition"], true], (ao, vm) => {
         const args = ao.definition!;
         const name = args[0] as string | string[];
         const setHelper = (name: string, thing: any) => {
@@ -545,15 +548,7 @@ Functions much like [[let]] but with an implicit block after it that continues t
             vm.pushData(new VariableReference(AccessType.VARIABLE, vm.currentEnv, name));
             vm.pushData(thing);
         };
-        if (typeof name === "boolean" && name && isArray(args[1])) {
-            // macro definition: (define true (f x y) body)
-            const name2 = args[1];
-            const funcName = name2[0] as string;
-            const params = name2.slice(1) as string[];
-            const body = args.slice(2);
-            setHelper(funcName, ["macro", params, ...body]);
-        }
-        else if (isString(name)) {
+        if (isString(name)) {
             // variable definition: (define x 10)
             setHelper(name, args[1]);
         }
@@ -562,7 +557,7 @@ Functions much like [[let]] but with an implicit block after it that continues t
             const funcName = name[0] as string;
             const params = name.slice(1) as string[];
             const body = args.slice(1);
-            setHelper(funcName, ["lambda", params, ...body]);
+            setHelper(funcName, ["fn", params, ...body]);
         }
         else throw new JEBSyntaxError("invalid define syntax");
         return NOTHING;
@@ -573,12 +568,7 @@ Defines a simple name=value.
 ...receives {T}
 ..param {T} value
 .macro (define (name params...) body...)
-Expands into a [[lambda]].
-..param {string} name
-..param {...} params...
-..param {code} body...
-.macro (define #t (name params...) body...)
-Expands into a [[macro]].
+Expands into a [[fn]].
 ..param {string} name
 ..param {...} params...
 ..param {code} body...
@@ -591,7 +581,7 @@ Expands into a [[macro]].
         big: (x: bigint) => any,
         doc: string,
     ) => {
-        defineBuiltin(vm, operator, ["a", ["b", NOTHING]], false, ({ a, b }, vm) => {
+        defineBuiltin(vm, operator, ["a", ["b", NOTHING]], ({ a, b }, vm) => {
             var f: () => Result<any, any>;
             if (b === NOTHING) {
                 if (op1 === undefined) {
@@ -630,13 +620,13 @@ Expands into a [[macro]].
     mathHelper("bit-and", "bitAnd", undefined, numberOp((a, b) => a & b), id, id, "Computes the bitwise AND of all numbers.");
     mathHelper("bit-or", "bitOr", undefined, numberOp((a, b) => a | b), id, id, "Computes the bitwise OR of all numbers.");
     mathHelper("bit-xor", "bitXor", undefined, numberOp((a, b) => a ^ b), id, id, "Computes the bitwise XOR of all numbers.");
-    defineBuiltin(vm, "bit-inv", ["a"], false, ({ a }) => ~a, `.func (bit-inv number)
+    defineBuiltin(vm, "bit-inv", ["a"], ({ a }) => ~a, `.func (bit-inv number)
 ..param {number} a
 . Computes the two's complement signed bitwise inverse of the number.`);
 
     // comparisons
     const comparisonHelper = (op: string, bits: Relation, doc: string) => {
-        defineBuiltin(vm, op, ["items", true], false, ({ items: a }, vm) => {
+        defineBuiltin(vm, op, ["items", true], ({ items: a }, vm) => {
             if (a.length < 2) return true;
             for (var i = 1; i < a.length; i++) {
                 const arg = [a[i - 1], a[i], bits] as [any, any, Relation];
@@ -682,17 +672,18 @@ Expands into a [[macro]].
     });
 
     // MARK: booleans
-    defineBuiltin(vm, "not", ["value"], false, ({ value }) => !value, `.func (not value)
+    defineBuiltin(vm, "not", ["value"], ({ value }) => !value, `.func (not value)
 ..param {any} value
 .returns {boolean} - True if \`value\` is falsy (false, zero, undefined, null, or empty string), false otherwise.
 . Boolean inverse.`);
     const booleanHelper = (name: string, shortCircuitOn: boolean) => {
-        defineBuiltin(vm, name, ["a", [true, "b"]], false, ({ a, b }, vm: JebVM) => {
+        defineBuiltin(vm, name, ["a", [true, "b"]], ({ a, b }, vm: JebVM) => {
             if ((!!a) === shortCircuitOn) return a;
             vm.pushData(b);
             vm.pushCommand("jeb:eval", true);
             return NOTHING;
-        }, `.macro (${name} a b)
+        },
+            `.macro (fn a b)
 ..param {any} values...
 . Boolean ${name.toUpperCase()} (short-circuits).
 Evaluates \`a\`, if the result is ${shortCircuitOn ? "truthy" : "falsy"}, returns it, otherwise evaluates \`b\` and returns that.`);
@@ -701,17 +692,17 @@ Evaluates \`a\`, if the result is ${shortCircuitOn ? "truthy" : "falsy"}, return
     booleanHelper("or", true);
 
     // MARK: lists
-    defineBuiltin(vm, "list", ["values", true], false, ({ values }) => values, `.func (list values...)
+    defineBuiltin(vm, "list", ["values", true], ({ values }) => values, `.func (list values...)
 ..param {T} values...
 .returns {T[]}
 . Returns the arguments in a list.`);
-    defineBuiltin(vm, "head", ["list"], false, ({ list }) => list[0], `.func (head list)
+    defineBuiltin(vm, "head", ["list"], ({ list }) => list[0], `.func (head list)
 ..param {T[]} list
 .returns {T} - The first element in the list`);
-    defineBuiltin(vm, "tail", ["list"], false, ({ list }) => list.slice(1), `.func (tail list)
+    defineBuiltin(vm, "tail", ["list"], ({ list }) => list.slice(1), `.func (tail list)
 ..param {T[]} list
 ..returns {T[]} - A copy of the list without the first element`);
-    defineBuiltin(vm, "concat", ["lists", true], false, ({ lists }) => {
+    defineBuiltin(vm, "concat", ["lists", true], ({ lists }) => {
         const out: any[] = [];
         for (var arg of lists) {
             try {
@@ -728,24 +719,24 @@ If an argument is not a list, the value is coerced to a list using the Javascrip
 . Concatenates the lists, and returns a new list.`)
 
     // MARK: metaprogramming
-    defineBuiltin(vm, "quote", [[true, "expr"]], false, ({ expr }) => expr, `.macro (quote expr) | (' expr) | 'expr
+    defineBuiltin(vm, "quote", [[true, "expr"]], ({ expr }) => expr, `.macro (quote expr) | (' expr) | 'expr
 ..param {code} expr
 .returns {code}
 . Prevents its argument from being evaluated.`);
     alias(vm, "quote", "'");
-    defineBuiltin(vm, "quasiquote", [[true, "value"]], true, ({ value }, vm) => processQuasiquote(vm, value, 1),
+    defineBuiltin(vm, "quasiquote", [[true, "value"]], ({ value }, vm) => new MacroWrapper(processQuasiquote(vm, value, 1)),
         `.macro (quasiquote value) | (~ value) | ~value
 ..param {any} value
 .returns {any}
 . Prevents \`value\` from being evaluated, but walks the elements and replaces [[unquote]] and [[unquoteSplicing]] with the results of evaluating their arguments. The argument to [[unquoteSplicing]] must be a list.`);
     alias(vm, "quasiquote", "~");
 
-    defineBuiltin(vm, "unquote", [[true, "value"]], false, (_, vm) => { throw new JEBSyntaxError("unquote" + " not valid outside of quasiquote", { return: vm.cc() }); },
+    defineBuiltin(vm, "unquote", [[true, "value"]], (_, vm) => { throw new JEBSyntaxError("unquote" + " not valid outside of quasiquote", { return: vm.cc() }); },
         `.macro (unquote value) | (, value) | ,value
 .returns {never}
 .throws jeb:syntax_error - when called as a normal function outside of a [[quasiquote]].
 . Marks a value to be interpolated inside a [[quasiquote]].`);
-    defineBuiltin(vm, "unquoteSplicing", [[true, "value"]], false, (_, vm) => { throw new JEBSyntaxError("unquoteSplicing" + " not valid outside of quasiquote", { return: vm.cc() }); },
+    defineBuiltin(vm, "unquoteSplicing", [[true, "value"]], (_, vm) => { throw new JEBSyntaxError("unquoteSplicing" + " not valid outside of quasiquote", { return: vm.cc() }); },
         `.macro (unquoteSplicing value) | (,@ value) | ,@value
 .returns {never}
 .throws jeb:syntax_error - when called as a normal function outside of a [[quasiquote]].
@@ -753,13 +744,13 @@ If an argument is not a list, the value is coerced to a list using the Javascrip
     alias(vm, "unquote", ",");
     alias(vm, "unquoteSplicing", ",@");
 
-    defineBuiltin(vm, "parseJSON", ["json"], false, ({ json }, vm) => wrapThrowToError(vm, JEBValueError, () => parse(json)),
+    defineBuiltin(vm, "parseJSON", ["json"], ({ json }, vm) => wrapThrowToError(vm, JEBValueError, () => parse(json)),
         `.func (parseJSON json)
 ..param {string} json
 .throws jeb:value_error - if the string is not valid JSON
 .returns {any}
 . Parses the string using \`JSON.parse()\` and returns the object.`);
-    defineBuiltin(vm, "dumpJSON", ["value"], false, ({ value }, vm) => wrapThrowToError(vm, JEBValueError, () => stringify(value)),
+    defineBuiltin(vm, "dumpJSON", ["value"], ({ value }, vm) => wrapThrowToError(vm, JEBValueError, () => stringify(value)),
         `.func (dumpJSON value)
 ..param {any} value
 .throws jeb:value_error - if \`value\` contains something that can't be serialized, such as a function or circular reference
@@ -942,7 +933,7 @@ const ALL_UNDERSCORE_NORMAL: CallableSignature = {
 // In both cases if the handler exists, \`true\` is returned to [[with]] to stop propagation of the error. If the handler wants to propagate the error, it should re-throw it using [[error]].`,
 //         ["quasiquote", ["let", [["handlers", ["unquote", ["$", "handlers"]]]],
 //             ["with", null, {
-//                 exit: ["lambda", ["k", "type", "message", "ctx"],
+//                 exit: ["fn", ["k", "type", "message", "ctx"],
 //                     ["let",
 //                         [
 //                             ["handler", ["$", ["handlers", ["$", "type"]]]],
@@ -967,11 +958,11 @@ const ALL_UNDERSCORE_NORMAL: CallableSignature = {
 // .throws jeb:state_error - if a continuation tries to jump in or out.
 // . Prevents continuations from jumping in or out of \`body\`; only normal control flow or exceptions can be used to enter or exit.`,
 //         ["quasiquote", ["with", null, {
-//             enter: ["lambda", ["k"],
+//             enter: ["fn", ["k"],
 //                 ["when", ["$", "k"],
 //                     ["error", "jeb:state_error", "Continuation tried to jump into a 'with-baffle' block", {}]],
 //                 null],
-//             exit: ["lambda", ["k", "_", true],
+//             exit: ["fn", ["k", "_", true],
 //                 ["when", ["$", "k"],
 //                     ["error", "jeb:state_error", "Continuation tried to jump out of a 'with-baffle' block", {}]],
 //                 false]
@@ -995,7 +986,7 @@ const ALL_UNDERSCORE_NORMAL: CallableSignature = {
 //         ["if", ["zero?", ["length", ["$", "items"]]],
 //             ["$", "value"],
 //             ["quasiquote",
-//                 [["lambda", true, ["%"],
+//                 [["fn", true, ["%"],
 //                     ["|>", ["unquoteSplicing", ["$", "items"]]]],
 //                 ["unquote", ["$", "value"]]]]]],
 //     ["define", ["reduce", "list", "f", "value"],
@@ -1020,7 +1011,7 @@ const ALL_UNDERSCORE_NORMAL: CallableSignature = {
 // . Return a new list with the result of applying the function to each element of the list in order.`,
 //         ["reduce",
 //             ["$", "list_"],
-//             ["lambda", ["acc", "cur"],
+//             ["fn", ["acc", "cur"],
 //                 ["concat", ["$", "acc"], ["list", ["f", ["$", "cur"]]]]],
 //             ["list"]]],
 //     ["define", true, ["while", "cond", "body", true],

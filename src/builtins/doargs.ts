@@ -36,11 +36,11 @@ export class DoargsState {
         this.#paramsIndex = paramsIndex;
         this.#seenKeyword = seenKeyword;
         this.#seenByName = seenByName;
-        if (params.rest && !(params.rest.name in this.#argsObj)) {
-            this.#argsObj[params.rest.name] = [];
+        if (params.rest) {
+            this.#argsObj[params.rest.name] ??= [];
         }
-        if (params.kwRest && !(params.kwRest.name in this.#argsObj)) {
-            this.#argsObj[params.kwRest.name] = {};
+        if (params.kwRest) {
+            this.#argsObj[params.kwRest.name] ??= {};
         }
     }
 
@@ -195,16 +195,6 @@ export class DoargsState {
             paramsIndex: this.#paramsIndex + paramsDelta,
             rawArgsIndex: this.#rawArgsIndex + rawDelta,
         });
-    }
-    #inspect() {
-        return {
-            params: this.#params,
-            givenArguments: this.#givenArgs,
-            argsSoFar: this.#argsObj,
-            givenIndex: this.#rawArgsIndex,
-            parameterIndex: this.#paramsIndex,
-            hasSeenKeyword: this.#seenKeyword,
-        }
     }
 }
 

@@ -1,7 +1,7 @@
 import { isinstance } from "@r47onfire/game-math";
 import { JebVM } from "../vm";
 import { defineOpcode, defineUnwrapper } from "./define";
-import { ReferenceWrapper, Wrapper } from "../wrapper";
+import { MacroWrapper, ReferenceWrapper, Wrapper } from "../wrapper";
 
 export const registerUnwrap = (vm: JebVM) => {
     defineOpcode(vm, "jeb:wrap", (vm, args) => {
@@ -30,4 +30,8 @@ export const registerUnwrap = (vm: JebVM) => {
         vm.pushCommand("jeb:get", true);
         vm.pushData(obj);
     }, "Unwraps a reference");
+    defineUnwrapper(vm, [MacroWrapper], (vm, { 0: { obj } }) => {
+        vm.pushCommand("jeb:eval");
+        vm.pushData(obj);
+    }, "Unwraps a macro expansion thing");
 }

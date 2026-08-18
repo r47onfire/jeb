@@ -147,7 +147,7 @@ export abstract class CallableClass extends class { constructor(self: object) { 
      */
     abstract __new__(...args: any[]): any;
     /**
-     * "Private" kludge to prevent stuff that tests for "function" and automatically
+     * "Private" kludge to prevent stuff that tests for typeof=="function" and automatically
      * `.bind()`s it to its owner from breaking.
      */
     private bind = () => this;
@@ -167,10 +167,6 @@ export class BuiltinFunction<S extends CallableSignature = CallableSignature> im
         public readonly name: string,
         public readonly signature: S,
         /**
-         * Whether the return value should be evaluated again in the caller's scope.
-         */
-        public readonly macro: boolean,
-        /**
          * The javascript function implementation.
          *
          * If the function returns the special value {@link NOTHING}, no
@@ -189,17 +185,13 @@ export class BuiltinFunction<S extends CallableSignature = CallableSignature> im
 }
 
 /**
- * A Lambda is a callable function or macro implemented as JEB code instead of
+ * A Fun is a callable function or macro implemented as JEB code instead of
  * a Javascript function.
  */
-export class Lambda<S extends CallableSignature<any, any, any>> extends CallableClass implements HasDocstring {
+export class Fun<S extends CallableSignature<any, any, any>> extends CallableClass implements HasDocstring {
     constructor(
         /**
-         * Whether the return value should be evaluated again in the caller's scope.
-         */
-        public readonly isMacro: boolean,
-        /**
-         * Whether the lambda should be hidden from stack traces.
+         * Whether the function should be hidden from stack traces.
          */
         public readonly isImplicit: boolean,
         /**
@@ -225,12 +217,12 @@ export class Lambda<S extends CallableSignature<any, any, any>> extends Callable
      * JEB lambdas are currently not callable via javascript.
      */
     __call__(): never {
-        throw new JEBStateError("Cannot call JEB lambda.");
+        throw new JEBStateError("Cannot call JEB fn.");
     }
     /**
      * JEB lambda are not class constructors.
      */
     __new__(): never {
-        throw new JEBStateError("Cannot construct from JEB lambda.");
+        throw new JEBStateError("Cannot construct from JEB fn.");
     }
 }

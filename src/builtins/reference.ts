@@ -1,6 +1,6 @@
 import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
-import { Lambda } from "../callable";
+import { Fun } from "../callable";
 import { Env } from "../env";
 import { JEBRecursionError, JEBReferenceError, JEBTypeError, wrapThrowToError } from "../errors";
 import { AccessType, Reference } from "../protocol";
@@ -43,7 +43,7 @@ export class VariableReference extends Reference {
                 throw new JEBTypeError(`${stringify(this.name)} is a constant`);
             }
         }
-        if (isinstance(value, Lambda)) value.name ??= this.name;
+        if (isinstance(value, Fun)) value.name ??= this.name;
     }
     protected referenceError(): never {
         throw new JEBReferenceError(this.notFoundMessage);

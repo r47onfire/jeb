@@ -1,5 +1,5 @@
 import { DoargsState } from "./builtins/doargs";
-import { BuiltinFunction, CallableSignature, Lambda } from "./callable";
+import { BuiltinFunction, CallableSignature, Fun } from "./callable";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
 import { JEBError } from "./errors";
@@ -30,8 +30,8 @@ export interface JEBOpcode {
     "jeb:with/install": [dw: DynamicWind];
     "jeb:with/teardown": [];
     "jeb:ffi/invokeFunction": [f: Function];
-    "jeb:lambda/invoke/resetEnv": [env: Env];
-    "jeb:lambda/invoke": [lambda: Lambda<any>, tailcallHint: boolean];
+    "jeb:fn/invoke/resetEnv": [env: Env];
+    "jeb:fn/invoke": [fn: Fun<any>, tailcallHint: boolean];
     "jeb:continuation/invoke": [k: Continuation];
     "jeb:if": [then: any, else_: any, isAsm?: false] | [then: Command | null, else_: Command | null, isAsm: true];
 }

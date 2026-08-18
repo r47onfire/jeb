@@ -23,9 +23,9 @@ export const NOTHING: unique symbol = Symbol("nothing");
  * e.g. an FFI callback).
  */
 
-export const defineBuiltin = <const T extends ShorthandArgument<any, any>[]>(vm: JebVM, name: string, signature: T, resultIsMacro: boolean, fn: BuiltinFunction<CallableSignatureFromShorthand<T>>["impl"], doc: string) => {
+export const defineBuiltin = <const T extends ShorthandArgument<any, any>[]>(vm: JebVM, name: string, signature: T, fn: BuiltinFunction<CallableSignatureFromShorthand<T>>["impl"], doc: string) => {
     if (vm.builtinsEnv.get(name).ok) throw new Error(`Builtin ${stringify(name)} is already defined`);
-    vm.builtinsEnv.addConst(name, new BuiltinFunction(name, createSignature(signature), resultIsMacro, fn as any, doc));
+    vm.builtinsEnv.addConst(name, new BuiltinFunction(name, createSignature(signature), fn as any, doc));
 };
 /**
  * Defines a new opcode for the VM.

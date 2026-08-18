@@ -80,7 +80,11 @@ describe("tag parsing failures", () => {
 
 describe("parse builtins docstrings", () => {
     describe("opcodes", () => {
-        test.each<[string, string]>(Object.entries(new JebVM().opcodes).flatMap(([name, [, doc]]) => doc ? [[name, doc]] : []))("%s", (_, doc) => {
+        test.each<[string, string]>(Object.entries(new JebVM().opcodes).flatMap(
+            // @ts-ignore
+            ([name, [, doc]]) =>
+                doc ? [[name, doc]] : [])
+        )("%s", (_, doc) => {
             const parsed = parseDoc(doc, OpcodeParsers);
             expect(parsed).toBeDefined();
             expect(parsed!.meta.length).toBeGreaterThan(0);

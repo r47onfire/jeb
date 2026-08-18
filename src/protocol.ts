@@ -85,10 +85,6 @@ export interface ApplyMetadata {
     name: string | undefined;
     signature: CallableSignature;
     /**
-     * True if the functor being called is a macro, and the result should be evaluated again in its caller's scope.
-     */
-    macro: boolean;
-    /**
      * The environment(s) that this function closes over on order to allow default value expressions to be evaluated in that environment.
      */
     closureEnv?: Env;
