@@ -1,14 +1,15 @@
-export { loadBuiltins } from "./builtins";
-export { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, defineUnwrapper, NOTHING } from "./builtins/define";
-export { implicitBegin } from "./builtins/implicitBegin";
-export { ObjectPropertyReference, VariableReference } from "./builtins/reference";
-export { BuiltinFunction, CallableClass, Fun } from "./callable";
-export { Continuation, DynamicWind, type Windable } from "./continuation";
+export * from "./builtins";
+export * from "./builtins/define";
+export * from "./builtins/implicitBegin";
+export * from "./builtins/reference";
+export * from "./callable";
+export * from "./continuation";
 export * from "./doc";
-export { Env } from "./env";
-export { ALL_ERRORS, compressStackTree, createStackInnerNode, createStackLeafNode, JEBError, JEBRecursionError, JEBStateError, JEBSyntaxError, JEBTypeError, JEBValueError, type StackTreeNode } from "./errors";
-export { numberOp, Relation, type BinaryFun } from "./math";
-export { AccessType, theTypeName, typeMatches, typeOf, type BaseProtocolObj, type DescribedProtocolObj, type JEBProtocols, type Reference as LValue, type ProtocolObj, type ProtocolsList, type Type, type TypeArrayValue, type TypeValue } from "./protocol";
-export { JebVM, type Command, type OpcodeFunction, type StackCount } from "./vm";
-export { Wrapper } from "./wrapper";
+export * from "./env";
+export * from "./errors";
+export * from "./math";
+export * from "./opcodeTypes";
+export * from "./protocol";
+export * from "./vm";
+export * from "./wrapper";
 

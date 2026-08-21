@@ -1,7 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { defineBuiltin, JEBError, JebVM, typeMatches } from "../src";
-import { LinkedList_toArray } from "@r47onfire/game-math";
+import { defineBuiltin, JebVM, typeMatches } from "../src";
 
 const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) => {
     const vm = new JebVM();
@@ -457,6 +456,39 @@ describe("metaprogramming", () => {
     });
 });
 
+describe("keyword and splat arguments", () => {
+    testTest("keyword arguments match by name regardless of order", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
+            ["pair", ["kw", "y", 2], ["kw", "x", 1]],
+        ])).toBeTrue();
+        expect(out).toEqual(["[1,2]"]);
+    });
+
+    testTest("positional splat arguments unpack iterables into positional slots", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
+            ["pair", ["splat", ["list", 1, 2]]],
+        ])).toBeTrue();
+        expect(out).toEqual(["[1,2]"]);
+    });
+
+    testTest("keyword splat arguments unpack objects into named slots", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
+            ["pair", ["splat", { x: 1, y: 2 }, true]],
+        ])).toBeTrue();
+        expect(out).toEqual(["[1,2]"]);
+    });
+
+    testTest("positional arguments can't follow keyword arguments", vm => {
+        expect(() => run(vm, ["begin",
+            ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
+            ["pair", ["kw", "x", 1], 2],
+        ])).toThrow("positional argument can't follow keyword argument");
+    });
+});
+
 describe("fns", () => {
     testTest("fn optional dynamic env", (vm, out) => {
         expect(run(vm, ["begin",
@@ -584,7 +616,7 @@ describe("FFI", () => {
             ["let", [["x", ["fn", ["x"], ["print", ["$", "x"]]]]],
                 [thrice, ["$", "x"], "hi"],
                 [thrice, ["$", "x"], "bye"]]
-        ])).toThrow("Cannot call JEB fn.");
+        ])).toThrow("cannot call JEB fn");
         // expect(out).toEqual(["hi", "hi", "hi", "bye", "bye", "bye"]);
     });
 });

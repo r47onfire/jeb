@@ -217,12 +217,12 @@ export class Fun<S extends CallableSignature<any, any, any>> extends CallableCla
      * JEB lambdas are currently not callable via javascript.
      */
     __call__(): never {
-        throw new JEBStateError("Cannot call JEB fn.");
+        throw new JEBStateError("cannot call JEB fn");
     }
     /**
      * JEB lambda are not class constructors.
      */
     __new__(): never {
-        throw new JEBStateError("Cannot construct from JEB fn.");
+        throw new JEBStateError("cannot construct from JEB fn");
     }
 }

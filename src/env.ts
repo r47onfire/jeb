@@ -58,15 +58,6 @@ export class Env {
         return undefined;
     }
     /**
-     * Generates a random symbol that isn't set anywhere already.
-     */
-    gensym() {
-        for (; ;) {
-            const name = `_${randchars()}`;
-            if (!this.get(name).ok) return name;
-        }
-    }
-    /**
      * returns a list of all the names visible here (direct and inherited)
      */
     getVisibleNames(): string[] {
@@ -74,6 +65,8 @@ export class Env {
     }
 }
 
-const randchars = () => {
-    return Math.random().toString(36).slice(2, 10);
-}
+var n = 0;
+/**
+ * Returns a new unique symbol with a unique number description (to differentiate it in printouts).
+ */
+export const gensym = () => Symbol(n++);

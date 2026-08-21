@@ -4,10 +4,11 @@ import { loadBuiltins } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
 import { createStackInnerNode, createStackLeafNode, JEBError, JEBRecursionError, JEBTypeError, StackTreeNode } from "./errors";
-import { JEBOpcode } from "./opcode_types";
+import { JEBOpcode } from "./opcodeTypes";
 import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
 import { Tuple } from "./utils";
 import { isArray } from "lib0/array";
+import { Wrapper } from "./wrapper";
 
 /**
  * Data for the command
@@ -62,7 +63,7 @@ export class JebVM {
         this.dataStack = LinkedList_push(this.dataStack, value);
     }
     #checkStack(n: number) {
-        if (LinkedList_length(this.dataStack) < n) throw new JEBError("Data stack underflow");
+        if (LinkedList_length(this.dataStack) < n) throw new JEBError("data stack underflow");
     }
     popNData(n: number) {
         this.#checkStack(n);
@@ -80,11 +81,13 @@ export class JebVM {
         this.#checkStack(1);
         return this.dataStack!.value;
     }
+    pushCommand<T extends keyof JEBOpcode>(name: T, ...args: JEBOpcode[T]): void;
+    pushCommand<T extends new (obj: any, ...args: A) => Wrapper, A extends any[]>(name: "jeb:wrap", ...args: [cls: T, ...extraArgs: A]): void;
     pushCommand<T extends keyof JEBOpcode>(name: T, ...args: JEBOpcode[T]) {
         this.commandStack = LinkedList_push(this.commandStack, [name, ...args]);
     }
     #popCommand() {
-        if (LinkedList_length(this.commandStack) === 0) throw new JEBError("Opcode stack underflow");
+        if (LinkedList_length(this.commandStack) === 0) throw new JEBError("opcode stack underflow");
         const { 0: value, 1: rest } = LinkedList_pop(this.commandStack!);
         this.commandStack = rest;
         return value;
@@ -196,7 +199,7 @@ export class JebVM {
      */
     popTraceback() {
         var cur = this.tracebackStack;
-        if (!cur) throw new JEBError("Traceback stack underflow");
+        if (!cur) throw new JEBError("traceback stack underflow");
 
         // drop all TCO'ed frames
         while (cur && cur.value.isTailCalled) {

@@ -5,7 +5,6 @@ import { Env } from "./env";
 import { JEBError } from "./errors";
 import { AccessType } from "./protocol";
 import { Command } from "./vm";
-import { Wrapper } from "./wrapper";
 
 export interface JEBOpcode {
     [x: string]: unknown[];
@@ -17,12 +16,12 @@ export interface JEBOpcode {
     "jeb:doargs": [signature: CallableSignature, dynamicEnv: Env | undefined, noEval: boolean];
     "jeb:doargs/loop": [state: DoargsState, first: boolean];
     "jeb:unwrap": [flagsNotToUnwrap: string[]];
-    "jeb:wrap": [cls: new (...args: any[]) => Wrapper, ...args: unknown[]];
+    // jeb:wrap is special overload in vm.ts
     "jeb:apply/string-trampoline": [tail: boolean];
     "jeb:builtin/invoke": [func: BuiltinFunction];
     "jeb:index": [accessType: AccessType];
     "jeb:get": [shouldBind: boolean];
-    "jeb:set": [create?: boolean, readonly?: boolean];
+    "jeb:set": [create?: boolean, readonly_?: boolean];
     "jeb:set/internal/nested": [];
     "jeb:set/internal": [valueExpr: any, returnOldValue: boolean];
     "jeb:throw": [err: JEBError];

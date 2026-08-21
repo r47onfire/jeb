@@ -2,13 +2,22 @@ import { isinstance, javaHash, rotate32 } from "@r47onfire/game-math";
 import { NOTHING } from "./builtins/define";
 import { JebVM } from "./vm";
 
+/**
+ * Mapping of error tag to class constructor (used by the `err` function)
+ */
 export const ALL_ERRORS: Record<string, typeof JEBError> = {};
 
 /**
  * Generic base class for an error thrown by a JEB program.
  */
 export class JEBError extends Error {
-    /** The name of the error type */
+    /**
+     * The name of the error type
+     *
+     * NOTE: this must be a getter, not a regular instance property, since when the
+     * error class is initialized for the first time, the value of `this.tag` is used in the {@link JEBError} constructor
+     * to register the tag in the tag-to-class mapping {@link ALL_ERRORS}
+     */
     get tag() { return "jeb:runtime_error"; }
     constructor(message: string, public context: Record<string, any> = {}, public traceback?: StackTreeNode[]) {
         super(message, { cause: context.cause });

@@ -1,5 +1,6 @@
 import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
+import { keys } from "lib0/object";
 import { CallableSignature, Laziness, LonghandArgument } from "../callable";
 import { Env } from "../env";
 import { JEBError, JEBSyntaxError, JEBValueError, wrapThrowToError } from "../errors";
@@ -12,6 +13,8 @@ const enum DoargsWhere {
     POSITIONAL,
     KEYWORD,
 }
+
+const MISSING = Symbol("MISSING");
 
 export class DoargsState {
     readonly #params: CallableSignature;
@@ -44,7 +47,7 @@ export class DoargsState {
         }
     }
 
-    #update({ argsObj = this.#argsObj, seenByName = this.#seenByName, rawArgsIndex = this.#rawArgsIndex, paramsIndex = this.#paramsIndex, seenKeyword = this.#seenKeyword } = {}) {
+    #update(argsObj = this.#argsObj, seenByName = this.#seenByName, rawArgsIndex = this.#rawArgsIndex, paramsIndex = this.#paramsIndex, seenKeyword = this.#seenKeyword) {
         return new DoargsState(this.#params, this.#callEnv, this.#closureEnv, this.#noEvalMode, this.#givenArgs, argsObj, rawArgsIndex, paramsIndex, seenKeyword, seenByName);
     }
 
@@ -76,9 +79,9 @@ export class DoargsState {
             return NOTHING;
         };
 
-        const doneHelper = () => {
+        const doneHelper = (ao = this.#argsObj) => {
             vm.currentEnv = this.#callEnv;
-            vm.pushData(this.#argsObj);
+            vm.pushData(ao);
             return NOTHING;
         };
 
@@ -89,10 +92,7 @@ export class DoargsState {
                     const { lazy, name } = this.#params.rest;
                     if (lazy !== Laziness.NONE) {
                         if (this.#noEvalMode) throw new JEBSyntaxError("lazy parameter not allowed here");
-                        const argsObj = { ...this.#argsObj, [name!]: wrapLazyValue(lazy, argv.slice(curArgvIndex), this.#callEnv) };
-                        vm.currentEnv = this.#callEnv;
-                        vm.pushData(argsObj);
-                        return NOTHING;
+                        return doneHelper({ ...this.#argsObj, [name!]: wrapLazyValue(lazy, argv.slice(curArgvIndex), this.#callEnv) });
                     }
                 }
             }
@@ -111,29 +111,41 @@ export class DoargsState {
         }
 
         const param = paramsList[curParamIndex]!;
-        if (!param.required) {
-            return evalHelper(this.#closureEnv ? vm.createEnv(this.#callEnv, this.#closureEnv) : vm.createEnv(this.#callEnv), param.defaultExpr, param);
-        } else {
-            throw new JEBValueError(`missing required parameter ${stringify(param.name)}`);
-        }
+        return param.required ? MISSING : evalHelper(this.#closureEnv ? vm.createEnv(this.#callEnv, this.#closureEnv) : vm.createEnv(this.#callEnv), param.defaultExpr, param);
     }
 
     #storeArgumentAndAdvance(argValue: any) {
+        const param = this.#params.params[this.#paramsIndex]!;
+        if (param?.required && argValue === MISSING) {
+            if (this.#seenKeyword && this.#seenByName[param.name]) {
+                // Skip keyword-given indices
+                return this.#update(undefined, undefined, undefined, this.#paramsIndex + 1);
+            }
+            else throw new JEBValueError(`missing required parameter ${stringify(param.name)}`);
+        }
         if (isinstance(argValue, KeywordArg)) {
-            return this.#storeKeyword(argValue);
+            return this.#storeKeyword(argValue.name, argValue.obj, 1);
         }
         if (isinstance(argValue, SplatArg)) {
             if (argValue.isKeyword) {
-                throw new JEBError("Keyword splat arg not implemented yet");
+                const values = { ...argValue.obj }, names = keys(values);
+                var state: DoargsState = this;
+                for (var i = 0; i < names.length; i++) {
+                    const name = names[i]!, value = values[name];
+                    state.#assertNotSpecial(value);
+                    state = state.#storeKeyword(name, value, 0);
+                }
+                return state.#update(undefined, undefined, state.#rawArgsIndex + 1);
+            } else {
+                const values = [...argValue.obj];
+                var state: DoargsState = this;
+                for (var i = 0; i < values.length; i++) {
+                    const value = values[i];
+                    state.#assertNotSpecial(value);
+                    state = state.#storePositional(value, true, 1, 0);
+                }
+                return state.#update(undefined, undefined, state.#rawArgsIndex + 1);
             }
-            const values = [...argValue.obj];
-            var state: DoargsState = this;
-            for (var i = 0; i < values.length; i++) {
-                const value = values[i];
-                state.#assertNotSpecial(value);
-                state = state.#storePositional(value, true, 1, 0);
-            }
-            return state.#update({ rawArgsIndex: state.#rawArgsIndex + 1 });
         }
         return this.#storePositional(argValue, false, 1, 1);
     }
@@ -143,27 +155,19 @@ export class DoargsState {
         }
     }
 
-    #storeKeyword({ obj, name }: KeywordArg) {
+    #storeKeyword(name: string, obj: any, rawDelta: number) {
         if (!this.#params.params.some(({ name: name2 }) => name === name2)) {
             const p = this.#params.kwRest;
             if (p) {
-                return this.#update({
-                    argsObj: { ...this.#argsObj, [p.name]: { ...(this.#argsObj[p.name] ?? {}), [name]: obj } },
-                    rawArgsIndex: this.#rawArgsIndex + 1,
-                });
+                return this.#update({ ...this.#argsObj, [p.name]: { ...(this.#argsObj[p.name] ?? {}), [name]: obj } }, undefined, this.#rawArgsIndex + 1);
             }
             throw new JEBValueError(`unexpected keyword argument ${stringify(name)}`);
         }
-        return this.#update({
-            argsObj: { ...this.#argsObj, [name]: obj },
-            seenByName: { ...this.#seenByName, [name]: DoargsWhere.KEYWORD },
-            rawArgsIndex: this.#rawArgsIndex + 1,
-            seenKeyword: true,
-        });
+        return this.#update({ ...this.#argsObj, [name]: obj }, { ...this.#seenByName, [name]: DoargsWhere.KEYWORD }, this.#rawArgsIndex + rawDelta, undefined, true);
     }
     #storePositional(value: any, isFromSpread: boolean, paramsDelta: number, rawDelta: number): DoargsState {
         if (this.#seenKeyword) {
-            throw new JEBSyntaxError("keyword argument can't follow positional argument");
+            throw new JEBSyntaxError("positional argument can't follow keyword argument");
         }
         this.#assertNotSpecial(value);
         const pList = this.#params.params, index = this.#paramsIndex;
@@ -173,11 +177,7 @@ export class DoargsState {
                 if (p.lazy !== Laziness.NONE && isFromSpread) {
                     throw new JEBValueError("cannot unpack spread argument into lazy rest parameter");
                 }
-                return this.#update({
-                    argsObj: { ...this.#argsObj, [p.name]: [...(this.#argsObj[p.name] ?? []), value] },
-                    paramsIndex: this.#paramsIndex + paramsDelta,
-                    rawArgsIndex: this.#rawArgsIndex + rawDelta,
-                });
+                return this.#update({ ...this.#argsObj, [p.name]: [...(this.#argsObj[p.name] ?? []), value] }, undefined, this.#rawArgsIndex + rawDelta, this.#paramsIndex + paramsDelta);
             }
             throw new JEBValueError(`too many ${isFromSpread ? "elements in spread argument" : "arguments"}`);
         }
@@ -189,12 +189,7 @@ export class DoargsState {
         if (g) {
             throw new JEBValueError(`argument ${stringify(name)} already given as ${g === DoargsWhere.KEYWORD ? "keyword" : "positional"} argument`);
         }
-        return this.#update({
-            argsObj: { ...this.#argsObj, [name]: value },
-            seenByName: { ...this.#seenByName, [name]: DoargsWhere.POSITIONAL },
-            paramsIndex: this.#paramsIndex + paramsDelta,
-            rawArgsIndex: this.#rawArgsIndex + rawDelta,
-        });
+        return this.#update({ ...this.#argsObj, [name]: value }, { ...this.#seenByName, [name]: DoargsWhere.POSITIONAL }, this.#rawArgsIndex + rawDelta, this.#paramsIndex + paramsDelta);
     }
 }
 

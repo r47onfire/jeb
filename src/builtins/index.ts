@@ -6,20 +6,19 @@ import { parse, stringify } from "lib0/json";
 import { add } from "lib0/math";
 import { keys } from "lib0/object";
 import { Err, Ok, Result } from "ts-res";
-import { BuiltinFunction, CallableSignature, createSignature, Fun, Laziness } from "../callable";
+import { BuiltinFunction, CallableSignature, createSignature, Fun, Laziness, LonghandArgument } from "../callable";
 import { Continuation, Windable } from "../continuation";
 import { Env } from "../env";
 import { ALL_ERRORS, checkNothingOrPush, JEBError, JEBSyntaxError, JEBTypeError, JEBValueError, wrapThrowToError } from "../errors";
 import { float, numberOp, Relation } from "../math";
 import { AccessType, Reference, theTypeName, typeOf } from "../protocol";
 import { JebVM } from "../vm";
-import { MacroWrapper, ReferenceWrapper } from "../wrapper";
+import { KeywordArg, MacroWrapper, ReferenceWrapper, SplatArg } from "../wrapper";
 import { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, NOTHING } from "./define";
 import { registerDoargs } from "./doargs";
 import { implicitBegin } from "./implicitBegin";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { registerUnwrap } from "./unwrap";
-import { Writable } from "../utils";
 
 // TODO: split this all up
 // MARK: loadBuiltins()
@@ -78,7 +77,7 @@ Examples:
 .returns {any}
 . Evaluates \`arg\` in the current environment.`);
 
-    defineBuiltin(vm, "macro", ["code"], ({code}) => new MacroWrapper(code),
+    defineBuiltin(vm, "macro", ["code"], ({ code }) => new MacroWrapper(code),
         `.func (macro code)
 ..param {code} code
 . Wraps the code in a special object that causes it to be evaluated using [[eval]] in the scope of where it was used and the result of the evaluation used in place of the actual code object.
@@ -139,6 +138,17 @@ This can be used to create an unhygienic syntactic macro by returning the wrappe
 The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.`);
     registerDoargs(vm);
     registerUnwrap(vm);
+    defineBuiltin(vm, "splat", ["value", ["kw", false]], ({ value, kw }) => new SplatArg(value, kw),
+        `.func (splat arg kw)
+..param {any[] | object} arg - iterable or object to unpack
+..param {boolean?} [kw=false] - whether to unpack into positional or keyword arguments
+. Causes the value to unpack into keyword or positional arguments instead of being passed as a single value.`);
+    defineBuiltin(vm, "kw", ["name", "value"], ({ name, value }) => new KeywordArg(value, name),
+        `.func (kw name value)
+..param {string} name - name of keyword arg to unpack into
+..param {any} value
+. Redirects the argument into a particular named argument slot.`);
+
     // MARK: string applier
     defineOpcode(vm, "jeb:apply/string-trampoline", (vm, { 0: tail }) => {
         const realFunc = vm.popData();
@@ -345,7 +355,7 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
     }, null);
 
     defineOpcode(vm, "jeb:with/teardown", vm => {
-        if (!vm.curDynamicWind.parent) throw new JEBError("Dynamic wind stack underflow");
+        if (!vm.curDynamicWind.parent) throw new JEBError("dynamic wind stack underflow");
         const dw = vm.curDynamicWind;
         vm.curDynamicWind = dw.parent!;
         if (!dw.handler?.exit) return;
@@ -839,39 +849,29 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
     return ["concat"].concat(parts);
 }
 
+const underscorename = (lazy: Laziness): LonghandArgument<any, any> => ({
+    name: "_",
+    required: true,
+    flags: [],
+    defaultExpr: undefined,
+    lazy
+});
+
 const ONE_UNDERSCORE_QUOTED: CallableSignature = {
-    params: [{
-        name: "_",
-        required: false,
-        flags: [],
-        defaultExpr: undefined,
-        lazy: Laziness.QUOTED,
-    }],
+    params: [underscorename(Laziness.QUOTED)],
     rest: undefined,
     kwRest: undefined,
 };
 
 const ALL_UNDERSCORE_QUOTED: CallableSignature = {
     params: [],
-    rest: {
-        name: "_",
-        required: false,
-        flags: [],
-        defaultExpr: undefined,
-        lazy: Laziness.QUOTED,
-    },
+    rest: underscorename(Laziness.QUOTED),
     kwRest: undefined,
 };
 
 const ALL_UNDERSCORE_NORMAL: CallableSignature = {
     params: [],
-    rest: {
-        name: "_",
-        required: false,
-        flags: [],
-        defaultExpr: undefined,
-        lazy: Laziness.NONE,
-    },
+    rest: underscorename(Laziness.NONE),
     kwRest: undefined,
 };
 
