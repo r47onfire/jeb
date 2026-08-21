@@ -125,7 +125,7 @@ This can be used to create an unhygienic syntactic macro by returning the wrappe
         if (name && !tail) vm.pushCommand("jeb:tb_pop");
         applier.run(vm, [func], { tail: tail ?? false });
         if (name) vm.pushCommand("jeb:tb_push", name, tail);
-        vm.pushCommand("jeb:doargs", signature, closureEnv, noEval ?? false);
+        vm.pushCommand("jeb:doargs", signature, closureEnv, noEval ?? false, name);
         vm.pushData(argv);
     },
         `.imm expressions tailcall

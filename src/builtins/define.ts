@@ -6,12 +6,10 @@ import { JEBOpcode } from "../opcodeTypes";
 import { Wrapper } from "../wrapper";
 
 /**
- * Special symbol that means "this function is a macro and pushed opcodes
- * which implement the return value, don't push my return value" for built-in functions,
- * which normally treat `undefined` as a valid return value and push it to the stack.
+ * Special symbol to represent 'no value' in contexts where `undefined` is a valid value.
  */
 
-export const NOTHING: unique symbol = Symbol("nothing");
+export const NOTHING = Symbol("NOTHING");
 /**
  * Defines a builtin function in the VM's builtins scope as a constant.
  * @param arity The allowable number of arguments to the function.

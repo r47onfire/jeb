@@ -1,15 +1,15 @@
 import { isinstance } from "@r47onfire/game-math";
 import { isString } from "lib0/function";
 import { stringify } from "lib0/json";
-import { add, pow } from "lib0/math";
+import { pow } from "lib0/math";
 import { Result } from "ts-res";
 import { NOTHING } from "./builtins/define";
 import { CallableSignature } from "./callable";
 import { Env } from "./env";
+import { JEBError } from "./errors";
 import { Relation } from "./math";
 import { JebVM } from "./vm";
 import { Wrapper } from "./wrapper";
-import { JEBError } from "./errors";
 
 /**
  * Thing that can be used to match a type of an object. `true` = any

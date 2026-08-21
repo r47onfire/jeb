@@ -13,7 +13,7 @@ export interface JEBOpcode {
     "jeb:shuffle": [n: number, pushIndices: number[]];
     "jeb:eval": [tail?: boolean];
     "jeb:apply": [argv: any[], tail?: boolean, noEval?: boolean];
-    "jeb:doargs": [signature: CallableSignature, dynamicEnv: Env | undefined, noEval: boolean];
+    "jeb:doargs": [signature: CallableSignature, dynamicEnv: Env | undefined, noEval: boolean, funcName: string | undefined];
     "jeb:doargs/loop": [state: DoargsState, first: boolean];
     "jeb:unwrap": [flagsNotToUnwrap: string[]];
     // jeb:wrap is special overload in vm.ts

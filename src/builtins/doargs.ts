@@ -17,6 +17,7 @@ const enum DoargsWhere {
 const MISSING = Symbol("MISSING");
 
 export class DoargsState {
+    readonly #name: string | undefined;
     readonly #params: CallableSignature;
     readonly #argsObj: Record<string, any>;
     readonly #callEnv: Env;
@@ -28,7 +29,8 @@ export class DoargsState {
     readonly #seenKeyword: boolean;
     readonly #seenByName: Readonly<Record<string, DoargsWhere>>;
 
-    constructor(params: CallableSignature, call: Env, closure: Env | undefined, noEval: boolean, given: any[], argsObj: Record<string, any> = {}, rawArgsIndex = 0, paramsIndex = 0, seenKeyword = false, seenByName: Record<string, DoargsWhere> = {}) {
+    constructor(name: string | undefined, params: CallableSignature, call: Env, closure: Env | undefined, noEval: boolean, given: any[], argsObj: Record<string, any> = {}, rawArgsIndex = 0, paramsIndex = 0, seenKeyword = false, seenByName: Record<string, DoargsWhere> = {}) {
+        this.#name = name;
         this.#params = params;
         this.#callEnv = call;
         this.#closureEnv = closure;
@@ -48,7 +50,7 @@ export class DoargsState {
     }
 
     #update(argsObj = this.#argsObj, seenByName = this.#seenByName, rawArgsIndex = this.#rawArgsIndex, paramsIndex = this.#paramsIndex, seenKeyword = this.#seenKeyword) {
-        return new DoargsState(this.#params, this.#callEnv, this.#closureEnv, this.#noEvalMode, this.#givenArgs, argsObj, rawArgsIndex, paramsIndex, seenKeyword, seenByName);
+        return new DoargsState(this.#name, this.#params, this.#callEnv, this.#closureEnv, this.#noEvalMode, this.#givenArgs, argsObj, rawArgsIndex, paramsIndex, seenKeyword, seenByName);
     }
 
     run(vm: JebVM, first: boolean) {
@@ -121,7 +123,7 @@ export class DoargsState {
                 // Skip keyword-given indices
                 return this.#update(undefined, undefined, undefined, this.#paramsIndex + 1);
             }
-            else throw new JEBValueError(`missing required parameter ${stringify(param.name)}`);
+            else throw new JEBValueError(`missing required parameter ${stringify(param.name)} of function ${stringify(this.#name)}`);
         }
         if (isinstance(argValue, KeywordArg)) {
             return this.#storeKeyword(argValue.name, argValue.obj, 1);
@@ -161,7 +163,7 @@ export class DoargsState {
             if (p) {
                 return this.#update({ ...this.#argsObj, [p.name]: { ...(this.#argsObj[p.name] ?? {}), [name]: obj } }, undefined, this.#rawArgsIndex + 1);
             }
-            throw new JEBValueError(`unexpected keyword argument ${stringify(name)}`);
+            throw new JEBValueError(`unexpected keyword argument ${stringify(name)} to function ${stringify(this.#name)}`);
         }
         return this.#update({ ...this.#argsObj, [name]: obj }, { ...this.#seenByName, [name]: DoargsWhere.KEYWORD }, this.#rawArgsIndex + rawDelta, undefined, true);
     }
@@ -179,15 +181,19 @@ export class DoargsState {
                 }
                 return this.#update({ ...this.#argsObj, [p.name]: [...(this.#argsObj[p.name] ?? []), value] }, undefined, this.#rawArgsIndex + rawDelta, this.#paramsIndex + paramsDelta);
             }
-            throw new JEBValueError(`too many ${isFromSpread ? "elements in spread argument" : "arguments"}`);
+            if (isFromSpread) {
+                throw new JEBValueError(`too many elements in spread argument to function ${stringify(this.#name)} (at most ${pList.length - index + 1} can be passed here)`);
+            } else {
+                throw new JEBValueError(`too many arguments to function ${stringify(this.#name)} (expected at most ${pList.length})`);
+            }
         }
         const { name, lazy } = pList[index]!;
         if (lazy !== Laziness.NONE && isFromSpread) {
-            throw new JEBValueError("cannot unpack spread argument into lazy parameter");
+            throw new JEBValueError(`cannot unpack spread argument into lazy parameter ${stringify(name)} of function ${stringify(this.#name)}`);
         }
         const g = this.#seenByName[name];
         if (g) {
-            throw new JEBValueError(`argument ${stringify(name)} already given as ${g === DoargsWhere.KEYWORD ? "keyword" : "positional"} argument`);
+            throw new JEBValueError(`argument ${stringify(name)} of function ${stringify(this.#name)} already given as ${g === DoargsWhere.KEYWORD ? "keyword" : "positional"} argument`);
         }
         return this.#update({ ...this.#argsObj, [name]: value }, { ...this.#seenByName, [name]: DoargsWhere.POSITIONAL }, this.#rawArgsIndex + rawDelta, this.#paramsIndex + paramsDelta);
     }
@@ -198,7 +204,7 @@ const wrapLazyValue = (laziness: Laziness.LAZY | Laziness.QUOTED, given: any, en
 }
 
 export const registerDoargs = (vm: JebVM) => {
-    defineOpcode(vm, "jeb:doargs", (vm, { 0: params, 1: env, 2: noEval }) => {
+    defineOpcode(vm, "jeb:doargs", (vm, { 0: params, 1: env, 2: noEval, 3: name }) => {
         const given = vm.popData();
         // Optimization: test if it's all one rest lazy parameter, just special-case that
         const { params: { length }, rest } = params;
@@ -208,7 +214,7 @@ export const registerDoargs = (vm: JebVM) => {
                 return;
             }
         }
-        vm.pushCommand("jeb:doargs/loop", new DoargsState(params, vm.currentEnv, env, noEval, given), true);
+        vm.pushCommand("jeb:doargs/loop", new DoargsState(name, params, vm.currentEnv, env, noEval, given), true);
     },
         `.imm params env
 .param {CallableSignature} params - the signature of the thing being called

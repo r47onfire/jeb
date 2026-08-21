@@ -70,13 +70,13 @@ describe("basic", () => {
     });
     describe("undefined", () => {
         testTest("getting variable", vm => {
-            expect(() => run(vm, ["$", "nonexistent"])).toThrow("variable \"nonexistent\" not found");
+            expect(() => run(vm, ["$", "nonexistent"])).toThrow('variable "nonexistent" not found');
         });
         testTest("setting variable", vm => {
-            expect(() => run(vm, ["set", ["$", "nonexistent"], 1])).toThrow("variable \"nonexistent\" not found");
+            expect(() => run(vm, ["set", ["$", "nonexistent"], 1])).toThrow('variable "nonexistent" not found');
         });
         testTest("function", vm => {
-            expect(() => run(vm, ["nonexistent"])).toThrow("function \"nonexistent\" not found");
+            expect(() => run(vm, ["nonexistent"])).toThrow('function "nonexistent" not found');
         });
     });
     testTest("basic commands", (vm, out) => {
@@ -368,14 +368,13 @@ describe("with / dynamic-wind", () => {
     });
 
     testTest("with requires variable name or null", vm => {
-        expect(() => run(vm, ["with", { enter: null, exit: null }, false])).toThrow("expected variable name or null as first argument to \"with\"")
+        expect(() => run(vm, ["with", { enter: null, exit: null }, false])).toThrow('expected variable name or null as first argument to "with"')
     });
     testTest("with requires context object", vm => {
         expect(() => run(vm, ["with", null, null, false])).toThrow("context manager should be an object")
     });
 
     testTest("continuation can be called with computed value", vm => {
-        // TODO: this test fails because doargs doesn't properly preserve the state of the rest args list across continuation invocation
         expect(run(vm, ["begin",
             ["let-in", "x", null],
             ["let-in", "y", [["fn", ["f"], ["f", ["$", "return"]]], ["fn", ["k"], ["set", ["$", "x"], ["$", "k"]]]]],
@@ -487,6 +486,34 @@ describe("keyword and splat arguments", () => {
             ["pair", ["kw", "x", 1], 2],
         ])).toThrow("positional argument can't follow keyword argument");
     });
+
+    testTest("missing arguments errors", vm => {
+        expect(() => run(vm, ["begin",
+            ["define", ["foo", "x", "y"]],
+            ["foo", ["kw", "x", 1]],
+        ])).toThrow('missing required parameter "y" of function "foo"');
+    });
+
+    testTest("too many arguments errors", vm => {
+        expect(() => run(vm, ["begin",
+            ["define", ["foo", "x", "y", "z"]],
+            ["foo", 1, 2, 3, 4],
+        ])).toThrow('too many arguments to function "foo" (expected at most 3)');
+    });
+
+    testTest("unpacking too many arguments errors", vm => {
+        expect(() => run(vm, ["begin",
+            ["define", ["foo", "x", "y", "z"]],
+            ["foo", 1, 2, ["splat", ["list", 3, 4]]],
+        ])).toThrow('too many elements in spread argument to function "foo" (at most 1 can be passed here)');
+    });
+
+    testTest("unknown keyword arguments errors", vm => {
+        expect(() => run(vm, ["begin",
+            ["define", ["foo", "x"]],
+            ["foo", ["kw", "y", 1]],
+        ])).toThrow('unexpected keyword argument "y" to function "foo"');
+    });
 });
 
 describe("fns", () => {
@@ -511,7 +538,7 @@ describe("fns", () => {
         expect(out).toEqual(["[1,2,3]", "[]"]);
     });
     testTest("required must follow optional", vm => {
-        expect(() => run(vm, ["define", ["foo", ["x", 1], "y"], false])).toThrow("required parameter \"y\" cannot follow optional parameter");
+        expect(() => run(vm, ["define", ["foo", ["x", 1], "y"], false])).toThrow('required parameter "y" cannot follow optional parameter');
     });
     testTest("bad params", vm => {
         expect(() => run(vm, ["define", ["foo", 1], false])).toThrow("arg name not found at position 0");
