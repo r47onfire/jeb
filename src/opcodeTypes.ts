@@ -1,10 +1,11 @@
-import { DoargsState } from "./builtins/doargs";
 import { BuiltinFunction, CallableSignature, Fun } from "./callable";
 import { Continuation, DynamicWind } from "./continuation";
+import { DoargsState } from "./doargs";
 import { Env } from "./env";
 import { JEBError } from "./errors";
 import { AccessType } from "./protocol";
 import { Command } from "./vm";
+import { Wrapper } from "./wrapper";
 
 export interface JEBOpcode {
     [x: string]: unknown[];
@@ -16,7 +17,7 @@ export interface JEBOpcode {
     "jeb:doargs": [signature: CallableSignature, dynamicEnv: Env | undefined, noEval: boolean, funcName: string | undefined];
     "jeb:doargs/loop": [state: DoargsState, first: boolean];
     "jeb:unwrap": [flagsNotToUnwrap: string[]];
-    // jeb:wrap is special overload in vm.ts
+    "jeb:wrap": [cls: new (obj: any, ...rest: unknown[]) => Wrapper, ...rest: unknown[]];
     "jeb:apply/string-trampoline": [tail: boolean];
     "jeb:builtin/invoke": [func: BuiltinFunction];
     "jeb:index": [accessType: AccessType];

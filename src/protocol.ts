@@ -3,7 +3,7 @@ import { isString } from "lib0/function";
 import { stringify } from "lib0/json";
 import { pow } from "lib0/math";
 import { Result } from "ts-res";
-import { NOTHING } from "./builtins/define";
+import { NOTHING } from "./define";
 import { CallableSignature } from "./callable";
 import { Env } from "./env";
 import { JEBError } from "./errors";

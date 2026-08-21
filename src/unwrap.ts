@@ -1,7 +1,7 @@
 import { isinstance } from "@r47onfire/game-math";
-import { JebVM } from "../vm";
+import { JebVM } from "./vm";
 import { defineOpcode, defineUnwrapper } from "./define";
-import { MacroWrapper, ReferenceWrapper, Wrapper } from "../wrapper";
+import { MacroWrapper, ReferenceWrapper, Wrapper } from "./wrapper";
 
 export const registerUnwrap = (vm: JebVM) => {
     defineOpcode(vm, "jeb:wrap", (vm, args) => {

@@ -1,4 +1,4 @@
-import { JebVM } from "../vm";
+import { JebVM } from "./vm";
 import { NOTHING } from "./define";
 
 /**

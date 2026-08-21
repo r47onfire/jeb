@@ -456,7 +456,7 @@ describe("metaprogramming", () => {
 });
 
 describe("keyword and splat arguments", () => {
-    testTest("keyword arguments match by name regardless of order", (vm, out) => {
+    testTest("kwargs ignore order", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["kw", "y", 2], ["kw", "x", 1]],
@@ -464,7 +464,7 @@ describe("keyword and splat arguments", () => {
         expect(out).toEqual(["[1,2]"]);
     });
 
-    testTest("positional splat arguments unpack iterables into positional slots", (vm, out) => {
+    testTest("splat unpack into positional", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["splat", ["list", 1, 2]]],
@@ -472,7 +472,7 @@ describe("keyword and splat arguments", () => {
         expect(out).toEqual(["[1,2]"]);
     });
 
-    testTest("keyword splat arguments unpack objects into named slots", (vm, out) => {
+    testTest("kwarg unpack into named parameters", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["splat", { x: 1, y: 2 }, true]],
@@ -480,7 +480,7 @@ describe("keyword and splat arguments", () => {
         expect(out).toEqual(["[1,2]"]);
     });
 
-    testTest("positional arguments can't follow keyword arguments", vm => {
+    testTest("order enforced", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["kw", "x", 1], 2],
@@ -505,7 +505,7 @@ describe("keyword and splat arguments", () => {
         expect(() => run(vm, ["begin",
             ["define", ["foo", "x", "y", "z"]],
             ["foo", 1, 2, ["splat", ["list", 3, 4]]],
-        ])).toThrow('too many elements in spread argument to function "foo" (at most 1 can be passed here)');
+        ])).toThrow('too many elements in splat argument to function "foo" (at most 1 can be passed here)');
     });
 
     testTest("unknown keyword arguments errors", vm => {
@@ -513,6 +513,13 @@ describe("keyword and splat arguments", () => {
             ["define", ["foo", "x"]],
             ["foo", ["kw", "y", 1]],
         ])).toThrow('unexpected keyword argument "y" to function "foo"');
+    });
+
+    testTest("unknown keyword arguments via unpack errors", vm => {
+        expect(() => run(vm, ["begin",
+            ["define", ["foo", "x"]],
+            ["foo", ["splat", { y: 1 }, true]],
+        ])).toThrow('unexpected splat keyword argument "y" to function "foo"');
     });
 });
 

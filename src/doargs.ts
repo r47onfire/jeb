@@ -1,12 +1,12 @@
 import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
 import { keys } from "lib0/object";
-import { CallableSignature, Laziness, LonghandArgument } from "../callable";
-import { Env } from "../env";
-import { JEBError, JEBSyntaxError, JEBValueError, wrapThrowToError } from "../errors";
-import { JebVM } from "../vm";
-import { KeywordArg, SplatArg } from "../wrapper";
+import { CallableSignature, Laziness, LonghandArgument } from "./callable";
 import { defineOpcode, NOTHING } from "./define";
+import { Env } from "./env";
+import { JEBError, JEBSyntaxError, JEBValueError, wrapThrowToError } from "./errors";
+import { JebVM } from "./vm";
+import { KeywordArg, SplatArg } from "./wrapper";
 
 const enum DoargsWhere {
     _BLANK,
@@ -126,7 +126,7 @@ export class DoargsState {
             else throw new JEBValueError(`missing required parameter ${stringify(param.name)} of function ${stringify(this.#name)}`);
         }
         if (isinstance(argValue, KeywordArg)) {
-            return this.#storeKeyword(argValue.name, argValue.obj, 1);
+            return this.#storeKeyword(argValue.name, argValue.obj, false, 1);
         }
         if (isinstance(argValue, SplatArg)) {
             if (argValue.isKeyword) {
@@ -135,7 +135,7 @@ export class DoargsState {
                 for (var i = 0; i < names.length; i++) {
                     const name = names[i]!, value = values[name];
                     state.#assertNotSpecial(value);
-                    state = state.#storeKeyword(name, value, 0);
+                    state = state.#storeKeyword(name, value, true, 0);
                 }
                 return state.#update(undefined, undefined, state.#rawArgsIndex + 1);
             } else {
@@ -157,17 +157,17 @@ export class DoargsState {
         }
     }
 
-    #storeKeyword(name: string, obj: any, rawDelta: number) {
+    #storeKeyword(name: string, obj: any, isFromSplat: boolean, rawDelta: number) {
         if (!this.#params.params.some(({ name: name2 }) => name === name2)) {
             const p = this.#params.kwRest;
             if (p) {
                 return this.#update({ ...this.#argsObj, [p.name]: { ...(this.#argsObj[p.name] ?? {}), [name]: obj } }, undefined, this.#rawArgsIndex + 1);
             }
-            throw new JEBValueError(`unexpected keyword argument ${stringify(name)} to function ${stringify(this.#name)}`);
+            throw new JEBValueError(`unexpected ${isFromSplat ? "splat " : ""}keyword argument ${stringify(name)} to function ${stringify(this.#name)}`);
         }
         return this.#update({ ...this.#argsObj, [name]: obj }, { ...this.#seenByName, [name]: DoargsWhere.KEYWORD }, this.#rawArgsIndex + rawDelta, undefined, true);
     }
-    #storePositional(value: any, isFromSpread: boolean, paramsDelta: number, rawDelta: number): DoargsState {
+    #storePositional(value: any, isFromSplat: boolean, paramsDelta: number, rawDelta: number): DoargsState {
         if (this.#seenKeyword) {
             throw new JEBSyntaxError("positional argument can't follow keyword argument");
         }
@@ -176,20 +176,20 @@ export class DoargsState {
         if (index >= pList.length) {
             const p = this.#params.rest;
             if (p) {
-                if (p.lazy !== Laziness.NONE && isFromSpread) {
-                    throw new JEBValueError("cannot unpack spread argument into lazy rest parameter");
+                if (p.lazy !== Laziness.NONE && isFromSplat) {
+                    throw new JEBValueError("cannot unpack splat argument into lazy rest parameter");
                 }
                 return this.#update({ ...this.#argsObj, [p.name]: [...(this.#argsObj[p.name] ?? []), value] }, undefined, this.#rawArgsIndex + rawDelta, this.#paramsIndex + paramsDelta);
             }
-            if (isFromSpread) {
-                throw new JEBValueError(`too many elements in spread argument to function ${stringify(this.#name)} (at most ${pList.length - index + 1} can be passed here)`);
+            if (isFromSplat) {
+                throw new JEBValueError(`too many elements in splat argument to function ${stringify(this.#name)} (at most ${pList.length - index + 1} can be passed here)`);
             } else {
                 throw new JEBValueError(`too many arguments to function ${stringify(this.#name)} (expected at most ${pList.length})`);
             }
         }
         const { name, lazy } = pList[index]!;
-        if (lazy !== Laziness.NONE && isFromSpread) {
-            throw new JEBValueError(`cannot unpack spread argument into lazy parameter ${stringify(name)} of function ${stringify(this.#name)}`);
+        if (lazy !== Laziness.NONE && isFromSplat) {
+            throw new JEBValueError(`cannot unpack splat argument into lazy parameter ${stringify(name)} of function ${stringify(this.#name)}`);
         }
         const g = this.#seenByName[name];
         if (g) {

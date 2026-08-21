@@ -1,9 +1,9 @@
 import { stringify } from "lib0/json";
-import { BuiltinFunction, CallableSignatureFromShorthand, createSignature, ShorthandArgument } from "../callable";
-import { AccessFlags, ApplyMetadata, ApplyOrEvalFlags, Reference, ProtocolObj, Type } from "../protocol";
-import { JebVM, OpcodeFunction } from "../vm";
-import { JEBOpcode } from "../opcodeTypes";
-import { Wrapper } from "../wrapper";
+import { BuiltinFunction, CallableSignatureFromShorthand, createSignature, ShorthandArgument } from "./callable";
+import { AccessFlags, ApplyMetadata, ApplyOrEvalFlags, Reference, ProtocolObj, Type } from "./protocol";
+import { JebVM, OpcodeFunction } from "./vm";
+import { JEBOpcode } from "./opcodeTypes";
+import { Wrapper } from "./wrapper";
 
 /**
  * Special symbol to represent 'no value' in contexts where `undefined` is a valid value.

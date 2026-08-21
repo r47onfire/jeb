@@ -6,19 +6,19 @@ import { parse, stringify } from "lib0/json";
 import { add } from "lib0/math";
 import { keys } from "lib0/object";
 import { Err, Ok, Result } from "ts-res";
-import { BuiltinFunction, CallableSignature, createSignature, Fun, Laziness, LonghandArgument } from "../callable";
-import { Continuation, Windable } from "../continuation";
-import { Env } from "../env";
-import { ALL_ERRORS, checkNothingOrPush, JEBError, JEBSyntaxError, JEBTypeError, JEBValueError, wrapThrowToError } from "../errors";
-import { float, numberOp, Relation } from "../math";
-import { AccessType, Reference, theTypeName, typeOf } from "../protocol";
-import { JebVM } from "../vm";
-import { KeywordArg, MacroWrapper, ReferenceWrapper, SplatArg } from "../wrapper";
+import { BuiltinFunction, CallableSignature, createSignature, Fun, Laziness, LonghandArgument } from "./callable";
+import { Continuation, Windable } from "./continuation";
 import { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, NOTHING } from "./define";
 import { registerDoargs } from "./doargs";
+import { Env } from "./env";
+import { ALL_ERRORS, checkNothingOrPush, JEBError, JEBSyntaxError, JEBTypeError, JEBValueError, wrapThrowToError } from "./errors";
 import { implicitBegin } from "./implicitBegin";
+import { float, numberOp, Relation } from "./math";
+import { AccessType, Reference, theTypeName, typeOf } from "./protocol";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { registerUnwrap } from "./unwrap";
+import { JebVM } from "./vm";
+import { KeywordArg, MacroWrapper, ReferenceWrapper, SplatArg } from "./wrapper";
 
 // TODO: split this all up
 // MARK: loadBuiltins()

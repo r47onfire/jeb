@@ -1,10 +1,10 @@
 import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
-import { Fun } from "../callable";
-import { Env } from "../env";
-import { JEBReferenceError, JEBTypeError, wrapThrowToError } from "../errors";
-import { AccessType, Reference } from "../protocol";
-import { JebVM } from "../vm";
+import { Fun } from "./callable";
+import { Env } from "./env";
+import { JEBReferenceError, JEBTypeError, wrapThrowToError } from "./errors";
+import { AccessType, Reference } from "./protocol";
+import { JebVM } from "./vm";
 
 export class ObjectPropertyReference extends Reference {
     constructor(type: AccessType, public obj: any, public name: PropertyKey) { super(type); }

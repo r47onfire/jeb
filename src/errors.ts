@@ -1,5 +1,5 @@
 import { isinstance, javaHash, rotate32 } from "@r47onfire/game-math";
-import { NOTHING } from "./builtins/define";
+import { NOTHING } from "./define";
 import { JebVM } from "./vm";
 
 /**

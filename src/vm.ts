@@ -1,4 +1,5 @@
 import { isinstance, LinkedList, LinkedList_length, LinkedList_pop, LinkedList_popN, LinkedList_push } from "@r47onfire/game-math";
+import { isArray } from "lib0/array";
 import { min } from "lib0/math";
 import { loadBuiltins } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
@@ -7,7 +8,6 @@ import { createStackInnerNode, createStackLeafNode, JEBError, JEBRecursionError,
 import { JEBOpcode } from "./opcodeTypes";
 import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
 import { Tuple } from "./utils";
-import { isArray } from "lib0/array";
 import { Wrapper } from "./wrapper";
 
 /**
