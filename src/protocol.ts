@@ -3,11 +3,12 @@ import { isString } from "lib0/function";
 import { stringify } from "lib0/json";
 import { pow } from "lib0/math";
 import { Result } from "ts-res";
-import { NOTHING } from "./define";
 import { CallableSignature } from "./callable";
+import { NOTHING } from "./define";
 import { Env } from "./env";
 import { JEBError } from "./errors";
 import { Relation } from "./math";
+import { Identifier } from "./utils";
 import { JebVM } from "./vm";
 import { Wrapper } from "./wrapper";
 
@@ -82,7 +83,7 @@ export interface ApplyMetadata {
     /**
      * The name of the function to appear in tracebacks, if undefined it means it's a hidden callframe and won't show.
      */
-    name: string | undefined;
+    name: Identifier | undefined;
     signature: CallableSignature;
     /**
      * The environment(s) that this function closes over on order to allow default value expressions to be evaluated in that environment.

@@ -8,3 +8,7 @@ export interface JEBAuditEvent {
     // "jeb:ffi/object/del": [o: any, key: PropertyKey];
     "jeb:loop_check": [repeatCount: number];
 }
+
+export const makeSingleEventWatcher = <T extends keyof JEBAuditEvent>(event: T, cb: (...args: JEBAuditEvent[T]) => void) => {
+    return (name: keyof JEBAuditEvent, ...args: unknown[]) => name === event && cb(...args);
+}

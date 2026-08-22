@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { defineBuiltin, JebVM, typeMatches } from "../src";
+import { defineBuiltin, JEBError, JebVM, makeSingleEventWatcher, typeMatches, Identifier, pushData, pushCommand, popData } from "../src";
 
 const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) => {
     const vm = new JebVM();
@@ -19,8 +19,8 @@ const run = (vm: JebVM, code: any, steps = Infinity, recursionLimit = 10000) => 
     return false;
 }
 
-const rawTraceback = (vm: JebVM): string[] => {
-    const res: string[] = [];
+const rawTraceback = (vm: JebVM): Identifier[] => {
+    const res: Identifier[] = [];
     var t = vm.tracebackStack;
     while (t) { res.push(t.value.name); t = t.next; }
     return res;
@@ -39,34 +39,34 @@ describe("type matching test", () => {
 
 describe("stack machine test", () => {
     testTest("identity", vm => {
-        vm.pushData(1);
-        vm.pushData(2);
-        vm.pushData(3);
-        vm.pushData(4);
-        vm.pushData(5);
-        vm.pushCommand("jeb:shuffle", 5, [0, 1, 2, 3, 4]);
+        pushData(vm, 1);
+        pushData(vm, 2);
+        pushData(vm, 3);
+        pushData(vm, 4);
+        pushData(vm, 5);
+        pushCommand(vm, "jeb:shuffle", 5, [0, 1, 2, 3, 4]);
         vm.step();
-        expect(vm.popData()).toEqual(5);
-        expect(vm.popData()).toEqual(4);
-        expect(vm.popData()).toEqual(3);
-        expect(vm.popData()).toEqual(2);
-        expect(vm.popData()).toEqual(1);
+        expect(popData(vm)).toEqual(5);
+        expect(popData(vm)).toEqual(4);
+        expect(popData(vm)).toEqual(3);
+        expect(popData(vm)).toEqual(2);
+        expect(popData(vm)).toEqual(1);
     });
     testTest("tuck", vm => {
-        vm.pushData(1);
-        vm.pushData(2);
-        vm.pushCommand("jeb:shuffle", 2, [1, 0, 1]);
+        pushData(vm, 1);
+        pushData(vm, 2);
+        pushCommand(vm, "jeb:shuffle", 2, [1, 0, 1]);
         vm.step();
-        expect(vm.popData()).toEqual(2);
-        expect(vm.popData()).toEqual(1);
-        expect(vm.popData()).toEqual(2);
+        expect(popData(vm)).toEqual(2);
+        expect(popData(vm)).toEqual(1);
+        expect(popData(vm)).toEqual(2);
     });
 });
 
 describe("basic", () => {
     testTest("begin with no args returns null", vm => {
         expect(run(vm, ["begin"])).toBeTrue();
-        expect(vm.popData()).toBeNull();
+        expect(popData(vm)).toBeNull();
     });
     describe("undefined", () => {
         testTest("getting variable", vm => {
@@ -92,7 +92,7 @@ describe("basic", () => {
             ["define", ["x"], ["list", ["list", 1], ["list", 2], ["list", 4]]],
             [".", [".", ["x"], 1], 0],
         ])).toBeTrue();
-        expect(vm.popData()).toBe(2);
+        expect(popData(vm)).toBe(2);
     });
     testTest("set with existing value", (vm, out) => {
         expect(run(vm, ["begin",
@@ -109,7 +109,7 @@ describe("basic", () => {
             ["let-in", "x", ["list", 1, 2, 3]],
             [".", ["$", "x"], [".", ["$", "x"], 0]]
         ])).toBeTrue();
-        expect(vm.popData()).toEqual(2);
+        expect(popData(vm)).toEqual(2);
     });
     testTest("set with old value", (vm, out) => {
         expect(run(vm, ["begin",
@@ -128,7 +128,7 @@ describe("basic", () => {
             ["set", [".", ["f"], "x"], ["+", 10, ["$", "_"]]],
             ["$", "value"],
         ])).toBeTrue();
-        expect(vm.popData()).toEqual({ x: 11 });
+        expect(popData(vm)).toEqual({ x: 11 });
         expect(out).toEqual(["called"]);
     });
     testTest("calling non-functions errors", vm => {
@@ -143,7 +143,7 @@ describe("basic", () => {
             ["or", false, ["print", "b"]],
             ["and", 0, ["print", "a"]],
         ])).toBeTrue();
-        expect(vm.popData()).toEqual(0);
+        expect(popData(vm)).toEqual(0);
         expect(out).toEqual(["b"]);
     });
     testTest("json error 1", vm => {
@@ -172,7 +172,7 @@ describe("basic", () => {
             ["define", "x", { a: { b: { foo: 123 } } }],
             [".", [".", [".", ["$", "x"], "a"], "b"], "foo"],
         ])).toBeTrue();
-        expect(vm.popData()).toEqual(123);
+        expect(popData(vm)).toEqual(123);
     });
     testTest("property chain set", vm => {
         expect(run(vm, ["begin",
@@ -180,7 +180,7 @@ describe("basic", () => {
             ["set", [".", [".", [".", ["$", "x"], "a"], "b"], "foo"], ["+", ["$", "_"], 333]],
             ["$", "x"]
         ])).toBeTrue();
-        expect(vm.popData()).toEqual({ a: { b: { foo: 456 } } });
+        expect(popData(vm)).toEqual({ a: { b: { foo: 456 } } });
     });
 });
 
@@ -293,7 +293,7 @@ describe("with / dynamic-wind", () => {
     }
     testTest("runs before then body then after and returns body", (vm, out) => {
         expect(run(vm, makeWith("before", "after", ["print", "body"], 123))).toBeTrue();
-        expect(vm.popData()).toEqual(123);
+        expect(popData(vm)).toEqual(123);
         expect(out).toEqual(["before false", "body", "after false null"]);
     });
 
@@ -383,7 +383,7 @@ describe("with / dynamic-wind", () => {
                 ["x", ["+", 23, 100]]],
             ["$", "y"],
         ])).toBeTrue();
-        expect(vm.popData()).toEqual(123);
+        expect(popData(vm)).toEqual(123);
     });
 });
 
@@ -575,7 +575,7 @@ describe("recursion stress tests", () => {
                     1n]],
             ["factorial", x]
         ], undefined, 10000000)).toBeTrue();
-        expect(vm.popData()).toEqual(factorial(x));
+        expect(popData(vm)).toEqual(factorial(x));
     });
     const MEMOIZE_F = (f: (a: bigint) => bigint) => { const cache: Record<number, bigint> = {}; return (a: bigint) => (cache[a as any] ??= f(a)) }
     const MEMOIZE = ["define", ["memoize", "f"],
@@ -599,7 +599,7 @@ describe("recursion stress tests", () => {
                         ["fibonacci", ["-", ["$", "a"], 2]]]]]]],
             ["fibonacci", x]
         ], undefined, 10000000)).toBeTrue();
-        expect(vm.popData()).toEqual(fibonacci(x));
+        expect(popData(vm)).toEqual(fibonacci(x));
     });
     testTest("A005185 (Hofstadter 'Q' sequence)", vm => {
         const x = 5000n;
@@ -614,7 +614,7 @@ describe("recursion stress tests", () => {
                         ["q", ["-", ["$", "a"], ["q", ["-", ["$", "a"], 2]]]]]]]]],
             ["q", x]
         ], undefined, 10000000)).toBeTrue();
-        expect(vm.popData()).toEqual(Number(q(x)));
+        expect(popData(vm)).toEqual(Number(q(x)));
     });
     testTest("A063510", vm => {
         const x = 1e20;
@@ -626,7 +626,7 @@ describe("recursion stress tests", () => {
                     ["+", 1, ["A063510", ["bit-or", 0, ["pow", ["$", "a"], 0.5]]]]]],
             ["A063510", x],
         ])).toBeTrue();
-        expect(vm.popData()).toEqual(A063510(x));
+        expect(popData(vm)).toEqual(A063510(x));
     });
 });
 
@@ -642,7 +642,7 @@ describe("FFI", () => {
             ["let", [["x", { a: 7, b() { return this.a * 6; } }]],
                 [[".", ["$", "x"], "b"]]]
         ])).toBeTrue();
-        expect(vm.popData()).toEqual(42);
+        expect(popData(vm)).toEqual(42);
     });
     testTest("FFI function callbacks", (vm, out) => {
         const thrice = (f: (x: string) => void, x: string) => (f(x), f(x), f(x));
@@ -652,5 +652,26 @@ describe("FFI", () => {
                 [thrice, ["$", "x"], "bye"]]
         ])).toThrow("cannot call JEB fn");
         // expect(out).toEqual(["hi", "hi", "hi", "bye", "bye", "bye"]);
+    });
+});
+
+describe("audit hook protections", () => {
+    testTest("prevents accessing Function", vm => {
+        vm.addAuditHook(makeSingleEventWatcher("jeb:ffi/object/get", (obj, key) => {
+            if (obj[key] === Function) {
+                throw new JEBError("can't access that!");
+            }
+        }));
+        expect(() => run(vm, [".", [".", {}, "constructor"], "constructor"])).toThrow("can't access that!");
+    });
+    testTest("infinite loop guard", vm => {
+        vm.addAuditHook(makeSingleEventWatcher("jeb:loop_check", (count) => {
+            if (count > 10000) {
+                throw new JEBError("too many loops");
+            }
+        }));
+        expect(() => run(vm, [
+            ["let", "loop", [], ["loop"]]
+        ], 10000000)).toThrow("too many loops");
     });
 });

@@ -11,6 +11,7 @@ export * from "./math";
 export * from "./opcodeTypes";
 export * from "./protocol";
 export * from "./reference";
+export * from "./utils";
 export * from "./vm";
 export * from "./wrapper";
 

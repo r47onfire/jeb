@@ -5,7 +5,8 @@ import { CallableSignature, Laziness, LonghandArgument } from "./callable";
 import { defineOpcode, NOTHING } from "./define";
 import { Env } from "./env";
 import { JEBError, JEBSyntaxError, JEBValueError, wrapThrowToError } from "./errors";
-import { JebVM } from "./vm";
+import { Identifier } from "./utils";
+import { JebVM, popData, pushCommand, pushData } from "./vm";
 import { KeywordArg, SplatArg } from "./wrapper";
 
 const enum DoargsWhere {
@@ -17,7 +18,7 @@ const enum DoargsWhere {
 const MISSING = Symbol("MISSING");
 
 export class DoargsState {
-    readonly #name: string | undefined;
+    readonly #name: Identifier | undefined;
     readonly #params: CallableSignature;
     readonly #argsObj: Record<string, any>;
     readonly #callEnv: Env;
@@ -29,7 +30,7 @@ export class DoargsState {
     readonly #seenKeyword: boolean;
     readonly #seenByName: Readonly<Record<string, DoargsWhere>>;
 
-    constructor(name: string | undefined, params: CallableSignature, call: Env, closure: Env | undefined, noEval: boolean, given: any[], argsObj: Record<string, any> = {}, rawArgsIndex = 0, paramsIndex = 0, seenKeyword = false, seenByName: Record<string, DoargsWhere> = {}) {
+    constructor(name: Identifier | undefined, params: CallableSignature, call: Env, closure: Env | undefined, noEval: boolean, given: any[], argsObj: Record<string, any> = {}, rawArgsIndex = 0, paramsIndex = 0, seenKeyword = false, seenByName: Record<string, DoargsWhere> = {}) {
         this.#name = name;
         this.#params = params;
         this.#callEnv = call;
@@ -60,7 +61,7 @@ export class DoargsState {
             // 1. Prepare argument value.
             // 2. Optionally evaluate it if needed.
             // 3. Store the value to the arguments object.
-            const argValue = first ? state.#prepareNextValue(vm) : vm.popData();
+            const argValue = first ? state.#prepareNextValue(vm) : popData(vm);
             // prepareValue returns NOTHING if it pushed opcodes to do something,
             // otherwise it returns the value as-is
             if (argValue === NOTHING) return;
@@ -73,17 +74,17 @@ export class DoargsState {
         const curParamIndex = this.#paramsIndex, curArgvIndex = this.#rawArgsIndex;
 
         const evalHelper = (env: Env, data: any, param?: LonghandArgument<any, any>) => {
-            vm.pushCommand("jeb:doargs/loop", this, false);
-            vm.pushCommand("jeb:unwrap", ["splat", "keyword"].concat(param?.flags));
-            vm.pushCommand("jeb:eval");
-            vm.pushData(data);
+            pushCommand(vm, "jeb:doargs/loop", this, false);
+            pushCommand(vm, "jeb:unwrap", ["splat", "keyword"].concat(param?.flags));
+            pushCommand(vm, "jeb:eval");
+            pushData(vm, data);
             vm.currentEnv = env;
             return NOTHING;
         };
 
         const doneHelper = (ao = this.#argsObj) => {
             vm.currentEnv = this.#callEnv;
-            vm.pushData(ao);
+            pushData(vm, ao);
             return NOTHING;
         };
 
@@ -205,16 +206,16 @@ const wrapLazyValue = (laziness: Laziness.LAZY | Laziness.QUOTED, given: any, en
 
 export const registerDoargs = (vm: JebVM) => {
     defineOpcode(vm, "jeb:doargs", (vm, { 0: params, 1: env, 2: noEval, 3: name }) => {
-        const given = vm.popData();
+        const given = popData(vm);
         // Optimization: test if it's all one rest lazy parameter, just special-case that
         const { params: { length }, rest } = params;
         if (!length && rest) {
             if (rest.lazy !== Laziness.NONE) {
-                vm.pushData({ [rest.name]: wrapLazyValue(rest.lazy, given, vm.currentEnv) });
+                pushData(vm, { [rest.name]: wrapLazyValue(rest.lazy, given, vm.currentEnv) });
                 return;
             }
         }
-        vm.pushCommand("jeb:doargs/loop", new DoargsState(name, params, vm.currentEnv, env, noEval, given), true);
+        pushCommand(vm, "jeb:doargs/loop", new DoargsState(name, params, vm.currentEnv, env, noEval, given), true);
     },
         `.imm params env
 .param {CallableSignature} params - the signature of the thing being called

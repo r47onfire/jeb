@@ -1,5 +1,5 @@
 import { stringify } from "lib0/json";
-import { BuiltinFunction, CallableSignatureFromShorthand, createSignature, ShorthandArgument } from "./callable";
+import { JSFun, CallableSignatureFromShorthand, createSignature, ShorthandArgument } from "./callable";
 import { AccessFlags, ApplyMetadata, ApplyOrEvalFlags, Reference, ProtocolObj, Type } from "./protocol";
 import { JebVM, OpcodeFunction } from "./vm";
 import { JEBOpcode } from "./opcodeTypes";
@@ -19,11 +19,14 @@ export const NOTHING = Symbol("NOTHING");
  * @param fn The function to implement the builtin. It should use the VM from the parameter, and **not**
  * close over the one that is passed to the `vm` parameter of `defineBuiltin` (since this builtin may be reused for a sub-VM for
  * e.g. an FFI callback).
+ * @returns the builtin function, for referring to later
  */
 
-export const defineBuiltin = <const T extends ShorthandArgument<any, any>[]>(vm: JebVM, name: string, signature: T, fn: BuiltinFunction<CallableSignatureFromShorthand<T>>["impl"], doc: string) => {
+export const defineBuiltin = <const T extends ShorthandArgument<any, any>[]>(vm: JebVM, name: string, signature: T, fn: JSFun<CallableSignatureFromShorthand<T>>["impl"], doc: string) => {
     if (vm.builtinsEnv.get(name).ok) throw new Error(`Builtin ${stringify(name)} is already defined`);
-    vm.builtinsEnv.addConst(name, new BuiltinFunction(name, createSignature(signature), fn as any, doc));
+    const fun = new JSFun(name, createSignature(signature), fn as any, doc);
+    vm.builtinsEnv.addConst(name, fun);
+    return fun;
 };
 /**
  * Defines a new opcode for the VM.

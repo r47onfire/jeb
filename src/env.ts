@@ -1,5 +1,6 @@
 import { keys } from "lib0/object";
 import { Err, Ok, Result } from "ts-res";
+import { Identifier } from "./utils";
 
 const hasOwn = Object.hasOwn;
 
@@ -8,16 +9,16 @@ const hasOwn = Object.hasOwn;
  */
 
 export class Env {
-    readonly constants: Record<string, true> = {};
+    readonly constants: Record<Identifier, true> = {};
     constructor(
-        readonly bindings: Record<string, any> = {},
+        readonly bindings: Record<Identifier, any> = {},
         readonly parents: readonly Env[] = []
     ) { }
     /**
      * Look up the value, and return its value (in an ok result)
      * or an err result if not found
      */
-    get(name: string): Result<any, void> {
+    get(name: Identifier): Result<any, void> {
         if (hasOwn(this.bindings, name)) {
             return Ok(this.bindings[name]);
         }
@@ -30,13 +31,13 @@ export class Env {
     /**
      * Defines the value in this scope (always succeeds)
      */
-    add(name: string, value: any) {
+    add(name: Identifier, value: any) {
         this.bindings[name] = value;
     }
     /**
      * Defines the constant in this scope (always succeeds)
      */
-    addConst(name: string, value: any) {
+    addConst(name: Identifier, value: any) {
         this.add(name, value);
         this.constants[name] = true;
     }
@@ -45,7 +46,7 @@ export class Env {
      * Returns true if it was set, false if it's a constant and can't be changed,
      * or undefined if it wasn't defined anywhere.
      */
-    set(name: string, value: any): boolean | undefined {
+    set(name: Identifier, value: any): boolean | undefined {
         if (hasOwn(this.bindings, name)) {
             if (this.constants[name]) return false;
             this.bindings[name] = value;
@@ -57,16 +58,10 @@ export class Env {
         }
         return undefined;
     }
-    /**
-     * returns a list of all the names visible here (direct and inherited)
-     */
-    getVisibleNames(): string[] {
-        return keys(this.bindings).concat(...this.parents.map(p => p.getVisibleNames()));
-    }
 }
 
 var n = 0;
 /**
  * Returns a new unique symbol with a unique number description (to differentiate it in printouts).
  */
-export const gensym = () => Symbol(n++);
+export const gensym = (s = "$gensym") => Symbol(s + (n++));

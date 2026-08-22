@@ -1,6 +1,6 @@
 import { LinkedList, LinkedList_pushAll } from "@r47onfire/game-math";
 import { Env } from "./env";
-import { Command, JebVM, StackCount } from "./vm";
+import { Command, JebVM, pushCommand, pushData, StackCount } from "./vm";
 
 /**
  * A continuation which holds all the VM state, and can restore it at any time
@@ -37,7 +37,7 @@ export class Continuation<T extends JebVM = JebVM> {
         vm.dataStack = this.data;
         vm.tracebackStack = this.traceback;
         Object.assign(vm, this.state);
-        vm.pushData(data);
+        pushData(vm, data);
         this.winders.processJumpHere(vm);
     }
 }
@@ -115,8 +115,8 @@ export class DynamicWind<T extends JebVM = JebVM> {
             }
         }
         // then dump everything into the VM's opcode and data stacks
-        while (intOps.length > 0) vm.pushCommand(...intOps.pop()!);
-        while (intData.length > 0) vm.pushData(intData.pop()!);
+        while (intOps.length > 0) pushCommand(vm, ...intOps.pop()!);
+        while (intData.length > 0) pushData(vm, intData.pop()!);
         // restore values
         vm.curDynamicWind = this;
     }

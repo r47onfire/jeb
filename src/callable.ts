@@ -5,12 +5,12 @@ import { type HasDocstring } from "./doc";
 import { Env } from "./env";
 import { JEBStateError, JEBSyntaxError } from "./errors";
 import { ApplyMetadata } from "./protocol";
-import { Writable } from "./utils";
+import { Identifier, isIdentifier, Writable } from "./utils";
 import { JebVM } from "./vm";
 
 const setPrototypeOf = Object.setPrototypeOf;
 
-export type ShorthandArgument<N extends string = string, F extends readonly (string | boolean)[] = readonly (string | boolean)[]> =
+export type ShorthandArgument<N extends Identifier = Identifier, F extends readonly (string | boolean)[] = readonly (string | boolean)[]> =
     /**
      * param gets evaluated and unwrapped, no default
      */
@@ -55,7 +55,7 @@ export const enum Laziness {
     QUOTED,
 }
 
-export interface LonghandArgument<N extends string, F extends readonly (string | boolean)[] = readonly (string | boolean)[]> {
+export interface LonghandArgument<N extends Identifier, F extends readonly (string | boolean)[] = readonly (string | boolean)[]> {
     readonly name: N;
     readonly required: boolean;
     readonly defaultExpr: any;
@@ -84,13 +84,13 @@ export const createSignature = <const S extends readonly ShorthandArgument<any, 
         const arg = signature[i]! as ShorthandArgument<string, string[]>;
         const next = signature[i + 1]! as ShorthandArgument<string, string[]>;
         var name: string, required = true, defaultExpr, lazy = Laziness.NONE, flags: string[] = [], j = 0;
-        if (isString(arg)) {
+        if (isIdentifier(arg)) {
             name = arg;
         } else {
             if (typeof arg === "boolean") throw new JEBSyntaxError(`invalid boolean flag at position ${i}`);
             if (isArray(arg[j])) flags = arg[j++] as string[];
             if (typeof arg[j] === "boolean") lazy = arg[j++] ? Laziness.QUOTED : Laziness.LAZY;
-            if (!isString(arg[j])) {
+            if (!isIdentifier(arg[j])) {
                 throw new JEBSyntaxError(`arg name not found at position ${i}`);
             }
             name = arg[j++] as string;
@@ -160,12 +160,12 @@ export abstract class CallableClass extends class { constructor(self: object) { 
  * The Javascript function has access to the VM so it can push opcodes to
  * implement more than just computation.
  */
-export class BuiltinFunction<S extends CallableSignature = CallableSignature> implements HasDocstring, ApplyMetadata {
+export class JSFun<S extends CallableSignature = CallableSignature> implements HasDocstring, ApplyMetadata {
     constructor(
         /**
          * The name of the function as it should appear in a traceback.
          */
-        public readonly name: string,
+        public readonly name: Identifier,
         public readonly signature: S,
         /**
          * The javascript function implementation.
@@ -198,7 +198,7 @@ export class Fun<S extends CallableSignature<any, any, any>> extends CallableCla
         /**
          * The name of the function as it should appear in a traceback. Ignored if isImplicit=true
          */
-        public name: string | undefined,
+        public name: Identifier | undefined,
         public readonly signature: S,
         /**
          * The body code that will be evaluated in the new scope with the argument values bound.

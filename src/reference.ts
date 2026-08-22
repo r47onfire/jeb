@@ -4,6 +4,7 @@ import { Fun } from "./callable";
 import { Env } from "./env";
 import { JEBReferenceError, JEBTypeError, wrapThrowToError } from "./errors";
 import { AccessType, Reference } from "./protocol";
+import { Identifier } from "./utils";
 import { JebVM } from "./vm";
 
 export class ObjectPropertyReference extends Reference {
@@ -24,12 +25,12 @@ export class ObjectPropertyReference extends Reference {
 
 export class VariableReference extends Reference {
     notFoundMessage: string;
-    constructor(type: AccessType, public env: Env, public name: string) {
+    constructor(type: AccessType, public env: Env, public name: Identifier) {
         super(type);
         this.notFoundMessage = type === AccessType.PROPERTY ? `module has no property ${stringify(this.name)}` :
             `${type === AccessType.VARIABLE ? "variable" : "function"} ${stringify(this.name)} not found`;
     }
-    get(vm: JebVM) {
+    get() {
         return this.env.get(this.name).else(() => this.referenceError());
     }
     set(vm: JebVM, value: any, create: boolean, readonly: boolean) {

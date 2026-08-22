@@ -1,6 +1,7 @@
 import { isinstance, javaHash, rotate32 } from "@r47onfire/game-math";
 import { NOTHING } from "./define";
 import { JebVM } from "./vm";
+import { Identifier } from "./utils";
 
 /**
  * Mapping of error tag to class constructor (used by the `err` function)
@@ -19,7 +20,7 @@ export class JEBError extends Error {
      * to register the tag in the tag-to-class mapping {@link ALL_ERRORS}
      */
     get tag() { return "jeb:runtime_error"; }
-    constructor(message: string, public context: Record<string, any> = {}, public traceback?: StackTreeNode[]) {
+    constructor(message: string, public context: Record<string, any> & ErrorOptions = {}, public traceback?: StackTreeNode[]) {
         super(message, { cause: context.cause });
         ALL_ERRORS[this.tag] ??= new.target;
     }
@@ -91,12 +92,12 @@ export type StackTreeNode = Readonly<{
     hash: number;
 } | {
     leaf: true,
-    name: string;
+    name: Identifier;
     hash: number;
 }>;
 
-export const createStackLeafNode = (name: string): StackTreeNode => {
-    return { leaf: true, name, hash: javaHash(name) };
+export const createStackLeafNode = (name: Identifier): StackTreeNode => {
+    return { leaf: true, name, hash: javaHash(String(name)) };
 };
 
 export const createStackInnerNode = (count: number, children: StackTreeNode[]): StackTreeNode => {
@@ -201,12 +202,12 @@ export const formatStackTraceCompact = (nodes: StackTreeNode[]): string => {
  *         () => doSomethingThatMayThrow(vm, args[0])));
  * ```
  */
-export const wrapThrowToError = <T>(kind: new (message: string) => JEBError, f: () => T) => {
+export const wrapThrowToError = <T>(kind: new (message: string, options: { cause: any }) => JEBError, f: () => T) => {
     try {
         return f();
     } catch (e) {
         if (isinstance(e, JEBError)) throw e;
-        throw new kind(String(e));
+        throw new kind(String(e), { cause: e });
     }
 }
 

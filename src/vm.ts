@@ -1,22 +1,22 @@
 import { isinstance, LinkedList, LinkedList_length, LinkedList_pop, LinkedList_popN, LinkedList_push } from "@r47onfire/game-math";
 import { isArray } from "lib0/array";
 import { min } from "lib0/math";
+import { JEBAuditEvent } from "./auditHookTypes";
 import { loadBuiltins } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
 import { createStackInnerNode, createStackLeafNode, JEBError, JEBRecursionError, JEBTypeError, StackTreeNode } from "./errors";
 import { JEBOpcode } from "./opcodeTypes";
 import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
-import { Tuple } from "./utils";
+import { Identifier, Tuple } from "./utils";
 import { Wrapper } from "./wrapper";
-import { JEBAuditEvent } from "./auditHookTypes";
 
 /**
  * Data for the command
  */
 export type Command = [opcode: keyof JEBOpcode, ...immediateArgs: any[]];
 export interface StackCount {
-    readonly name: string;
+    readonly name: Identifier;
     readonly count: number;
     readonly isTailCalled: boolean;
 }
@@ -82,9 +82,6 @@ export class JebVM {
         this.#checkStack(1);
         return this.dataStack!.value;
     }
-    pushCommand<T extends new (obj: any, ...args: A) => Wrapper, A extends any[]>(name: "jeb:wrap", cls: T, ...extraArgs: A): void;
-    pushCommand<T extends keyof JEBAuditEvent>(name: "jeb:audit", event: T, ...args: JEBAuditEvent[T]): void;
-    pushCommand<T extends keyof JEBOpcode>(name: T, ...args: JEBOpcode[T]): void;
     pushCommand<T extends keyof JEBOpcode>(name: T, ...args: JEBOpcode[T]) {
         this.commandStack = LinkedList_push(this.commandStack, [name, ...args]);
     }
@@ -163,7 +160,7 @@ export class JebVM {
     tracebackArray(numToDrop = 0) {
         var stack = this.tracebackStack;
         const parts: StackTreeNode[] = [];
-        var prevName: string | undefined, prevCount = 0;
+        var prevName: Identifier | undefined, prevCount = 0;
         const flush = () => {
             if (prevCount > 0) {
                 const leaf = createStackLeafNode(prevName!);
@@ -187,7 +184,7 @@ export class JebVM {
      * @param func Name of the function that is now being called
      * @param tailcallHint True if the function was tail-called
      */
-    pushTraceback(func: string, tailcallHint: boolean) {
+    pushTraceback(func: Identifier, tailcallHint: boolean) {
         const top = this.tracebackStack;
         if (top && top.value.name === func && top.value.isTailCalled === tailcallHint) {
             // same name and type = just bump the counter
@@ -255,3 +252,13 @@ export class JebVM {
         this.#auditHooks.forEach(hook => hook(...args));
     }
 }
+
+export const pushData = (vm: JebVM, data: any) => vm.pushData(data);
+export const pushCommand: {
+    <T extends new (obj: any, ...args: A) => Wrapper, A extends any[]>(vm: JebVM, name: "jeb:wrap", cls: T, ...extraArgs: A): void;
+    <T extends keyof JEBAuditEvent>(vm: JebVM, name: "jeb:audit", event: T, ...args: JEBAuditEvent[T]): void;
+    <T extends keyof JEBOpcode>(vm: JebVM, name: T, ...args: JEBOpcode[T]): void;
+} = (vm: JebVM, cmd: keyof JEBOpcode, ...args: unknown[]) => vm.pushCommand(cmd, ...args);
+export const popData = (vm: JebVM) => vm.popData();
+export const popNData = (vm: JebVM, n: number) => vm.popNData(n);
+export const peekData = (vm: JebVM) => vm.peekData();
