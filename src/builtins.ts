@@ -30,6 +30,14 @@ import { KeywordArg, MacroWrapper, ReferenceWrapper, SplatArg } from "./wrapper"
  */
 export const loadBuiltins = (vm: JebVM) => {
 
+    defineOpcode(vm, "jeb:audit", (vm, args) => {
+        vm.audit(...args);
+    },
+        `.imm name args...
+..param {keyof JEBAuditEvents} name
+..param {any[]} args
+. Raises an auditing event with the given arguments.`);
+
 
     // MARK: op: traceback push/pop
     defineOpcode(vm, "jeb:tb_pop", vm => vm.popTraceback(),
@@ -50,8 +58,8 @@ export const loadBuiltins = (vm: JebVM) => {
         }
     },
         `.imm count indices
-.param {number} count
-.param {number[]} indices
+..param {number} count
+..param {number[]} indices
 . Pops \`count\` items off the stack, and then pushes the items back on in the order defined by \`indices\`.
 Examples:
 * \`N/[0, 1, 2, 3, ..., N-1]\` = identity
@@ -68,7 +76,7 @@ Examples:
         else vm.pushData(code);
     },
         `.imm tailcall
-.param {boolean?} [tailcall=false]
+..param {boolean?} [tailcall=false]
 .sed value -- evaled
 . Evaluates the top item of the stack. An array gets interpreted as a call and passed to [[jeb:apply]], an object has all its properties evaluated and reassembled, and anything else is treated as a literal and left as-is.`);
     defineBuiltin(vm, "eval", ["arg"], ({ arg }, vm) => { vm.pushData(arg); vm.pushCommand("jeb:eval"); return NOTHING; },
@@ -191,15 +199,15 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
         checkNothingOrPush(vm, accessor.run(vm, [obj], { field, type }));
     },
         `.sed obj name -- lvalue
-.param {code} name - evaluated
+..param {code} name - evaluated
 .throws jeb:type_error - if the object can't be indexed
 . Finds an Accessor for the object and pushes the LValue for the given field.`);
     defineOpcode(vm, "jeb:get", (vm, { 0: shouldBind }) => {
         checkNothingOrPush(vm, (vm.popData() as Reference).get(vm, shouldBind))
     },
         `.imm accessType shouldBind
-.param {AccessType} accessType
-.param {boolean?} [shouldBind=false]
+..param {AccessType} accessType
+..param {boolean?} [shouldBind=false]
 .sed lvalue -- value
 . Takes an LValue on the top of the stack and unwraps it by calling its get() method.`);
     defineOpcode(vm, "jeb:set", (vm, { 0: create, 1: readonly }) => {
@@ -207,9 +215,9 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
         lvalue.set(vm, vm.peekData(), create ?? false, readonly ?? false);
     },
         `.imm accessType create readonly
-.param {AccessType} accessType
-.param {boolean?} [create=false]
-.param {boolean?} [readonly=false]
+..param {AccessType} accessType
+..param {boolean?} [create=false]
+..param {boolean?} [readonly=false]
 .sed value lvalue -- value
 . Takes an LValue on the top of the stack and calls the \`set()\` method with the next item in the stack as the value to set.`);
     defineBuiltin(vm, "$", ["name"], ({ name }, vm) => {
@@ -282,7 +290,7 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
         vm.fatalError(err);
     },
         `.imm err
-.param {JEBError} err
+..param {JEBError} err
 .sed -- (does not return)
 . Throws the error, but allows [[with]] handlers to catch it before throwing to Javascript.`);
     defineBuiltin(vm, "throw", ["err"], ({ err }, vm) => {
@@ -375,7 +383,11 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
     }),
         `JEB's FFI can call Javascript functions. JEB does not check the \`.length\` of the function since it is wrong in some cases.
 .throws jeb:ffi_error - if the FFI'ed function throws an error`);
-    defineOpcode(vm, "jeb:ffi/invokeFunction", (vm, { 0: f }) => vm.pushData(wrapThrowToError(vm, JEBError, () => f(...vm.popData()._))), null);
+    defineOpcode(vm, "jeb:ffi/invokeFunction", (vm, { 0: f }) => {
+        const args = vm.popData()._;
+        vm.audit("jeb:ffi/call_function", f, args)
+        vm.pushData(wrapThrowToError(JEBError, () => f(...args)));
+    }, null);
 
     defineBuiltin(vm, "nil?", ["value"], ({ value }) => undefinedToNull(value) === null,
         `.func (nil? value)
@@ -601,7 +613,7 @@ Expands into a [[fn]].
             } else {
                 f = () => vm.getProtocol(false, true, op2, [a, b]).run(vm, [a, b]);
             }
-            return wrapThrowToError(vm, JEBTypeError, f).else(e => { throw new JEBTypeError(String(e)); })
+            return wrapThrowToError(JEBTypeError, f).else(e => { throw new JEBTypeError(String(e)); })
         }, `.func (${operator} a [b])
 ..param {any} a
 ..param {any?} b
@@ -640,7 +652,7 @@ Expands into a [[fn]].
             if (a.length < 2) return true;
             for (var i = 1; i < a.length; i++) {
                 const arg = [a[i - 1], a[i], bits] as [any, any, Relation];
-                const res = wrapThrowToError(vm, JEBTypeError, () => vm.getProtocol(false, true, "cmp", arg).run(vm, arg));
+                const res = wrapThrowToError(JEBTypeError, () => vm.getProtocol(false, true, "cmp", arg).run(vm, arg));
                 if (!res.ok) {
                     throw new JEBTypeError("comparison error: " + res.error, { return: vm.cc() });
                 }
@@ -754,13 +766,13 @@ If an argument is not a list, the value is coerced to a list using the Javascrip
     alias(vm, "unquote", ",");
     alias(vm, "unquoteSplicing", ",@");
 
-    defineBuiltin(vm, "parseJSON", ["json"], ({ json }, vm) => wrapThrowToError(vm, JEBValueError, () => parse(json)),
+    defineBuiltin(vm, "parseJSON", ["json"], ({ json }) => wrapThrowToError(JEBValueError, () => parse(json)),
         `.func (parseJSON json)
 ..param {string} json
 .throws jeb:value_error - if the string is not valid JSON
 .returns {any}
 . Parses the string using \`JSON.parse()\` and returns the object.`);
-    defineBuiltin(vm, "dumpJSON", ["value"], ({ value }, vm) => wrapThrowToError(vm, JEBValueError, () => stringify(value)),
+    defineBuiltin(vm, "dumpJSON", ["value"], ({ value }) => wrapThrowToError(JEBValueError, () => stringify(value)),
         `.func (dumpJSON value)
 ..param {any} value
 .throws jeb:value_error - if \`value\` contains something that can't be serialized, such as a function or circular reference

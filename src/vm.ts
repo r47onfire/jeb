@@ -9,6 +9,7 @@ import { JEBOpcode } from "./opcodeTypes";
 import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
 import { Tuple } from "./utils";
 import { Wrapper } from "./wrapper";
+import { JEBAuditEvent } from "./auditHookTypes";
 
 /**
  * Data for the command
@@ -81,8 +82,9 @@ export class JebVM {
         this.#checkStack(1);
         return this.dataStack!.value;
     }
+    pushCommand<T extends new (obj: any, ...args: A) => Wrapper, A extends any[]>(name: "jeb:wrap", cls: T, ...extraArgs: A): void;
+    pushCommand<T extends keyof JEBAuditEvent>(name: "jeb:audit", event: T, ...args: JEBAuditEvent[T]): void;
     pushCommand<T extends keyof JEBOpcode>(name: T, ...args: JEBOpcode[T]): void;
-    pushCommand<T extends new (obj: any, ...args: A) => Wrapper, A extends any[]>(name: "jeb:wrap", ...args: [cls: T, ...extraArgs: A]): void;
     pushCommand<T extends keyof JEBOpcode>(name: T, ...args: JEBOpcode[T]) {
         this.commandStack = LinkedList_push(this.commandStack, [name, ...args]);
     }
@@ -234,5 +236,22 @@ export class JebVM {
     }
     fatalError(error: JEBError): never {
         throw [, error, ,];
+    }
+
+    #auditHooks = new Set<<T extends keyof JEBAuditEvent>(event: T, ...args: JEBAuditEvent[T]) => void>();
+    /**
+     * Adds an audit hook that will be called every time something that should be audited happens.
+     * @returns callback to cancel the audit hook
+     */
+    addAuditHook(cb: <T extends keyof JEBAuditEvent>(event: T, ...args: JEBAuditEvent[T]) => void): () => void {
+        this.audit("jeb:add_audit_hook");
+        this.#auditHooks.add(cb);
+        return () => this.#auditHooks.delete(cb);
+    }
+    /**
+     * Raises an auditing event
+     */
+    audit<T extends keyof JEBAuditEvent>(...args: [event: T, ...JEBAuditEvent[T]]) {
+        this.#auditHooks.forEach(hook => hook(...args));
     }
 }

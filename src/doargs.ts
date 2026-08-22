@@ -221,5 +221,5 @@ export const registerDoargs = (vm: JebVM) => {
 .param {Env?} env - the closure environment that the default parameters need
 .sed argslist -- argsobj
 . Processes the given arguments list into the named arguments object as determined by the signature.`);
-    defineOpcode(vm, "jeb:doargs/loop", (vm, { 0: state, 1: first }) => wrapThrowToError(vm, JEBValueError, () => state.run(vm, first)), null);
+    defineOpcode(vm, "jeb:doargs/loop", (vm, { 0: state, 1: first }) => wrapThrowToError(JEBValueError, () => state.run(vm, first)), null);
 }

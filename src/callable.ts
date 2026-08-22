@@ -3,9 +3,10 @@ import { isString } from "lib0/function";
 import { stringify } from "lib0/json";
 import { type HasDocstring } from "./doc";
 import { Env } from "./env";
+import { JEBStateError, JEBSyntaxError } from "./errors";
+import { ApplyMetadata } from "./protocol";
 import { Writable } from "./utils";
 import { JebVM } from "./vm";
-import { JEBStateError, JEBSyntaxError } from "./errors";
 
 const setPrototypeOf = Object.setPrototypeOf;
 
@@ -159,7 +160,7 @@ export abstract class CallableClass extends class { constructor(self: object) { 
  * The Javascript function has access to the VM so it can push opcodes to
  * implement more than just computation.
  */
-export class BuiltinFunction<S extends CallableSignature = CallableSignature> implements HasDocstring {
+export class BuiltinFunction<S extends CallableSignature = CallableSignature> implements HasDocstring, ApplyMetadata {
     constructor(
         /**
          * The name of the function as it should appear in a traceback.
@@ -188,7 +189,7 @@ export class BuiltinFunction<S extends CallableSignature = CallableSignature> im
  * A Fun is a callable function or macro implemented as JEB code instead of
  * a Javascript function.
  */
-export class Fun<S extends CallableSignature<any, any, any>> extends CallableClass implements HasDocstring {
+export class Fun<S extends CallableSignature<any, any, any>> extends CallableClass implements HasDocstring, ApplyMetadata {
     constructor(
         /**
          * Whether the function should be hidden from stack traces.

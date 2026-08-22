@@ -60,7 +60,7 @@ describe("tag parsing ok", () => {
             ["lazy rest param", ".t {a} @b...", { tag: "t", type: "a", name: "b", flags: ["lazy", "rest"], default: undefined, description: [] }],
             ["complex type", ".t {(a: b) => c} d - e", { tag: "t", type: "(a: b) => c", name: "d", flags: [], default: undefined, description: [["p", "e"]] }],
             ["union type", ".t {a | [b, c]} d - e", { tag: "t", type: "a | [b, c]", name: "d", flags: [], default: undefined, description: [["p", "e"]] }],
-            ["quoted default", ".t {a} [b=\"c\"] - d", { tag: "t", type: "a", name: "b", flags: [], default: "\"c\"", description: [["p", "d"]] }],
+            ["quoted default", '.t {a} [b="c"] - d', { tag: "t", type: "a", name: "b", flags: [], default: '"c"', description: [["p", "d"]] }],
             ["name without dash", ".t {a} b c", { tag: "t", type: "a", name: "b", flags: [], default: undefined, description: [["p", "c"]] }],
             ["optional type", ".t a - b", { tag: "t", type: undefined, name: "a", flags: [], default: undefined, description: [["p", "b"]] }],
         ])("%s", (_, line, expectedMeta) => {
@@ -71,7 +71,7 @@ describe("tag parsing ok", () => {
 describe("tag parsing failures", () => {
     test.each<[string, string[], Record<string, DocMetadataParser>, string]>([
         ["undefined tag", [".abc"], {}, `unknown tag "abc"`],
-        ["flag tags with content", [".abc test"], { abc: EmptyTag }, "is just a flag and should have no content"],
+        ["flag tags with content", [".abc test"], { abc: EmptyTag }, '"abc" tag is just a flag and should have no content'],
         [">1 jump in indentation", [".abc", "...abc"], { abc: EmptyTag }, "can only go up one level at a time"],
     ])("%s", (_, lines, parsers, expectedError) => {
         expect(() => parseHeaderAndSummary(lines, parsers)).toThrow(expectedError);

@@ -8,13 +8,15 @@ import { JebVM } from "./vm";
 
 export class ObjectPropertyReference extends Reference {
     constructor(type: AccessType, public obj: any, public name: PropertyKey) { super(type); }
-    get(_vm: JebVM, shouldBind: boolean) {
+    get(vm: JebVM, shouldBind: boolean) {
+        vm.audit("jeb:ffi/object/get", this.obj, this.name);
         var value = this.obj[this.name];
         if (shouldBind && typeof value === "function") value = value.bind(this.obj);
         return value;
     }
     set(vm: JebVM, value: any) {
-        wrapThrowToError(vm, JEBTypeError, () => {
+        vm.audit("jeb:ffi/object/set", this.obj, this.name, value);
+        wrapThrowToError(JEBTypeError, () => {
             this.obj[this.name] = value;
         });
     }

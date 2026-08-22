@@ -1,3 +1,4 @@
+import { JEBAuditEvent } from "./auditHookTypes";
 import { BuiltinFunction, CallableSignature, Fun } from "./callable";
 import { Continuation, DynamicWind } from "./continuation";
 import { DoargsState } from "./doargs";
@@ -9,6 +10,8 @@ import { Wrapper } from "./wrapper";
 
 export interface JEBOpcode {
     [x: string]: unknown[];
+    // overloaded in VM
+    "jeb:audit": [event: keyof JEBAuditEvent, ...args: unknown[]];
     "jeb:tb_pop": [];
     "jeb:tb_push": [func: string, tail?: boolean];
     "jeb:shuffle": [n: number, pushIndices: number[]];
@@ -17,6 +20,7 @@ export interface JEBOpcode {
     "jeb:doargs": [signature: CallableSignature, dynamicEnv: Env | undefined, noEval: boolean, funcName: string | undefined];
     "jeb:doargs/loop": [state: DoargsState, first: boolean];
     "jeb:unwrap": [flagsNotToUnwrap: string[]];
+    // overloaded in VM
     "jeb:wrap": [cls: new (obj: any, ...rest: unknown[]) => Wrapper, ...rest: unknown[]];
     "jeb:apply/string-trampoline": [tail: boolean];
     "jeb:builtin/invoke": [func: BuiltinFunction];

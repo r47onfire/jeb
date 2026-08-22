@@ -191,7 +191,6 @@ export const formatStackTraceCompact = (nodes: StackTreeNode[]): string => {
 /**
  * Runs the function, and if it throws an error that isn't a {@link JEBError},
  * wraps it in the given error type and re-throws it, otherwise returns the function result.
- * @param vm VM we're running in
  * @param kind Kind of JEB error a thrown error causes
  * @param f The function to catch errors from
  * @returns The result of the function or {@link NOTHING} if the function threw
@@ -202,7 +201,7 @@ export const formatStackTraceCompact = (nodes: StackTreeNode[]): string => {
  *         () => doSomethingThatMayThrow(vm, args[0])));
  * ```
  */
-export const wrapThrowToError = <T>(vm: JebVM, kind: new (message: string) => JEBError, f: () => T) => {
+export const wrapThrowToError = <T>(kind: new (message: string) => JEBError, f: () => T) => {
     try {
         return f();
     } catch (e) {
