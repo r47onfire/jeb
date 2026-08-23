@@ -22,7 +22,7 @@ type TypeMap = {
     boolean: boolean;
     symbol: symbol;
     undefined: undefined;
-    object: Record<any, any>;
+    object: Record<PropertyKey, any>;
     function: (this: any, ...args: any) => any;
     bigint: bigint;
 };
@@ -162,13 +162,13 @@ export const getProtocolHandler = (protocols: Partial<JEBProtocols>, fast: boole
         const handler = implList[i]! as ProtocolObj<any, any[], {}, any, any>;
         const type = handler.type;
         for (var j = type.length - 1; j >= 0; j--) {
-            const item = args[j], typeUnion = type[j] as Type[];
+            const item = args[j], typeUnion = type[j] as Type[], len = typeUnion.length;
             var unionSum = 0;
-            for (var k = 0; k < typeUnion.length; k++) {
+            for (var k = 0; k < len; k++) {
                 unionSum += typeMatches(item, typeUnion[k]!);
             }
             if (unionSum === 0) continue handlers; // None match, this one can't be used
-            score += pow(unionSum, 1 / typeUnion.length);
+            score += pow(unionSum, 1 / len);
         }
         if (score > bestScore) {
             bestScore = score;

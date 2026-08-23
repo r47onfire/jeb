@@ -24,7 +24,7 @@ export interface JEBOpcode {
     "jeb:unwrap": [flagsNotToUnwrap: string[]];
     // overloaded in VM
     "jeb:wrap": [cls: new (obj: any, ...rest: unknown[]) => Wrapper, ...rest: unknown[]];
-    "jeb:apply/string-trampoline": [tail: boolean];
+    "jeb:apply/id-trampoline": [tail: boolean];
     "jeb:builtin/invoke": [func: JSFun];
     "jeb:index": [accessType: AccessType];
     "jeb:get": [shouldBind: boolean];

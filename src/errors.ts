@@ -105,22 +105,23 @@ export const createStackInnerNode = (count: number, children: StackTreeNode[]): 
 };
 
 export const compressStackTree = (nodes: StackTreeNode[]): StackTreeNode[] => {
-    if (nodes.length === 0) return [];
+    const len = nodes.length;
+    if (len === 0) return [];
 
     const result: StackTreeNode[] = [];
 
-    for (var i = 0; i < nodes.length;) {
+    for (var i = 0; i < len;) {
         // Find the best repeating pattern starting at position i
         var bestLen = 1, bestCount = 1;
 
         // Try pattern lengths from 1 to half the remaining array
-        const maxPatternLen = ((nodes.length - i) / 2) | 0;
+        const maxPatternLen = ((len - i) / 2) | 0;
         for (var patternLen = 1; patternLen <= maxPatternLen; patternLen++) {
             var repeatCount = 1;
 
             // Count how many consecutive times this pattern repeats
             while (
-                i + patternLen * (repeatCount + 1) <= nodes.length &&
+                i + patternLen * (repeatCount + 1) <= len &&
                 patternsEqual(nodes, i, i + patternLen * repeatCount, patternLen)
             ) repeatCount++;
 

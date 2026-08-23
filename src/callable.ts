@@ -81,7 +81,8 @@ export const createSignature = <const S extends readonly ShorthandArgument<any, 
         kwRest: undefined,
     };
     var seenOptional = false;
-    for (var i = 0; i < signature.length; i++) {
+    const len = signature.length;
+    for (var i = 0; i < len; i++) {
         const arg = signature[i]! as ShorthandArgument<string, string[]>;
         const next = signature[i + 1]! as ShorthandArgument<string, string[]>;
         var name: string, required = true, defaultExpr, lazy = Laziness.NONE, flags: string[] = [], j = 0;
@@ -89,17 +90,18 @@ export const createSignature = <const S extends readonly ShorthandArgument<any, 
             name = arg;
         } else {
             if (typeof arg === "boolean") throw new JEBSyntaxError(`invalid boolean flag at position ${i}`);
+            const len = arg.length;
             if (isArray(arg[j])) flags = arg[j++] as string[];
             if (typeof arg[j] === "boolean") lazy = arg[j++] ? Laziness.QUOTED : Laziness.LAZY;
             if (!isIdentifier(arg[j])) {
                 throw new JEBSyntaxError(`arg name not found at position ${i}`);
             }
             name = arg[j++] as string;
-            if (j < arg.length) {
+            if (j < len) {
                 required = false;
                 defaultExpr = arg[j++];
             }
-            if (j < arg.length) throw new JEBSyntaxError("unexpected junk after default expression");
+            if (j < len) throw new JEBSyntaxError("unexpected junk after default expression");
         }
         if (!required) seenOptional = true;
         else if (seenOptional) throw new JEBSyntaxError(`required parameter ${stringify(name)} cannot follow optional parameter`);

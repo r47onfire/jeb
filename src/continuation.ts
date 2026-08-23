@@ -106,7 +106,8 @@ export class DynamicWind<T extends JebVM = JebVM> {
             }
             fp = fp.parent;
         }
-        for (var j = i + 1; j < parentsOfTo.length; j++) {
+        const len = parentsOfTo.length;
+        for (var j = i + 1; j < len; j++) {
             const tp = parentsOfTo[j]!;
             if (tp.handler?.enter) {
                 intOps.push(["jeb:apply", [true], true]);

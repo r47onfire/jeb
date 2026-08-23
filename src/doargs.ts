@@ -1,14 +1,13 @@
 import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
-import { keys } from "lib0/object";
+import { Block } from "./block";
 import { CallableSignature, Laziness, LonghandArgument } from "./callable";
 import { defineOpcode, NOTHING } from "./define";
 import { Env } from "./env";
 import { JEBError, JEBSyntaxError, JEBValueError, wrapThrowToError } from "./errors";
-import { Identifier } from "./utils";
+import { Identifier, Reflect_ownKeys } from "./utils";
 import { JebVM, popData, pushCommand, pushData } from "./vm";
 import { KeywordArg, SplatArg } from "./wrapper";
-import { Block } from "./block";
 
 const enum DoargsWhere {
     _BLANK,
@@ -132,9 +131,10 @@ export class DoargsState {
         }
         if (isinstance(argValue, SplatArg)) {
             if (argValue.isKeyword) {
-                const values = { ...argValue.obj }, names = keys(values);
+                const values = { ...argValue.obj }, names = Reflect_ownKeys(values);
                 var state: DoargsState = this;
-                for (var i = 0; i < names.length; i++) {
+                const len = names.length;
+                for (var i = 0; i < len; i++) {
                     const name = names[i]!, value = values[name];
                     state.#assertNotSpecial(value);
                     state = state.#storeKeyword(name, value, true, 0);
@@ -143,7 +143,8 @@ export class DoargsState {
             } else {
                 const values = [...argValue.obj];
                 var state: DoargsState = this;
-                for (var i = 0; i < values.length; i++) {
+                const len = values.length;
+                for (var i = 0; i < len; i++) {
                     const value = values[i];
                     state.#assertNotSpecial(value);
                     state = state.#storePositional(value, true, 1, 0);
@@ -159,7 +160,7 @@ export class DoargsState {
         }
     }
 
-    #storeKeyword(name: string, obj: any, isFromSplat: boolean, rawDelta: number) {
+    #storeKeyword(name: Identifier, obj: any, isFromSplat: boolean, rawDelta: number) {
         if (!this.#params.params.some(({ name: name2 }) => name === name2)) {
             const p = this.#params.kwRest;
             if (p) {

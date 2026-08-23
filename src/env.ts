@@ -52,8 +52,9 @@ export class Env {
             this.bindings[name] = value;
             return true;
         }
-        for (var i = 0; i < this.parents.length; i++) {
-            const result = this.parents[i]!.set(name, value);
+        const parents = this.parents, len = parents.length;
+        for (var i = 0; i < len; i++) {
+            const result = parents[i]!.set(name, value);
             if (result !== undefined) return result;
         }
         return undefined;

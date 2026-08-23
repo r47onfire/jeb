@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { defineBuiltin, JEBError, JebVM, makeSingleEventWatcher, typeMatches, Identifier, pushData, pushCommand, popData } from "../src";
+import { defineBuiltin, Identifier, JEBError, JebVM, makeSingleEventWatcher, popData, pushCommand, pushData, typeMatches } from "../src";
 
 const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) => {
     const vm = new JebVM();

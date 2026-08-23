@@ -8,3 +8,4 @@ export type Writable<T> = { -readonly [P in keyof T]: T[P] };
 export type Identifier = string | symbol;
 export const isIdentifier = (x: unknown): x is Identifier => isString(x) || typeof x === "symbol";
 
+export const Reflect_ownKeys = Reflect.ownKeys;

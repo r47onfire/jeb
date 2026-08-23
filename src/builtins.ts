@@ -4,7 +4,6 @@ import { undefinedToNull } from "lib0/conditions";
 import { id, isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
 import { add } from "lib0/math";
-import { keys } from "lib0/object";
 import { Err, Ok, Result } from "ts-res";
 import { Block } from "./block";
 import { CallableSignature, createSignature, Fun, JSFun, Laziness, LonghandArgument } from "./callable";
@@ -18,7 +17,7 @@ import { float, numberOp, Relation } from "./math";
 import { AccessType, Reference, theTypeName, typeOf } from "./protocol";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { registerUnwrap } from "./unwrap";
-import { Identifier, isIdentifier } from "./utils";
+import { Identifier, isIdentifier, Reflect_ownKeys } from "./utils";
 import { JebVM, peekData, popData, popNData, pushCommand, pushData } from "./vm";
 import { KeywordArg, MacroWrapper, ReferenceWrapper, SplatArg } from "./wrapper";
 
@@ -60,8 +59,8 @@ export const loadBuiltins = (vm: JebVM) => {
 
     // MARK: op: stack shuffle
     defineOpcode(vm, "jeb:shuffle", (vm, { 0: n, 1: indices }) => {
-        const items = popNData(vm, n);
-        for (var i = 0; i < indices.length; i++) {
+        const items = popNData(vm, n), len = indices.length;
+        for (var i = 0; i < len; i++) {
             pushData(vm, items[indices[i]!]!);
         }
     },
@@ -107,9 +106,10 @@ This can be used to create an unhygienic syntactic macro by returning the wrappe
         // evaluate all the properties
         const target = {};
         pushData(vm, target);
-        for (var key of keys(code)) {
-            pushData(vm, new ObjectPropertyReference(AccessType.PROPERTY, target, key));
-            pushData(vm, code[key]);
+        const keys = Reflect_ownKeys(code), len = keys.length;
+        for (var i = 0; i < len; i++) {
+            pushData(vm, new ObjectPropertyReference(AccessType.PROPERTY, target, keys[i]!));
+            pushData(vm, code[keys[i]!]);
             pushCommand(vm, "jeb:shuffle", 1, []);
             pushCommand(vm, "jeb:set", true);
             pushCommand(vm, "jeb:shuffle", 2, [1, 0]);
@@ -177,7 +177,7 @@ The arguments expressions are expected to be unevaluated, and the signature of t
 . Redirects the argument into a particular named argument slot.`);
 
     // MARK: string applier
-    defineOpcode(vm, "jeb:apply/string-trampoline", (vm, { 0: tail }) => {
+    defineOpcode(vm, "jeb:apply/id-trampoline", (vm, { 0: tail }) => {
         const realFunc = popData(vm);
         const argsObj = popData(vm) as { _: any[] };
         pushData(vm, realFunc);
@@ -186,7 +186,7 @@ The arguments expressions are expected to be unevaluated, and the signature of t
     defineApplier(vm, ["string", "symbol"], (vm, { 0: func }, { tail }) => {
         // String is a special case because normally strings evaluate to themselves
         // (not to a callable function), but if it's in head position, we implicitly look it up.
-        pushCommand(vm, "jeb:apply/string-trampoline", tail);
+        pushCommand(vm, "jeb:apply/id-trampoline", tail);
         pushCommand(vm, "jeb:unwrap", []);
         pushCommand(vm, "jeb:get", false);
         pushCommand(vm, "jeb:shuffle", 2, [1, 0]);
@@ -439,7 +439,7 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
             pushCommand(vm, "jeb:block/invoke/resetEnv", vm.currentEnv);
         }
         const env = vm.currentEnv = vm.createEnv(b.closureEnv);
-        const injected = popData(vm)._, names = Reflect.ownKeys(injected);
+        const injected = popData(vm)._, names = Reflect_ownKeys(injected);
         for (var i = names.length; i >= 0; i--) env.add(names[i]!, injected[names[i]!]);
         implicitBegin(vm, b.body);
     }, null);
@@ -584,12 +584,13 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 . Each of the pairs' *expression*s will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.`);
 
     const __let_in = defineBuiltin(vm, "let-in", ["pairs", true], ({ pairs: args }, vm) => {
-        if ((args.length & 1) > 0) {
+        const len = args.length
+        if ((len & 1) > 0) {
             throw new JEBSyntaxError("let-in should have an even number of arguments");
         }
         var value;
         const newEnv = vm.createEnv(vm.currentEnv);
-        for (var i = 0; i < args.length; i += 2) {
+        for (var i = 0; i < len; i += 2) {
             const name = args[i];
             value = args[i + 1];
             if (!isIdentifier(name)) {
@@ -698,8 +699,9 @@ Expands into a [[fn]].
     // comparisons
     const comparisonHelper = (op: string, bits: Relation, doc: string) => {
         defineBuiltin(vm, op, ["items", true], ({ items: a }, vm) => {
-            if (a.length < 2) return true;
-            for (var i = 1; i < a.length; i++) {
+            const len = a.length;
+            if (len < 2) return true;
+            for (var i = 1; i < len; i++) {
                 const arg = [a[i - 1], a[i], bits] as [any, any, Relation];
                 const res = wrapThrowToError(JEBTypeError, () => vm.getProtocol(false, true, "cmp", arg).run(vm, arg));
                 if (!res.ok) {
