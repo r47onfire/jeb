@@ -1,4 +1,4 @@
-import { isinstance, LinkedList_toArray } from "@r47onfire/game-math";
+import { isinstance } from "@r47onfire/game-math";
 import { isArray } from "lib0/array";
 import { undefinedToNull } from "lib0/conditions";
 import { id, isString } from "lib0/function";
@@ -6,6 +6,7 @@ import { parse, stringify } from "lib0/json";
 import { add } from "lib0/math";
 import { keys } from "lib0/object";
 import { Err, Ok, Result } from "ts-res";
+import { Block } from "./block";
 import { CallableSignature, createSignature, Fun, JSFun, Laziness, LonghandArgument } from "./callable";
 import { Continuation, Windable } from "./continuation";
 import { alias, defineAccessor, defineApplier, defineBuiltin, defineEvaluator, defineOpcode, NOTHING } from "./define";
@@ -137,6 +138,9 @@ This can be used to create an unhygienic syntactic macro by returning the wrappe
     defineEvaluator(vm, [Fun], (vm, { 0: f }) => pushData(vm, f),
         "Lambda functions evaluate to themselves.");
 
+    defineEvaluator(vm, [Block], (vm, { 0: f }) => pushData(vm, f),
+        "Implicit blocks evaluate to themselves.");
+
     // MARK: apply
     defineOpcode(vm, "jeb:apply", (vm, { 0: argv, 1: tail, 2: noEval }) => {
         const func = popData(vm);
@@ -256,20 +260,19 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
 ..param {any} obj
 ..param {PropertyKey} name
 . Returns a reference to \`obj[name]\`.`);
-    defineOpcode(vm, "jeb:set/internal/nested", vm => pushData(vm, { _: popData(vm) }), null);
-    defineOpcode(vm, "jeb:set/internal", (vm, { 0: valueExpr, 1: old }) => {
-        const fn = new Fun(true, undefined, ONE_UNDERSCORE_QUOTED, [valueExpr], vm.currentEnv, "");
+    defineOpcode(vm, "jeb:set/internal/nested", vm => pushData(vm, { _: { _: popData(vm) } }), null);
+    defineOpcode(vm, "jeb:set/internal", (vm, { 0: b, 1: old }) => {
         // accessor is first on stack
         if (old) pushCommand(vm, "jeb:shuffle", 1, []);
         pushCommand(vm, "jeb:set");
         pushCommand(vm, "jeb:shuffle", 2, [1, 0]);
-        pushCommand(vm, "jeb:fn/invoke", fn, false);
+        pushCommand(vm, "jeb:block/invoke", b, false);
         pushCommand(vm, "jeb:set/internal/nested");
         if (old) pushCommand(vm, "jeb:shuffle", 2, [1, 0, 1]);
         pushCommand(vm, "jeb:get", true);
         pushCommand(vm, "jeb:shuffle", 1, [0, 0]);
     }, null);
-    const __set = defineBuiltin(vm, "set", [[["ref"], "ref"], [true, "value"], ["old", false]], ({ ref, value, old }, vm) => {
+    const __set = defineBuiltin(vm, "set", [[["ref"], "ref"], [false, "value"], ["old", false]], ({ ref, value, old }, vm) => {
         if (!isinstance(ref, ReferenceWrapper)) {
             throw new JEBTypeError(`cannot assign to ${theTypeName(typeOf(ref))}`);
         }
@@ -324,7 +327,7 @@ If the error is not handled, it will be thrown as a Javascript error, causing th
 ..param {number?} [up=0] - number of stack frames to drop (in order to e.g. attribute the error to the caller)
 . Creates a new error object, but does not actually throw it (use [[throw]] for that).`);
     // MARK: with
-    defineBuiltin(vm, "with", [[true, "binding"], "context", [true, "body"], true], ({ binding, context, body }, vm) => {
+    defineBuiltin(vm, "with", [[true, "binding"], "context", [false, "body"], true], ({ binding, context, body }, vm) => {
         if (!isIdentifier(binding) && binding !== null) {
             throw new JEBTypeError("expected variable name or null as first argument to \"with\"")
         }
@@ -333,7 +336,7 @@ If the error is not handled, it will be thrown as a Javascript error, causing th
         // this looks backwards because it is - it's a stack, so the last one pushed (at the bottom)
         // is the first one executed
         pushCommand(vm, "jeb:with/teardown");
-        implicitBegin(vm, body);
+        pushCommand(vm, "jeb:block/invoke", body, false);
         pushCommand(vm, "jeb:with/setup", dw, binding);
         pushData(vm, context);
         return NOTHING;
@@ -362,16 +365,17 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
         // set up the winder to be installed AFTER the enter handler runs, so that errors thrown by this handler won't be caught by the exit handler
         pushCommand(vm, "jeb:with/install", dw);
 
-        if (!context.enter) return;
-        pushCommand(vm, "jeb:shuffle", 1, []);
-        if (name !== null) {
-            pushCommand(vm, "jeb:set", true);
-            pushCommand(vm, "jeb:shuffle", 2, [1, 0]);
-            pushData(vm, new VariableReference(AccessType.VARIABLE, vm.currentEnv, name));
+        // The result of the follwing options must be an args object to the block body invocation
+        pushCommand(vm, "jeb:with/boxprepare", name);
+        if (!context.enter) {
+            pushData(vm, {});
+            return;
         }
         pushCommand(vm, "jeb:apply", [false]);
         pushData(vm, context.enter);
     }, null);
+
+    defineOpcode(vm, "jeb:with/boxprepare", (vm, { 0: name }) => pushData(vm, { _: name !== null ? { [name]: popData(vm) } : (popData(vm), {}) }), null);
 
     defineOpcode(vm, "jeb:with/install", (vm, { 0: dw }) => {
         vm.curDynamicWind = dw;
@@ -410,7 +414,7 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
 .returns {boolean}
 . \`true\` if the object is Javascript \`undefined\` or \`null\`. Any other value (including \`false\`, \`""\`, or \`[]\`) is considered not-null, even though it might still be falsy.`);
 
-    // MARK: fn applier
+    // MARK: fn/block applier
     defineApplier(vm, [Fun], (vm, { 0: fn }, { tail }) => pushCommand(vm, "jeb:fn/invoke", fn, tail),
         (_, fn) => ({
             name: fn.isImplicit ? undefined : fn.name ?? "[anonymous]",
@@ -418,15 +422,33 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
             closureEnv: fn.closureEnv,
         }),
         "\"Compiled\" wrapper for a function or macro defined entirely out of JEB code (which is just JSON).");
-    defineOpcode(vm, "jeb:fn/invoke/resetEnv", (vm, { 0: env }) => vm.currentEnv = env, null);
+
+    defineApplier(vm, [Block], (vm, { 0: b }, { tail }) => pushCommand(vm, "jeb:block/invoke", b, tail),
+        (_, b) => ({
+            name: undefined,
+            signature: {
+                params: [{ name: "_", required: false, defaultExpr: NOTHING, lazy: Laziness.NONE, flags: [] }],
+                rest: undefined,
+                kwRest: undefined,
+            },
+            closureEnv: b.closureEnv,
+        }),
+        "Deferred block evaluation");
+    defineOpcode(vm, "jeb:block/invoke", (vm, { 0: b, 1: tail }) => {
+        if (!tail) {
+            pushCommand(vm, "jeb:block/invoke/resetEnv", vm.currentEnv);
+        }
+        const env = vm.currentEnv = vm.createEnv(b.closureEnv);
+        const injected = popData(vm)._, names = Reflect.ownKeys(injected);
+        for (var i = names.length; i >= 0; i--) env.add(names[i]!, injected[names[i]!]);
+        implicitBegin(vm, b.body);
+    }, null);
+    defineOpcode(vm, "jeb:block/invoke/resetEnv", (vm, { 0: env }) => vm.currentEnv = env, null);
     defineOpcode(vm, "jeb:fn/invoke", (vm, { 0: fn, 1: tail }) => {
-        if (!tail) pushCommand(vm, "jeb:fn/invoke/resetEnv", vm.currentEnv);
-        const argvObject = popData(vm), names = Reflect.ownKeys(argvObject);
-        const callEnv = vm.createEnv(fn.closureEnv);
-        for (var i = 0; i < names.length; i++) callEnv.add(names[i]!, argvObject[names[i]!]);
-        if (!fn.isImplicit) callEnv.add("return", vm.cc());
-        vm.currentEnv = callEnv;
-        return implicitBegin(vm, fn.body);
+        const argvObject = popData(vm);
+        if (!fn.isImplicit) argvObject.return = vm.cc();
+        pushCommand(vm, "jeb:block/invoke", fn.body, tail);
+        pushData(vm, { _: argvObject });
     }, null);
 
     const __fn = defineBuiltin(vm, "fn", [[true, "params"], [true, "body"], true], ({ params, body }, vm) => {
@@ -441,7 +463,7 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
             docstring = body[0];
             body = body.slice(1);
         }
-        return new Fun(isImplicit, undefined, createSignature(params), body, vm.currentEnv, docstring);
+        return new Fun(isImplicit, undefined, createSignature(params), new Block(vm.currentEnv, body), docstring);
     },
         `.macro (fn (parameters...) body...) (fn true (parameters...) docstring body...)
 The form with \`true\` right after the \`fn\` defines it as an implicit function, where the special \`return\` continuation is not injected and the call will not show up in the traceback of an error (it would normally show as \`[anonymous]\` unless assigned to a name).
@@ -530,19 +552,21 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
             });
             return [bindings.map(b => b[0]), bindings.map(b => b[1])] as const;
         }
+        // TODO: rewrite this transformation using Block ??
         if (isIdentifier(args[0])) {
             const loopname = args[0];
             const { 0: params, 1: initializers } = extractParts(args[1]);
             const body = args.slice(2);
-            const fakeloop = gensym("fakeloop");
+            const recur = gensym("recur");
             const counter = gensym("counter");
-            pushData(vm, [[__fn, true, [fakeloop],
-                [__set, [__$, fakeloop],
+            pushData(vm, [[__fn, true, [recur],
+                [__set, [__$, recur],
                     [__fn, true, [counter, ...params],
                         [__audit, "jeb:loop_check", [__$, counter]],
-                        [__let_in, loopname, [__fn, true, params, [fakeloop, [__plus, 1, [__$, counter]], ...params.map(p => [__$, p])]]],
+                        [__let_in, loopname, [__fn, true, params,
+                            [recur, [__plus, 1, [__$, counter]], ...params.map(p => [__$, p])]]],
                         ...body]],
-                [fakeloop, 0, ...initializers]], 0]);
+                [recur, 0, ...initializers]], 0]);
         } else {
             const { 0: params, 1: initializers } = extractParts(args[0]);
             const body = args.slice(1);

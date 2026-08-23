@@ -8,6 +8,7 @@ import { JEBError, JEBSyntaxError, JEBValueError, wrapThrowToError } from "./err
 import { Identifier } from "./utils";
 import { JebVM, popData, pushCommand, pushData } from "./vm";
 import { KeywordArg, SplatArg } from "./wrapper";
+import { Block } from "./block";
 
 const enum DoargsWhere {
     _BLANK,
@@ -95,7 +96,7 @@ export class DoargsState {
                     const { lazy, name } = this.#params.rest;
                     if (lazy !== Laziness.NONE) {
                         if (this.#noEvalMode) throw new JEBSyntaxError("lazy parameter not allowed here");
-                        return doneHelper({ ...this.#argsObj, [name!]: wrapLazyValue(lazy, argv.slice(curArgvIndex), this.#callEnv) });
+                        return doneHelper({ ...this.#argsObj, [name!]: wrapLazyValue(lazy, argv.slice(curArgvIndex), this.#callEnv, false) });
                     }
                 }
             }
@@ -103,7 +104,7 @@ export class DoargsState {
             const param = paramsList[curParamIndex];
             if (param && param.lazy !== Laziness.NONE) {
                 if (this.#noEvalMode) throw new JEBSyntaxError("lazy parameter not allowed here");
-                return wrapLazyValue(param.lazy, value, this.#callEnv);
+                return wrapLazyValue(param.lazy, value, this.#callEnv, true);
             }
             return this.#noEvalMode ? value : evalHelper(this.#callEnv, value, param);
         }
@@ -200,8 +201,8 @@ export class DoargsState {
     }
 }
 
-const wrapLazyValue = (laziness: Laziness.LAZY | Laziness.QUOTED, given: any, env: Env) => {
-    return laziness === Laziness.QUOTED ? given : new Block(env, given); // lmao Block doesn't exist yet, this is on purpose
+const wrapLazyValue = (laziness: Laziness.LAZY | Laziness.QUOTED, given: any[], env: Env, isSingle: boolean) => {
+    return laziness === Laziness.QUOTED ? given : new Block(env, isSingle ? [given] : given);
 }
 
 export const registerDoargs = (vm: JebVM) => {
@@ -211,7 +212,7 @@ export const registerDoargs = (vm: JebVM) => {
         const { params: { length }, rest } = params;
         if (!length && rest) {
             if (rest.lazy !== Laziness.NONE) {
-                pushData(vm, { [rest.name]: wrapLazyValue(rest.lazy, given, vm.currentEnv) });
+                pushData(vm, { [rest.name]: wrapLazyValue(rest.lazy, given, vm.currentEnv, false) });
                 return;
             }
         }

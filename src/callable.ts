@@ -7,6 +7,7 @@ import { JEBStateError, JEBSyntaxError } from "./errors";
 import { ApplyMetadata } from "./protocol";
 import { Identifier, isIdentifier, Writable } from "./utils";
 import { JebVM } from "./vm";
+import { Block } from "./block";
 
 const setPrototypeOf = Object.setPrototypeOf;
 
@@ -203,17 +204,14 @@ export class Fun<S extends CallableSignature<any, any, any>> extends CallableCla
         /**
          * The body code that will be evaluated in the new scope with the argument values bound.
          */
-        public readonly body: any,
-        /**
-         * The environment that this lambda closes over.
-         */
-        public readonly closureEnv: Env,
+        public readonly body: Block,
         /**
          * The docstring given - should define the allowable syntax(es) of the function
          * or macro and give a description of its behavior.
          */
         public readonly doc: string,
     ) { super(); }
+    get closureEnv() { return this.body.closureEnv; }
     /**
      * JEB lambdas are currently not callable via javascript.
      */

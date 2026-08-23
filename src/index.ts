@@ -1,4 +1,5 @@
 export * from "./auditHookTypes";
+export * from "./block";
 export * from "./builtins";
 export * from "./callable";
 export * from "./continuation";

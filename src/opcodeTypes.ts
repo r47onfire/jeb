@@ -1,4 +1,5 @@
 import { JEBAuditEvent } from "./auditHookTypes";
+import { Block } from "./block";
 import { CallableSignature, Fun, JSFun } from "./callable";
 import { Continuation, DynamicWind } from "./continuation";
 import { DoargsState } from "./doargs";
@@ -29,14 +30,16 @@ export interface JEBOpcode {
     "jeb:get": [shouldBind: boolean];
     "jeb:set": [create?: boolean, readonly_?: boolean];
     "jeb:set/internal/nested": [];
-    "jeb:set/internal": [valueExpr: any, returnOldValue: boolean];
+    "jeb:set/internal": [valueExpr: Block, returnOldValue: boolean];
     "jeb:throw": [err: JEBError];
-    "jeb:with/setup": [dw: DynamicWind, varname: string | null];
+    "jeb:with/setup": [dw: DynamicWind, varname: Identifier | null];
     "jeb:with/install": [dw: DynamicWind];
+    "jeb:with/boxprepare": [name: Identifier | null];
     "jeb:with/teardown": [];
     "jeb:ffi/invokeFunction": [f: Function];
-    "jeb:fn/invoke/resetEnv": [env: Env];
     "jeb:fn/invoke": [fn: Fun<any>, tailcallHint: boolean];
     "jeb:continuation/invoke": [k: Continuation];
+    "jeb:block/invoke": [b: Block, tail: boolean];
+    "jeb:block/invoke/resetEnv": [env: Env];
     "jeb:if": [then: any, else_: any, isAsm?: false] | [then: Command | null, else_: Command | null, isAsm: true];
 }
