@@ -76,7 +76,7 @@ export class DoargsState {
         const evalHelper = (env: Env, data: any, param?: LonghandArgument<any, any>) => {
             pushCommand(vm, "jeb:doargs/loop", this, false);
             pushCommand(vm, "jeb:unwrap", ["splat", "keyword"].concat(param?.flags));
-            pushCommand(vm, "jeb:eval");
+            pushCommand(vm, "jeb:eval", undefined);
             pushData(vm, data);
             vm.currentEnv = env;
             return NOTHING;

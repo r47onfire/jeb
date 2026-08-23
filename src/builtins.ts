@@ -1,4 +1,4 @@
-import { isinstance, LinkedList_toArray } from "@r47onfire/game-math";
+import { isinstance } from "@r47onfire/game-math";
 import { isArray } from "lib0/array";
 import { undefinedToNull } from "lib0/conditions";
 import { id, isString } from "lib0/function";
@@ -76,17 +76,17 @@ Examples:
 * \`N/[1, 2, 3, 4, ..., N-1, 0]\` = N-tuck`);
 
     // MARK: eval
-    defineOpcode(vm, "jeb:eval", (vm, { 0: tail }) => {
+    defineOpcode(vm, "jeb:eval", (vm, { 0: location, 1: tail }) => {
         const code = popData(vm);
         const p = vm.getProtocol(true, false, "eval", [code]);
-        if (p) p.run(vm, [code], { tail: tail ?? false });
+        if (p) p.run(vm, [code], { tail: tail ?? false, location });
         else pushData(vm, code);
     },
         `.imm tailcall
 ..param {boolean?} [tailcall=false]
 .sed value -- evaled
 . Evaluates the top item of the stack. An array gets interpreted as a call and passed to [[jeb:apply]], an object has all its properties evaluated and reassembled, and anything else is treated as a literal and left as-is.`);
-    defineBuiltin(vm, "eval", ["arg"], ({ arg }, vm) => { pushData(vm, arg); pushCommand(vm, "jeb:eval"); return NOTHING; },
+    defineBuiltin(vm, "eval", ["arg"], ({ arg }, vm, location) => { pushData(vm, arg); pushCommand(vm, "jeb:eval", location); return NOTHING; },
         `.func (eval arg)
 ..param {code} arg
 .returns {any}
@@ -98,7 +98,7 @@ Examples:
 . Wraps the code in a special object that causes it to be evaluated using [[eval]] in the scope of where it was used and the result of the evaluation used in place of the actual code object.
 This can be used to create an unhygienic syntactic macro by returning the wrapper immediately.`)
 
-    defineEvaluator(vm, ["object"], (vm, { 0: code }) => {
+    defineEvaluator(vm, ["object"], (vm, { 0: code }, { location }) => {
         if (code === null) {
             pushData(vm, null);
             return;
@@ -113,19 +113,19 @@ This can be used to create an unhygienic syntactic macro by returning the wrappe
             pushCommand(vm, "jeb:shuffle", 1, []);
             pushCommand(vm, "jeb:set", true);
             pushCommand(vm, "jeb:shuffle", 2, [1, 0]);
-            pushCommand(vm, "jeb:eval");
+            pushCommand(vm, "jeb:eval", location);
         }
     },
         "Evaluates all of the property values, and then reassembles the object with the same set of keys with the evaluated values.");
-    const arrayEval = (vm: JebVM, code: any[], tail: boolean, location: string | undefined) => {
+    const arrayEval = (vm: JebVM, code: any[], tail: boolean, location: Identifier | undefined) => {
         pushCommand(vm, "jeb:apply", code.slice(1), location, tail);
         pushCommand(vm, "jeb:unwrap", []);
-        pushCommand(vm, "jeb:eval");
+        pushCommand(vm, "jeb:eval", location);
         pushData(vm, code[0]);
     };
-    defineEvaluator(vm, [Array], (vm, { 0: code }, { tail }) => {
+    defineEvaluator(vm, [Array], (vm, { 0: code }, { tail, location }) => {
         if (code.length > 0) {
-            arrayEval(vm, code, tail, undefined);
+            arrayEval(vm, code, tail, location);
         }
         else {
             throw new JEBValueError("can't evaluate empty array", { return: vm.cc() });
@@ -167,17 +167,17 @@ This can be used to create an unhygienic syntactic macro by returning the wrappe
 . Pops the top value from the stack and calls it with the provided arguments.
 The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.
 The \`callAt\` frame will be hidden in the actual traceback.`);
-    defineBuiltin(vm, "callAt", ["location", [true, "expr"], true], ({ location, expr }) => {
+    defineBuiltin(vm, "at", ["location", [true, "expr"]], ({ location, expr }) => {
         // Remove self frame from here
         vm.popTraceback(false); // don't drop tail call, just in case this callAt is in tail position
         vm.popCommand(); // This will be the tb_pop pushed by apply above
-        arrayEval(vm, expr!, false, location);
-        return NOTHING;
+        pushCommand(vm, "jeb:eval", location);
+        return expr;
     },
-        `.macro (callAt location expr...)
+        `.macro (at location expr)
 ..param {opaque-id} location
 ..param {code} expr
-. Equivalent to \`(expr...)\` as a normal call, but inserts the metadata of \`location\` into the stack frame to identify the call site itself instead of just the thing that was called.`);
+. Equivalent to \`expr\` as a normal [[eval]]uation, but inserts the metadata of \`location\` into the stack frame to identify the call site itself instead of just the thing that was called.`);
     registerDoargs(vm);
     registerUnwrap(vm);
     defineBuiltin(vm, "splat", ["value", ["kw", false]], ({ value, kw }) => new SplatArg(value, kw),
@@ -215,10 +215,10 @@ The \`callAt\` frame will be hidden in the actual traceback.`);
 As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the former would be invalid in conventional Lisp.`);
     // MARK: builtin applier
     defineApplier(vm, [JSFun],
-        (vm, { 0: func }) => pushCommand(vm, "jeb:builtin/invoke", func),
+        (vm, { 0: func }, { location }) => pushCommand(vm, "jeb:builtin/invoke", func, location),
         (_, func) => func,
         "Wrapper for a Javascript function that gives it a few properties to make it easier for JEB to call it.");
-    defineOpcode(vm, "jeb:builtin/invoke", (vm, { 0: func }) => checkNothingOrPush(vm, func.impl(popData(vm), vm)), null);
+    defineOpcode(vm, "jeb:builtin/invoke", (vm, { 0: func, 1: location }) => checkNothingOrPush(vm, func.impl(popData(vm), vm, location)), null);
 
     // MARK: variables
     defineAccessor(vm, ["object", "function"], (_, { 0: object }, { field, type }) => new ObjectPropertyReference(type, object, field), "Default object property accessor.");
@@ -526,7 +526,7 @@ There are many forms that the paremeter can take to control is behavior at call 
             if (condition) { if (then) pushCommand(vm, ...then); } else if (else_) pushCommand(vm, ...else_);
         } else {
             pushData(vm, condition ? then : else_);
-            pushCommand(vm, "jeb:eval", true);
+            pushCommand(vm, "jeb:eval", undefined, true);
         }
     },
         `.imm then else isAsm
@@ -559,7 +559,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 .returns {any | null} - null if \`body\` is empty, otherwise returns the result of the last body statement
 . Runs each of the body statements in order.`);
 
-    defineBuiltin(vm, "let", [[true, "__args"], true], (ao, vm) => {
+    defineBuiltin(vm, "let", [[true, "__args"], true], (ao, vm, location) => {
         const args = ao.__args!;
         const extractParts = (bindings: any[]) => {
             bindings.forEach(b => {
@@ -587,7 +587,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
             const body = args.slice(1);
             pushData(vm, [[__fn, true, params, ...body], ...initializers]);
         }
-        pushCommand(vm, "jeb:eval");
+        pushCommand(vm, "jeb:eval", location);
         return NOTHING;
     },
         `.macro (let pairs body...)
@@ -623,7 +623,7 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 . Creates a new environment with the given name-value pairs as its bindings, and switches to it. Everything after this will be in the new environment.
 Functions much like [[let]] but with an implicit block after it that continues to the end of the outer block instead of explicit.`);
 
-    defineBuiltin(vm, "define", [[true, "definition"], true], (ao, vm) => {
+    defineBuiltin(vm, "define", [[true, "definition"], true], (ao, vm, location) => {
         const args = ao.definition!;
         const name = args[0] as Identifier | Identifier[];
         const setHelper = (name: Identifier, thing: any) => {
@@ -644,7 +644,7 @@ Functions much like [[let]] but with an implicit block after it that continues t
         else throw new JEBSyntaxError("invalid define syntax");
         pushCommand(vm, "jeb:set", true, true);
         pushCommand(vm, "jeb:shuffle", 2, [1, 0]);
-        pushCommand(vm, "jeb:eval");
+        pushCommand(vm, "jeb:eval", location);
         return NOTHING;
     },
         `.macro (define name value)
@@ -765,10 +765,10 @@ Expands into a [[fn]].
 .returns {boolean} - True if \`value\` is falsy (false, zero, undefined, null, or empty string), false otherwise.
 . Boolean inverse.`);
     const booleanHelper = (name: string, shortCircuitOn: boolean) => {
-        defineBuiltin(vm, name, ["a", [true, "b"]], ({ a, b }, vm: JebVM) => {
+        defineBuiltin(vm, name, ["a", [true, "b"]], ({ a, b }, vm, location) => {
             if ((!!a) === shortCircuitOn) return a;
             pushData(vm, b);
-            pushCommand(vm, "jeb:eval", true);
+            pushCommand(vm, "jeb:eval", location, true);
             return NOTHING;
         },
             `.macro (fn a b)

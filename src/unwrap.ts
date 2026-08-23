@@ -31,7 +31,7 @@ export const registerUnwrap = (vm: JebVM) => {
         pushData(vm, obj);
     }, "Unwraps a reference");
     defineUnwrapper(vm, [MacroWrapper], (vm, { 0: { obj } }) => {
-        pushCommand(vm, "jeb:eval");
+        pushCommand(vm, "jeb:eval", undefined);
         pushData(vm, obj);
     }, "Unwraps a macro expansion thing");
 }

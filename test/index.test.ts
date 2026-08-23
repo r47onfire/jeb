@@ -722,12 +722,12 @@ describe("location tracking", () => {
     testTest("tracks locations", vm => {
         expect.assertions(3);
         try {
-            run(vm, ["callAt", "line 0", "begin",
-                ["define", ["f"], ["callAt", "line 1", "g"]],
-                ["define", ["g"], ["callAt", "line 2", "h"]],
-                ["define", ["h"], ["callAt", "line 3", "error"]],
-                ["callAt", "line 4", "f"],
-            ]);
+            run(vm, ["at", "line 0", ["begin",
+                ["define", ["f"], ["at", "line 1", ["g"]]],
+                ["define", ["g"], ["at", "line 2", ["h"]]],
+                ["define", ["h"], ["at", "line 3", ["error"]]],
+                ["at", "line 4", ["f"]],
+            ]]);
         } catch (e2: any) {
             const e: JEBError = e2;
             expect(e).toBeInstanceOf(JEBError);

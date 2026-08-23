@@ -18,7 +18,7 @@ export const implicitBegin = (vm: JebVM, args: any[]) => {
         if (!last) vm.pushCommand("jeb:shuffle", 1, []);
         vm.pushData(args[i]);
         // Do a tail call on the last item
-        vm.pushCommand("jeb:eval", last);
+        vm.pushCommand("jeb:eval", undefined, last);
     }
     return NOTHING;
 };

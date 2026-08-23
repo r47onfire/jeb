@@ -15,17 +15,17 @@ export interface JEBOpcode {
     // overloaded in VM
     "jeb:audit": [event: keyof JEBAuditEvent, ...args: unknown[]];
     "jeb:tb_pop": [];
-    "jeb:tb_push": [func: Identifier, callLocation: string | undefined, tail?: boolean];
+    "jeb:tb_push": [func: Identifier, callLocation: Identifier | undefined, tail?: boolean];
     "jeb:shuffle": [n: number, pushIndices: number[]];
-    "jeb:eval": [tail?: boolean];
-    "jeb:apply": [argv: any[], location: string | undefined, tail?: boolean, noEval?: boolean];
+    "jeb:eval": [location: Identifier | undefined, tail?: boolean];
+    "jeb:apply": [argv: any[], location: Identifier | undefined, tail?: boolean, noEval?: boolean];
     "jeb:doargs": [signature: CallableSignature, dynamicEnv: Env | undefined, noEval: boolean, funcName: Identifier | undefined];
     "jeb:doargs/loop": [state: DoargsState, first: boolean];
     "jeb:unwrap": [flagsNotToUnwrap: string[]];
     // overloaded in VM
     "jeb:wrap": [cls: new (obj: any, ...rest: unknown[]) => Wrapper, ...rest: unknown[]];
-    "jeb:apply/id-trampoline": [tail: boolean, location: string | undefined];
-    "jeb:builtin/invoke": [func: JSFun];
+    "jeb:apply/id-trampoline": [tail: boolean, location: Identifier | undefined];
+    "jeb:builtin/invoke": [func: JSFun, location: Identifier | undefined];
     "jeb:index": [accessType: AccessType];
     "jeb:get": [shouldBind: boolean];
     "jeb:set": [create?: boolean, readonly_?: boolean];

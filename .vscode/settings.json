@@ -17,6 +17,7 @@
         "pycache",
         "pyparsing",
         "SRFI",
+        "uation",
         "unformat",
         "unlambda",
         "wicg"

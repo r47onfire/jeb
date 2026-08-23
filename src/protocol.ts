@@ -93,11 +93,12 @@ export interface ApplyMetadata {
 
 export interface ApplyFlags {
     tail: boolean;
-    location: string | undefined;
+    location: Identifier | undefined;
 }
 
 export interface EvalFlags {
     tail: boolean;
+    location: Identifier | undefined;
 }
 
 export interface AccessFlags {

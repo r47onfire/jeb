@@ -17,7 +17,7 @@ import { Wrapper } from "./wrapper";
 export type Command = [opcode: keyof JEBOpcode, ...immediateArgs: any[]];
 export interface StackCount {
     readonly name: Identifier;
-    readonly location: string | undefined;
+    readonly location: Identifier | undefined;
     readonly count: number;
     readonly tail: boolean;
 }
@@ -126,7 +126,7 @@ export class JebVM {
         if (LinkedList_length(this.commandStack) > 0) throw new Error("VM is already running");
         this.pushData(code);
         this.pushCommand("jeb:unwrap", []);
-        this.pushCommand("jeb:eval");
+        this.pushCommand("jeb:eval", undefined);
     }
     /**
      * Silently stops running the code, by resetting all stacks state back to the initial empty state.
@@ -186,7 +186,7 @@ export class JebVM {
      * @param func Name of the function that is now being called
      * @param tailcallHint True if the function was tail-called
      */
-    pushTraceback(func: Identifier, tailcallHint: boolean, callsiteLocation: string | undefined) {
+    pushTraceback(func: Identifier, tailcallHint: boolean, callsiteLocation: Identifier | undefined) {
         const top = this.tracebackStack;
         if (top) {
             const { value: { name, tail, location, count }, next } = top;

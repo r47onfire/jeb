@@ -1,8 +1,8 @@
 import { stringify } from "lib0/json";
-import { JSFun, CallableSignatureFromShorthand, createSignature, ShorthandArgument } from "./callable";
-import { AccessFlags, ApplyMetadata, ApplyOrEvalFlags, Reference, ProtocolObj, Type } from "./protocol";
-import { JebVM, OpcodeFunction } from "./vm";
+import { CallableSignatureFromShorthand, createSignature, JSFun, ShorthandArgument } from "./callable";
 import { JEBOpcode } from "./opcodeTypes";
+import { AccessFlags, ApplyFlags, ApplyMetadata, EvalFlags, ProtocolObj, Reference, Type } from "./protocol";
+import { JebVM, OpcodeFunction } from "./vm";
 import { Wrapper } from "./wrapper";
 
 /**
@@ -47,14 +47,14 @@ export const defineOpcode = <T extends keyof JEBOpcode>(vm: JebVM, name: T, fn: 
  */
 // Why does this mess up the syntax highlighting ?!??!?!?!?
 
-export const defineApplier = <const T extends Type[], PO extends ProtocolObj<void, [T], {}, ApplyMetadata, ApplyOrEvalFlags>>(vm: JebVM, type: T, run: PO["run"], describe: PO["describe"], doc: string) => {
+export const defineApplier = <const T extends Type[], PO extends ProtocolObj<void, [T], {}, ApplyMetadata, ApplyFlags>>(vm: JebVM, type: T, run: PO["run"], describe: PO["describe"], doc: string) => {
     vm.addProtocol("apply", { type: [type], run, doc, describe });
 };
 /**
  * Defines a new applier that can be used by the `jeb:eval` opcode to evaluate or unwrap something.
  */
 
-export const defineEvaluator = <const T extends Type[]>(vm: JebVM, type: T, fn: ProtocolObj<void, [T], {}, void, ApplyOrEvalFlags>["run"], doc: string) => {
+export const defineEvaluator = <const T extends Type[]>(vm: JebVM, type: T, fn: ProtocolObj<void, [T], {}, void, EvalFlags>["run"], doc: string) => {
     vm.addProtocol("eval", { type: [type], run: fn, doc });
 };
 
