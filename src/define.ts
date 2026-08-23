@@ -1,7 +1,8 @@
 import { stringify } from "lib0/json";
-import { CallableSignatureFromShorthand, createSignature, JSFun, ShorthandArgument } from "./callable";
+import { JSFun } from "./callable";
 import { JEBOpcode } from "./opcodeTypes";
 import { AccessFlags, ApplyFlags, ApplyMetadata, EvalFlags, ProtocolObj, Reference, Type } from "./protocol";
+import { CallableSignatureFromShorthand, createSignature, ShorthandArgument } from "./signature";
 import { JebVM, OpcodeFunction } from "./vm";
 import { Wrapper } from "./wrapper";
 

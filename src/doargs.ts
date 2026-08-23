@@ -1,10 +1,10 @@
 import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
 import { Block } from "./block";
-import { CallableSignature, Laziness, LonghandArgument } from "./callable";
 import { defineOpcode, NOTHING } from "./define";
 import { Env } from "./env";
 import { JEBError, JEBSyntaxError, JEBValueError, wrapThrowToError } from "./errors";
+import { CallableSignature, Laziness, LonghandArgument } from "./signature";
 import { Identifier, Reflect_ownKeys } from "./utils";
 import { JebVM, popData, pushCommand, pushData } from "./vm";
 import { KeywordArg, SplatArg } from "./wrapper";

@@ -1,11 +1,12 @@
 import { JEBAuditEvent } from "./auditHookTypes";
 import { Block } from "./block";
-import { CallableSignature, Fun, JSFun } from "./callable";
+import { Fun, JSFun } from "./callable";
 import { Continuation, DynamicWind } from "./continuation";
 import { DoargsState } from "./doargs";
 import { Env } from "./env";
 import { JEBError } from "./errors";
 import { AccessType } from "./protocol";
+import { CallableSignature } from "./signature";
 import { Identifier } from "./utils";
 import { Command } from "./vm";
 import { Wrapper } from "./wrapper";
