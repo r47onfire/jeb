@@ -628,6 +628,48 @@ describe("recursion stress tests", () => {
         ])).toBeTrue();
         expect(popData(vm)).toEqual(A063510(x));
     });
+    describe("unlambda", () => {
+        const unlambda = (name: string, program: string, expectedOutput: string, autostop = false) => {
+            testTest(name, vm => {
+                var i = 0;
+                var out: string = "";
+                const next = () => program[i++];
+                const parse = (): any[] => {
+                    const x = next();
+                    switch (x) {
+                        case "`":
+                            return [parse(), parse()];
+                        case "s":
+                        case "k":
+                        case "i":
+                        case "d":
+                        case "c":
+                        case "v":
+                            return ["$", x];
+                        case ".":
+                            return ["fn", ["x"], ["out", next()], ["$", "x"]];
+                        default:
+                            throw "invalid character " + x;
+                    }
+                }
+                expect(run(vm, ["begin",
+                    ["define", ["out", "c"], [(c: string) => { out += c; if (autostop && out.length === expectedOutput.length) vm.commandStack = null; }, ["$", "c"]]],
+                    ["define", ["s", "x"], ["fn", ["y"], ["fn", ["z"], [["x", ["$", "z"]], ["y", ["$", "z"]]]]]],
+                    ["define", ["k", "x"], ["fn", ["_"], ["$", "x"]]],
+                    ["define", ["i", "x"], ["$", "x"]],
+                    ["define", ["v", "x"], ["$", "v"]],
+                    ["define", ["d", [false, "x"]], ["fn", ["y"], [["x"], ["$", "y"]]]],
+                    ["define", ["c", "x"], ["x", ["$", "return"]]],
+                    parse(),
+                ])).toBeTrue();
+                expect(out).toEqual(expectedOutput);
+            });
+        }
+        unlambda("hello world", "`````````````.H.e.l.l.o.,. .w.o.r.l.d.!i", "Hello, world!");
+        unlambda("hello world 2", "`.!`.d`.l`.r``.w`. `.,``.l`c`.H.e.oi", "Hello, world!");
+        unlambda("defer", "`.c``d`.bi`.ai", "abc");
+        unlambda("yin-yang", "``.\n`ci`.*`ci", new Array(200).fill(0).map((_, i) => "*".repeat(i)).join("\n"), true);
+    });
 });
 
 describe("FFI", () => {

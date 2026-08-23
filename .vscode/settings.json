@@ -18,6 +18,7 @@
         "pyparsing",
         "SRFI",
         "unformat",
+        "unlambda",
         "wicg"
     ]
 }

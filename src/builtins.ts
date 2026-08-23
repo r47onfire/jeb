@@ -427,7 +427,7 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
         (_, b) => ({
             name: undefined,
             signature: {
-                params: [{ name: "_", required: false, defaultExpr: NOTHING, lazy: Laziness.NONE, flags: [] }],
+                params: [{ name: "_", required: false, defaultExpr: {}, lazy: Laziness.NONE, flags: [] }],
                 rest: undefined,
                 kwRest: undefined,
             },
