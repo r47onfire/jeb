@@ -8,71 +8,39 @@ export type ShorthandArgument<N extends Identifier = Identifier, F extends reado
     /**
      * param gets evaluated and unwrapped, no default
      */
-    N
+    | N
     /**
      * param gets evaluated, optional with dynamically scoped default
      */
-    |
-
-
-
-    readonly [name: N, defaultExpr: any]
+    | readonly [name: N, defaultExpr: any]
     /**
      * lazy param (wrapped in block rather than evaluated), required
      */
-    |
-
-
-
-    readonly [lazy: false, name: N]
+    | readonly [lazy: false, name: N]
     /**
      * code param (quoted - unevaluated and not wrapped in a block either)
      */
-    |
-
-
-
-    readonly [macro: true, name: N]
+    | readonly [macro: true, name: N]
     /**
      * flagged param (evaluated, named flag types are not unwrapped)
      */
-    |
-
-
-
-    readonly [flags: F, name: N]
+    | readonly [flags: F, name: N]
     /**
      * flagged param with default
      */
-    |
-
-
-
-    readonly [flags: F, name: N, defaultExpr: any]
+    | readonly [flags: F, name: N, defaultExpr: any]
     /**
      * flagged block param with default (block will have flags to not unwrap at end)
      */
-    |
-
-
-
-    readonly [flags: F, lazy: false, name: N]
+    | readonly [flags: F, lazy: false, name: N]
     /**
      * previous argument is a rest argument and receives all the other positional arguments
      */
-    |
-
-
-
-    true
+    | true
     /**
      * previous argument is a kw rest argument and receives all the other keyword arguments
      */
-    |
-
-
-
-    false;
+    | false;
 
 export const enum Laziness {
     NONE,
