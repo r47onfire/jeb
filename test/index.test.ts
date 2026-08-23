@@ -717,3 +717,22 @@ describe("audit hook protections", () => {
         ], 10000000)).toThrow("too many loops");
     });
 });
+
+describe("location tracking", () => {
+    testTest("tracks locations", vm => {
+        expect.assertions(3);
+        try {
+            run(vm, ["callAt", "line 0", "begin",
+                ["define", ["f"], ["callAt", "line 1", "g"]],
+                ["define", ["g"], ["callAt", "line 2", "h"]],
+                ["define", ["h"], ["callAt", "line 3", "error"]],
+                ["callAt", "line 4", "f"],
+            ]);
+        } catch (e2: any) {
+            const e: JEBError = e2;
+            expect(e).toBeInstanceOf(JEBError);
+            expect(e.traceback).toBeDefined();
+            expect(e.traceback!.some(e => e.leaf && e.location !== undefined)).toBeTrue();
+        }
+    });
+});

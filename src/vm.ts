@@ -17,8 +17,9 @@ import { Wrapper } from "./wrapper";
 export type Command = [opcode: keyof JEBOpcode, ...immediateArgs: any[]];
 export interface StackCount {
     readonly name: Identifier;
+    readonly location: string | undefined;
     readonly count: number;
-    readonly isTailCalled: boolean;
+    readonly tail: boolean;
 }
 
 /**
@@ -85,7 +86,7 @@ export class JebVM {
     pushCommand<T extends keyof JEBOpcode>(name: T, ...args: JEBOpcode[T]) {
         this.commandStack = LinkedList_push(this.commandStack, [name, ...args]);
     }
-    #popCommand() {
+    popCommand() {
         if (LinkedList_length(this.commandStack) === 0) throw new JEBError("opcode stack underflow");
         const { 0: value, 1: rest } = LinkedList_pop(this.commandStack!);
         this.commandStack = rest;
@@ -102,7 +103,7 @@ export class JebVM {
     step() {
         if (this.paused) return false;
         if (LinkedList_length(this.commandStack) === 0) return false;
-        const command = this.#popCommand();
+        const command = this.popCommand();
         const opcode = this.opcodes[command[0]];
         if (!opcode) throw new JEBError(`Unknown opcode: ${command[0]}`);
         try {
@@ -160,20 +161,21 @@ export class JebVM {
     tracebackArray(numToDrop = 0) {
         var stack = this.tracebackStack;
         const parts: StackTreeNode[] = [];
-        var prevName: Identifier | undefined, prevCount = 0;
+        var prev: StackCount | undefined, prevCount = 0;
         const flush = () => {
             if (prevCount > 0) {
-                const leaf = createStackLeafNode(prevName!);
+                const leaf = createStackLeafNode(prev!.name, prev!.location);
                 parts.push(prevCount > 1 ? createStackInnerNode(prevCount, [leaf]) : leaf);
             }
             prevCount = 0;
         };
         while (stack) {
-            if (prevName !== stack.value.name) flush();
-            const off = min(stack.value.count, numToDrop);
-            prevCount += stack.value.count - off;
+            const { name, location, count } = stack.value;
+            if (prev && (prev.name !== name || prev.location !== location)) flush();
+            const off = min(count, numToDrop);
+            prevCount += count - off;
             numToDrop -= off;
-            prevName = stack.value.name;
+            prev = stack.value;
             stack = stack.next;
         }
         flush();
@@ -184,24 +186,27 @@ export class JebVM {
      * @param func Name of the function that is now being called
      * @param tailcallHint True if the function was tail-called
      */
-    pushTraceback(func: Identifier, tailcallHint: boolean) {
+    pushTraceback(func: Identifier, tailcallHint: boolean, callsiteLocation: string | undefined) {
         const top = this.tracebackStack;
-        if (top && top.value.name === func && top.value.isTailCalled === tailcallHint) {
-            // same name and type = just bump the counter
-            this.tracebackStack = LinkedList_push(top.next, { name: func, count: top.value.count + 1, isTailCalled: tailcallHint });
-        } else {
-            this.tracebackStack = LinkedList_push(top, { name: func, count: 1, isTailCalled: tailcallHint });
+        if (top) {
+            const { value: { name, tail, location, count }, next } = top;
+            if (name === func && tail === tailcallHint && location === callsiteLocation) {
+                // same name and type = just bump the counter
+                this.tracebackStack = LinkedList_push(next, { name: func, count: count + 1, tail: tailcallHint, location: callsiteLocation });
+                return;
+            }
         }
+        this.tracebackStack = LinkedList_push(top, { name: func, count: 1, tail: tailcallHint, location: callsiteLocation });
     }
     /**
      * Drops all the tail-call entries off the stack, and then one more
      */
-    popTraceback() {
+    popTraceback(dropTail = true) {
         var cur = this.tracebackStack;
         if (!cur) throw new JEBError("traceback stack underflow");
 
         // drop all TCO'ed frames
-        while (cur && cur.value.isTailCalled) {
+        if (dropTail) while (cur && cur.value.tail) {
             cur = cur.next;
         }
 

@@ -91,8 +91,13 @@ export interface ApplyMetadata {
     closureEnv?: Env;
 }
 
-export interface ApplyOrEvalFlags {
-    tail: boolean
+export interface ApplyFlags {
+    tail: boolean;
+    location: string | undefined;
+}
+
+export interface EvalFlags {
+    tail: boolean;
 }
 
 export interface AccessFlags {
@@ -125,8 +130,8 @@ export abstract class Reference {
 export interface JEBProtocols {
     [x: PropertyKey]: ProtocolsList<unknown, any, any, any, any>;
     // Runtime protocols
-    apply: ProtocolsList<void, [Type[]], {}, ApplyMetadata, ApplyOrEvalFlags>;
-    eval: ProtocolsList<void, [Type[]], {}, void, ApplyOrEvalFlags>;
+    apply: ProtocolsList<void, [Type[]], {}, ApplyMetadata, ApplyFlags>;
+    eval: ProtocolsList<void, [Type[]], {}, void, EvalFlags>;
     access: ProtocolsList<Reference | typeof NOTHING, [Type[]], {}, void, AccessFlags>;
     unwrap: ProtocolsList<void, [(typeof Wrapper)[]], {}, void, void>;
     // Math protocols

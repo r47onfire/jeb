@@ -1,7 +1,7 @@
 import { isinstance, javaHash, rotate32 } from "@r47onfire/game-math";
 import { NOTHING } from "./define";
-import { JebVM } from "./vm";
 import { Identifier } from "./utils";
+import { JebVM } from "./vm";
 
 /**
  * Mapping of error tag to class constructor (used by the `err` function)
@@ -93,11 +93,12 @@ export type StackTreeNode = Readonly<{
 } | {
     leaf: true,
     name: Identifier;
+    location: string | undefined;
     hash: number;
 }>;
 
-export const createStackLeafNode = (name: Identifier): StackTreeNode => {
-    return { leaf: true, name, hash: javaHash(String(name)) };
+export const createStackLeafNode = (name: Identifier, location: string | undefined): StackTreeNode => {
+    return { leaf: true, name, location, hash: javaHash(String(name)) ^ (location ? javaHash(location) : 0xDEADBEEF) };
 };
 
 export const createStackInnerNode = (count: number, children: StackTreeNode[]): StackTreeNode => {
@@ -166,7 +167,7 @@ const nodesEqual = (node1: StackTreeNode, node2: StackTreeNode) => {
 
     // either they're equal, or hash collision
     if (node1.leaf && node2.leaf) {
-        return node1.name === node2.name;
+        return node1.name === node2.name && node1.location === node2.location;
     }
     if (!node1.leaf && !node2.leaf) {
         // For non-leaf nodes, count and structure must match

@@ -1,4 +1,4 @@
-import { isinstance } from "@r47onfire/game-math";
+import { isinstance, LinkedList_toArray } from "@r47onfire/game-math";
 import { isArray } from "lib0/array";
 import { undefinedToNull } from "lib0/conditions";
 import { id, isString } from "lib0/function";
@@ -51,7 +51,7 @@ export const loadBuiltins = (vm: JebVM) => {
         `.imm
 .sed --
 . Pops the top of the traceback stack, including all tailcall entries if there are some.`);
-    defineOpcode(vm, "jeb:tb_push", (vm, { 0: func, 1: tail }) => vm.pushTraceback(func, tail ?? false),
+    defineOpcode(vm, "jeb:tb_push", (vm, { 0: func, 1: location, 2: tail }) => vm.pushTraceback(func, tail ?? false, location),
         `.imm function tailcall
 ..param {string} function
 ..param {boolean} [tailcall=false]
@@ -117,12 +117,15 @@ This can be used to create an unhygienic syntactic macro by returning the wrappe
         }
     },
         "Evaluates all of the property values, and then reassembles the object with the same set of keys with the evaluated values.");
+    const arrayEval = (vm: JebVM, code: any[], tail: boolean, location: string | undefined) => {
+        pushCommand(vm, "jeb:apply", code.slice(1), location, tail);
+        pushCommand(vm, "jeb:unwrap", []);
+        pushCommand(vm, "jeb:eval");
+        pushData(vm, code[0]);
+    };
     defineEvaluator(vm, [Array], (vm, { 0: code }, { tail }) => {
         if (code.length > 0) {
-            pushCommand(vm, "jeb:apply", code.slice(1), tail);
-            pushCommand(vm, "jeb:unwrap", []);
-            pushCommand(vm, "jeb:eval");
-            pushData(vm, code[0]);
+            arrayEval(vm, code, tail, undefined);
         }
         else {
             throw new JEBValueError("can't evaluate empty array", { return: vm.cc() });
@@ -142,7 +145,7 @@ This can be used to create an unhygienic syntactic macro by returning the wrappe
         "Implicit blocks evaluate to themselves.");
 
     // MARK: apply
-    defineOpcode(vm, "jeb:apply", (vm, { 0: argv, 1: tail, 2: noEval }) => {
+    defineOpcode(vm, "jeb:apply", (vm, { 0: argv, 1: location, 2: tail, 3: noEval }) => {
         const func = popData(vm);
         const applier = vm.getProtocol(true, false, "apply", [func]);
         if (!applier) {
@@ -150,8 +153,8 @@ This can be used to create an unhygienic syntactic macro by returning the wrappe
         }
         const { name, signature, closureEnv } = applier.describe(vm, func);
         if (name && !tail) pushCommand(vm, "jeb:tb_pop");
-        applier.run(vm, [func], { tail: tail ?? false });
-        if (name) pushCommand(vm, "jeb:tb_push", name, tail);
+        applier.run(vm, [func], { tail: tail ?? false, location });
+        if (name) pushCommand(vm, "jeb:tb_push", name, location, tail);
         pushCommand(vm, "jeb:doargs", signature, closureEnv, noEval ?? false, name);
         pushData(vm, argv);
     },
@@ -162,7 +165,19 @@ This can be used to create an unhygienic syntactic macro by returning the wrappe
 .throws jeb:type_error - when the object is not callable
 .throws jeb:value_error - when the argument count is wrong
 . Pops the top value from the stack and calls it with the provided arguments.
-The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.`);
+The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.
+The \`callAt\` frame will be hidden in the actual traceback.`);
+    defineBuiltin(vm, "callAt", ["location", [true, "expr"], true], ({ location, expr }) => {
+        // Remove self frame from here
+        vm.popTraceback(false); // don't drop tail call, just in case this callAt is in tail position
+        vm.popCommand(); // This will be the tb_pop pushed by apply above
+        arrayEval(vm, expr!, false, location);
+        return NOTHING;
+    },
+        `.macro (callAt location expr...)
+..param {opaque-id} location
+..param {code} expr
+. Equivalent to \`(expr...)\` as a normal call, but inserts the metadata of \`location\` into the stack frame to identify the call site itself instead of just the thing that was called.`);
     registerDoargs(vm);
     registerUnwrap(vm);
     defineBuiltin(vm, "splat", ["value", ["kw", false]], ({ value, kw }) => new SplatArg(value, kw),
@@ -177,16 +192,16 @@ The arguments expressions are expected to be unevaluated, and the signature of t
 . Redirects the argument into a particular named argument slot.`);
 
     // MARK: string applier
-    defineOpcode(vm, "jeb:apply/id-trampoline", (vm, { 0: tail }) => {
+    defineOpcode(vm, "jeb:apply/id-trampoline", (vm, { 0: tail, 1: location }) => {
         const realFunc = popData(vm);
         const argsObj = popData(vm) as { _: any[] };
         pushData(vm, realFunc);
-        pushCommand(vm, "jeb:apply", argsObj._, tail);
+        pushCommand(vm, "jeb:apply", argsObj._, location, tail);
     }, null);
-    defineApplier(vm, ["string", "symbol"], (vm, { 0: func }, { tail }) => {
+    defineApplier(vm, ["string", "symbol"], (vm, { 0: func }, { tail, location }) => {
         // String is a special case because normally strings evaluate to themselves
         // (not to a callable function), but if it's in head position, we implicitly look it up.
-        pushCommand(vm, "jeb:apply/id-trampoline", tail);
+        pushCommand(vm, "jeb:apply/id-trampoline", tail, location);
         pushCommand(vm, "jeb:unwrap", []);
         pushCommand(vm, "jeb:get", false);
         pushCommand(vm, "jeb:shuffle", 2, [1, 0]);
@@ -299,7 +314,7 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
             dw.restore(vm);
             if (dw.handler?.exit) {
                 pushCommand(vm, "jeb:if", null, ["jeb:throw", err], true);
-                pushCommand(vm, "jeb:apply", [false, err], false, true);
+                pushCommand(vm, "jeb:apply", [false, err], undefined, false, true);
                 pushData(vm, dw.handler.exit);
                 return;
             }
@@ -371,7 +386,7 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
             pushData(vm, {});
             return;
         }
-        pushCommand(vm, "jeb:apply", [false]);
+        pushCommand(vm, "jeb:apply", [false], undefined);
         pushData(vm, context.enter);
     }, null);
 
@@ -388,7 +403,7 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
         if (!dw.handler?.exit) return;
         // discard the exit handler's result
         pushCommand(vm, "jeb:shuffle", 1, []);
-        pushCommand(vm, "jeb:apply", [false, null]);
+        pushCommand(vm, "jeb:apply", [false, null], undefined);
         pushData(vm, dw.handler.exit);
     }, null);
 

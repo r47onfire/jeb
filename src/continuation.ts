@@ -100,7 +100,7 @@ export class DynamicWind<T extends JebVM = JebVM> {
             i = parentsOfTo.indexOf(fp);
             if (i !== -1) break;
             if (fp.handler?.exit) {
-                intOps.push(["jeb:apply", [true, null], true]);
+                intOps.push(["jeb:apply", [true, null], undefined, true]);
                 intOps.push(["jeb:shuffle", 1, []]);
                 intData.push(fp.handler.exit);
             }
@@ -110,7 +110,7 @@ export class DynamicWind<T extends JebVM = JebVM> {
         for (var j = i + 1; j < len; j++) {
             const tp = parentsOfTo[j]!;
             if (tp.handler?.enter) {
-                intOps.push(["jeb:apply", [true], true]);
+                intOps.push(["jeb:apply", [true], undefined, true]);
                 intOps.push(["jeb:shuffle", 1, []]);
                 intData.push(tp.handler.enter);
             }
