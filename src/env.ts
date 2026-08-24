@@ -1,4 +1,3 @@
-import { keys } from "lib0/object";
 import { Err, Ok, Result } from "ts-res";
 import { Identifier } from "./utils";
 
