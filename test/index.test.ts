@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { defineBuiltin, Identifier, JEBError, JebVM, makeSingleEventWatcher, popData, pushCommand, pushData, typeMatches } from "../src";
+import { defineBuiltin, float, Identifier, int, JEBError, JebVM, makeSingleEventWatcher, popData, pushCommand, pushData, typeMatches } from "../src";
 
 const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) => {
     const vm = new JebVM();
@@ -586,9 +586,11 @@ describe("recursion stress tests", () => {
                         ["set", [".", ["$", "cache"], ["$", "a"]], ["f", ["$", "a"]]],
                         ["$", "cached"]]]]]
     ];
+    const fibonacci = MEMOIZE_F(a => a < 2 ? a : fibonacci(a - 1n) + fibonacci(a - 2n));
+    const q = MEMOIZE_F(a => a < 3 ? 1n : q(a - q(a - 1n)) + q(a - q(a - 2n)));
+    const A063510 = (a: number): number => a < 2 ? 1 : 1 + A063510(a ** 0.5 | 0);
     testTest("A000045 (Fibonacci sequence)", vm => {
         const x = 5000n;
-        const fibonacci = MEMOIZE_F(a => a < 2 ? a : fibonacci(a - 1n) + fibonacci(a - 2n));
         expect(run(vm, ["begin",
             MEMOIZE,
             ["define", "fibonacci", ["memoize", ["fn", ["a"],
@@ -603,7 +605,6 @@ describe("recursion stress tests", () => {
     });
     testTest("A005185 (Hofstadter 'Q' sequence)", vm => {
         const x = 5000n;
-        const q = MEMOIZE_F(a => a < 3 ? 1n : q(a - q(a - 1n)) + q(a - q(a - 2n)));
         expect(run(vm, ["begin",
             MEMOIZE,
             ["define", "q", ["memoize", ["fn", ["a"],
@@ -618,7 +619,6 @@ describe("recursion stress tests", () => {
     });
     testTest("A063510", vm => {
         const x = 1e20;
-        const A063510 = (a: number): number => a < 2 ? 1 : 1 + A063510(a ** 0.5 | 0);
         expect(run(vm, ["begin",
             ["define", ["A063510", "a"],
                 ["if", ["<", ["$", "a"], 2],
@@ -645,6 +645,7 @@ describe("recursion stress tests", () => {
                         case "d":
                         case "c":
                         case "v":
+                        case "r":
                             return ["$", x];
                         case ".":
                             return ["fn", ["x"], ["out", next()], ["$", "x"]];
@@ -658,6 +659,7 @@ describe("recursion stress tests", () => {
                     ["define", ["k", "x"], ["fn", ["_"], ["$", "x"]]],
                     ["define", ["i", "x"], ["$", "x"]],
                     ["define", ["v", "x"], ["$", "v"]],
+                    ["define", ["r", "x"], ["out", "\n"], ["$", "x"]],
                     ["define", ["d", [false, "x"]], ["fn", ["y"], [["x"], ["$", "y"]]]],
                     ["define", ["c", "x"], ["x", ["$", "return"]]],
                     parse(),
@@ -668,7 +670,8 @@ describe("recursion stress tests", () => {
         unlambda("hello world", "`````````````.H.e.l.l.o.,. .w.o.r.l.d.!i", "Hello, world!");
         unlambda("hello world 2", "`.!`.d`.l`.r``.w`. `.,``.l`c`.H.e.oi", "Hello, world!");
         unlambda("defer", "`.c``d`.bi`.ai", "abc");
-        unlambda("yin-yang", "``.\n`ci`.*`ci", new Array(200).fill(0).map((_, i) => "*".repeat(i)).join("\n"), true);
+        unlambda("yin-yang", "``r`ci`.*`ci", new Array(200).fill(0).map((_, i) => "*".repeat(i)).join("\n"), true);
+        unlambda("fibonacci printer", "```s``s``sii`ki`k.*``s``s`ks``s`k`s`ks``s``s`ks``s`k`s`kr``s`k`sikk`k``s`ksk", new Array(20).fill(0).map((_, i) => "*".repeat(float(fibonacci(int(i))))).join("\n"), true);
     });
 });
 

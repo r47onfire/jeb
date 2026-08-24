@@ -20,7 +20,7 @@ export const enum Relation {
 export type BinaryFun = (a: any, b: any) => any;
 
 const int = BigInt, float = Number, isInt = float.isInteger, isSafeInt = float.isSafeInteger, isGoodInt = (x: number) => isInt(x) && isSafeInt(x);
-export { float };
+export { float, int };
 /**
  * Wraps a numeric function to automatically work with both numbers and bigints and automatically upcast
  * or downcast as needed to keep precision okay (divsion needs to be handled separately; bigint/bigint will still round)
