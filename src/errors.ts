@@ -184,7 +184,7 @@ const childrenEqual = (children1: StackTreeNode[], children2: StackTreeNode[]): 
 
 /**
  * Formats a stack tree as a compact string representation
- * @param node The compressed stack tree node
+ * @param nodes The compressed stack tree nodes
  * @returns A formatted string like "foo <- bar <- (baz * 3) <- qux"
  */
 export const formatStackTraceCompact = (nodes: StackTreeNode[]): string => {

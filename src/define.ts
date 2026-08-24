@@ -13,10 +13,7 @@ import { Wrapper } from "./wrapper";
 export const NOTHING = Symbol("NOTHING");
 /**
  * Defines a builtin function in the VM's builtins scope as a constant.
- * @param arity The allowable number of arguments to the function.
- * If an object, specifies the min and max.
- * If a number, min and max are the same.
- * If null, min = 0 and max = Infinity.
+ * @param signature Defines the parameters of the function and how they should be interpreted
  * @param fn The function to implement the builtin. It should use the VM from the parameter, and **not**
  * close over the one that is passed to the `vm` parameter of `defineBuiltin` (since this builtin may be reused for a sub-VM for
  * e.g. an FFI callback).
