@@ -170,7 +170,7 @@ The arguments expressions are expected to be unevaluated, and the signature of t
 The \`callAt\` frame will be hidden in the actual traceback.`);
     defineBuiltin(vm, "at", ["location", [true, "expr"]], ({ location, expr }) => {
         // Remove self frame from here
-        vm.popTraceback(false); // don't drop tail call, just in case this callAt is in tail position
+        vm.popTraceback(false); // don't drop tail call, just in case this is in tail position
         vm.popCommand(); // This will be the tb_pop pushed by apply above
         pushCommand(vm, "jeb:eval", location);
         return expr;

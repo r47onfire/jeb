@@ -187,6 +187,7 @@ export class JebVM {
      * @param tailcallHint True if the function was tail-called
      */
     pushTraceback(func: Identifier, tailcallHint: boolean, callsiteLocation: Identifier | undefined) {
+        if (callsiteLocation !== undefined) console.log("push location", callsiteLocation);
         const top = this.tracebackStack;
         if (top) {
             const { value: { name, tail, location, count }, next } = top;

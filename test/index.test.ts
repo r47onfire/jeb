@@ -735,7 +735,11 @@ describe("location tracking", () => {
             const e: JEBError = e2;
             expect(e).toBeInstanceOf(JEBError);
             expect(e.traceback).toBeDefined();
-            expect(e.traceback!.some(e => e.leaf && e.location !== undefined)).toBeTrue();
+            expect(e.traceback!.some(e => e.leaf && e.location === "line 0")).toBeTrue();
+            expect(e.traceback!.some(e => e.leaf && e.location === "line 1")).toBeTrue();
+            expect(e.traceback!.some(e => e.leaf && e.location === "line 2")).toBeTrue();
+            expect(e.traceback!.some(e => e.leaf && e.location === "line 3")).toBeTrue();
+            expect(e.traceback!.some(e => e.leaf && e.location === "line 4")).toBeTrue();
         }
     });
 });
