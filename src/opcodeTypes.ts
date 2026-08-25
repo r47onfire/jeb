@@ -16,7 +16,7 @@ export interface JEBOpcode {
     // overloaded in VM
     "jeb:audit": [event: keyof JEBAuditEvent, ...args: unknown[]];
     "jeb:tb_pop": [];
-    "jeb:tb_push": [func: Identifier, callLocation: Identifier | undefined, tail?: boolean];
+    "jeb:tb_push": [func: Identifier | undefined, callLocation: Identifier | undefined, tail?: boolean];
     "jeb:shuffle": [n: number, pushIndices: number[]];
     "jeb:eval": [location: Identifier | undefined, tail?: boolean];
     "jeb:apply": [argv: any[], location: Identifier | undefined, tail?: boolean, noEval?: boolean];

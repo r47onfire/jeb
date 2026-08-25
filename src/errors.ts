@@ -92,12 +92,12 @@ export type StackTreeNode = Readonly<{
     hash: number;
 } | {
     leaf: true,
-    name: Identifier;
+    name: Identifier | undefined;
     location: Identifier | undefined;
     hash: number;
 }>;
 
-export const createStackLeafNode = (name: Identifier, location: Identifier | undefined): StackTreeNode => {
+export const createStackLeafNode = (name: Identifier | undefined, location: Identifier | undefined): StackTreeNode => {
     return { leaf: true, name, location, hash: javaHash(String(name)) ^ (location ? javaHash(String(location)) : 0xDEADBEEF) };
 };
 

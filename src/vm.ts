@@ -16,7 +16,7 @@ import { Wrapper } from "./wrapper";
  */
 export type Command = [opcode: keyof JEBOpcode, ...immediateArgs: any[]];
 export interface StackCount {
-    readonly name: Identifier;
+    readonly name: Identifier | undefined;
     readonly location: Identifier | undefined;
     readonly count: number;
     readonly tail: boolean;
@@ -186,8 +186,7 @@ export class JebVM {
      * @param func Name of the function that is now being called
      * @param tailcallHint True if the function was tail-called
      */
-    pushTraceback(func: Identifier, tailcallHint: boolean, callsiteLocation: Identifier | undefined) {
-        if (callsiteLocation !== undefined) console.log("push location", callsiteLocation);
+    pushTraceback(func: Identifier | undefined, tailcallHint: boolean, callsiteLocation: Identifier | undefined) {
         const top = this.tracebackStack;
         if (top) {
             const { value: { name, tail, location, count }, next } = top;

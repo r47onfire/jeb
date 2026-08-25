@@ -203,9 +203,11 @@ The \`callAt\` frame will be hidden in the actual traceback.`);
         // String is a special case because normally strings evaluate to themselves
         // (not to a callable function), but if it's in head position, we implicitly look it up.
         pushCommand(vm, "jeb:apply/id-trampoline", tail, location);
+        pushCommand(vm, "jeb:tb_pop");
         pushCommand(vm, "jeb:unwrap", []);
         pushCommand(vm, "jeb:get", false);
         pushCommand(vm, "jeb:shuffle", 2, [1, 0]);
+        pushCommand(vm, "jeb:tb_push", undefined, location);
         pushData(vm, new VariableReference(AccessType.FUNCTION, vm.currentEnv, func));
     }, () => ({
         name: undefined,
@@ -934,12 +936,6 @@ const underscorename = (lazy: Laziness): LonghandArgument<any, any> => ({
     defaultExpr: undefined,
     lazy
 });
-
-const ONE_UNDERSCORE_QUOTED: CallableSignature = {
-    params: [underscorename(Laziness.QUOTED)],
-    rest: undefined,
-    kwRest: undefined,
-};
 
 const ALL_UNDERSCORE_QUOTED: CallableSignature = {
     params: [],

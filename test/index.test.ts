@@ -19,8 +19,8 @@ const run = (vm: JebVM, code: any, steps = Infinity, recursionLimit = 10000) => 
     return false;
 }
 
-const rawTraceback = (vm: JebVM): Identifier[] => {
-    const res: Identifier[] = [];
+const rawTraceback = (vm: JebVM) => {
+    const res: (Identifier | undefined)[] = [];
     var t = vm.tracebackStack;
     while (t) { res.push(t.value.name); t = t.next; }
     return res;
@@ -723,7 +723,7 @@ describe("audit hook protections", () => {
 
 describe("location tracking", () => {
     testTest("tracks locations", vm => {
-        expect.assertions(3);
+        expect.assertions(7);
         try {
             run(vm, ["at", "line 0", ["begin",
                 ["define", ["f"], ["at", "line 1", ["g"]]],
