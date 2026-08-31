@@ -1,4 +1,5 @@
 import { LinkedList, LinkedList_pushAll } from "@r47onfire/game-math";
+import { OP_apply, OP_shuffle } from "./builtins";
 import { Env } from "./env";
 import { Command, JebVM, pushCommand, pushData, StackCount } from "./vm";
 
@@ -100,8 +101,8 @@ export class DynamicWind<T extends JebVM = JebVM> {
             i = parentsOfTo.indexOf(fp);
             if (i !== -1) break;
             if (fp.handler?.exit) {
-                intOps.push(["jeb:apply", [true, null], undefined, true]);
-                intOps.push(["jeb:shuffle", 1, []]);
+                intOps.push([OP_apply, [true, null], undefined, true]);
+                intOps.push([OP_shuffle, 1, []]);
                 intData.push(fp.handler.exit);
             }
             fp = fp.parent;
@@ -110,8 +111,8 @@ export class DynamicWind<T extends JebVM = JebVM> {
         for (var j = i + 1; j < len; j++) {
             const tp = parentsOfTo[j]!;
             if (tp.handler?.enter) {
-                intOps.push(["jeb:apply", [true], undefined, true]);
-                intOps.push(["jeb:shuffle", 1, []]);
+                intOps.push([OP_apply, [true], undefined, true]);
+                intOps.push([OP_shuffle, 1, []]);
                 intData.push(tp.handler.enter);
             }
         }

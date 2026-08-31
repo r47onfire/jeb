@@ -1,4 +1,4 @@
-export interface JEBAuditEvent {
+export interface JEBAuditEvents {
     [x: string]: unknown[];
     // potentially unsafe things
     "jeb:add_audit_hook": [];
@@ -9,6 +9,8 @@ export interface JEBAuditEvent {
     "jeb:loop_check": [repeatCount: number];
 }
 
-export const makeSingleEventWatcher = <T extends keyof JEBAuditEvent>(event: T, cb: (...args: JEBAuditEvent[T]) => void) => {
-    return (name: keyof JEBAuditEvent, ...args: unknown[]) => name === event && cb(...args);
+export type JEBAuditEvent<T extends keyof JEBAuditEvents> = [T, ...JEBAuditEvents[T]];
+
+export const makeSingleEventWatcher = <T extends keyof JEBAuditEvents>(event: T, cb: (...args: JEBAuditEvents[T]) => void) => {
+    return (name: keyof JEBAuditEvents, ...args: unknown[]) => name === event && cb(...args);
 }

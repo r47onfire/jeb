@@ -5,7 +5,7 @@ type _TupleOf<T, N extends number, R extends unknown[]> = R["length"] extends N 
 
 export type Writable<T> = { -readonly [P in keyof T]: T[P] };
 
+export type DropFirst<T extends any[]> = T extends [any, ...infer Rest] ? Rest : [];
+
 export type Identifier = string | symbol;
 export const isIdentifier = (x: unknown): x is Identifier => isString(x) || typeof x === "symbol";
-
-export const Reflect_ownKeys = Reflect.ownKeys;

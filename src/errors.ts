@@ -23,6 +23,7 @@ export class JEBError extends Error {
     constructor(message: string, public context: Record<string, any> & ErrorOptions = {}, public traceback?: StackTreeNode[]) {
         super(message, { cause: context.cause });
         ALL_ERRORS[this.tag] ??= new.target;
+        this.name = this.constructor.name;
     }
     toString() {
         return `(${this.tag}) ${this.message}${this.traceback ? `\nVM stack: ${formatStackTraceCompact(compressStackTree(this.traceback))}` : ""}`

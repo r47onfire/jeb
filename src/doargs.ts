@@ -1,13 +1,15 @@
 import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
 import { Block } from "./block";
-import { defineOpcode, NOTHING } from "./define";
+import { OP_eval } from "./builtins";
+import { makeOpcode, NOTHING } from "./define";
 import { Env } from "./env";
 import { JEBError, JEBSyntaxError, JEBValueError, wrapThrowToError } from "./errors";
 import { CallableSignature, Laziness, LonghandArgument } from "./signature";
-import { Identifier, Reflect_ownKeys } from "./utils";
+import { Identifier } from "./utils";
 import { JebVM, popData, pushCommand, pushData } from "./vm";
 import { KeywordArg, SplatArg } from "./wrapper";
+import { OP_unwrap } from "./unwrap";
 
 const enum DoargsWhere {
     _BLANK,
@@ -74,9 +76,9 @@ export class DoargsState {
         const curParamIndex = this.#paramsIndex, curArgvIndex = this.#rawArgsIndex;
 
         const evalHelper = (env: Env, data: any, param?: LonghandArgument<any, any>) => {
-            pushCommand(vm, "jeb:doargs/loop", this, false);
-            pushCommand(vm, "jeb:unwrap", ["splat", "keyword"].concat(param?.flags));
-            pushCommand(vm, "jeb:eval", undefined);
+            pushCommand(vm, OP_doargs_loop, this, false);
+            pushCommand(vm, OP_unwrap, ["splat", "keyword"].concat(param?.flags));
+            pushCommand(vm, OP_eval, undefined);
             pushData(vm, data);
             vm.currentEnv = env;
             return NOTHING;
@@ -131,7 +133,7 @@ export class DoargsState {
         }
         if (isinstance(argValue, SplatArg)) {
             if (argValue.isKeyword) {
-                const values = { ...argValue.obj }, names = Reflect_ownKeys(values);
+                const values = { ...argValue.obj }, names = Reflect.ownKeys(values);
                 var state: DoargsState = this;
                 const len = names.length;
                 for (var i = 0; i < len; i++) {
@@ -206,23 +208,22 @@ const wrapLazyValue = (laziness: Laziness.LAZY | Laziness.QUOTED, given: any[], 
     return laziness === Laziness.QUOTED ? given : new Block(env, isSingle ? [given] : given);
 }
 
-export const registerDoargs = (vm: JebVM) => {
-    defineOpcode(vm, "jeb:doargs", (vm, { 0: params, 1: env, 2: noEval, 3: name }) => {
-        const given = popData(vm);
-        // Optimization: test if it's all one rest lazy parameter, just special-case that
-        const { params: { length }, rest } = params;
-        if (!length && rest) {
-            if (rest.lazy !== Laziness.NONE) {
-                pushData(vm, { [rest.name]: wrapLazyValue(rest.lazy, given, vm.currentEnv, false) });
-                return;
-            }
+export const OP_doargs = makeOpcode((vm, { 0: params, 1: env, 2: noEval, 3: name }: [CallableSignature, Env | undefined, boolean | undefined, Identifier | undefined]) => {
+    const given = popData(vm);
+    // Optimization: test if it's all one rest lazy parameter, just special-case that
+    const { params: { length }, rest } = params;
+    if (!length && rest) {
+        if (rest.lazy !== Laziness.NONE) {
+            pushData(vm, { [rest.name]: wrapLazyValue(rest.lazy, given, vm.currentEnv, false) });
+            return;
         }
-        pushCommand(vm, "jeb:doargs/loop", new DoargsState(name, params, vm.currentEnv, env, noEval, given), true);
-    },
-        `.imm params env
+    }
+    pushCommand(vm, OP_doargs_loop, new DoargsState(name, params, vm.currentEnv, env, noEval ?? false, given), true);
+},
+    `.imm params env
 .param {CallableSignature} params - the signature of the thing being called
 .param {Env?} env - the closure environment that the default parameters need
 .sed argslist -- argsobj
 . Processes the given arguments list into the named arguments object as determined by the signature.`);
-    defineOpcode(vm, "jeb:doargs/loop", (vm, { 0: state, 1: first }) => wrapThrowToError(JEBValueError, () => state.run(vm, first)), null);
-}
+
+const OP_doargs_loop = makeOpcode((vm, { 0: state, 1: first }) => wrapThrowToError(JEBValueError, () => state.run(vm, first)), null);

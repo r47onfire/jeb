@@ -1,20 +1,21 @@
 import { isinstance, LinkedList, LinkedList_length, LinkedList_pop, LinkedList_popN, LinkedList_push } from "@r47onfire/game-math";
 import { isArray } from "lib0/array";
 import { min } from "lib0/math";
-import { JEBAuditEvent } from "./auditHookTypes";
-import { loadBuiltins } from "./builtins";
+import { JEBAuditEvents } from "./auditHookTypes";
+import { loadBuiltins, OP_eval, OP_throw } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
 import { createStackInnerNode, createStackLeafNode, JEBError, JEBRecursionError, JEBTypeError, StackTreeNode } from "./errors";
-import { JEBOpcode } from "./opcodeTypes";
+import { __initializer, __initializers } from "./initializers";
 import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
+import { OP_unwrap } from "./unwrap";
 import { Identifier, Tuple } from "./utils";
-import { Wrapper } from "./wrapper";
+export { __initializer };
 
 /**
  * Data for the command
  */
-export type Command = [opcode: keyof JEBOpcode, ...immediateArgs: any[]];
+export type Command = [opcode: OpcodeFunction<any>, ...immediateArgs: any[]];
 export interface StackCount {
     readonly name: Identifier | undefined;
     readonly location: Identifier | undefined;
@@ -25,7 +26,9 @@ export interface StackCount {
 /**
  * Function that implements an opcode for the VM by pushing instructions or pushing and popping data.
  */
-export type OpcodeFunction<T extends keyof JEBOpcode> = (vm: JebVM, args: JEBOpcode[T]) => void;
+export type OpcodeFunction<T extends any[]> = ((vm: JebVM, ...args: T) => void) & { doc?: string | null };
+
+export type GetArgParams<T extends OpcodeFunction<any>> = Parameters<T>[1] extends infer T extends any[] ? T : [void];
 
 /**
  * Base VM for running JEB code
@@ -45,13 +48,13 @@ export class JebVM {
     tracebackStack!: LinkedList<StackCount>;
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
-    opcodes: Partial<{ [K in keyof JEBOpcode]: [impl: OpcodeFunction<K>, doc: string | null] }> = {};
     protocols: Partial<JEBProtocols> = {};
     copyableState: Exclude<keyof this, keyof JebVM>[] = [];
 
     constructor() {
         this.reset();
         loadBuiltins(this);
+        __initializers.forEach(f => f(this));
     }
     addProtocol<N extends keyof JEBProtocols>(name: N, impl: JEBProtocols[N][number]) {
         (this.protocols[name] ??= [] as any[]).push(impl);
@@ -83,8 +86,8 @@ export class JebVM {
         this.#checkStack(1);
         return this.dataStack!.value;
     }
-    pushCommand<T extends keyof JEBOpcode>(name: T, ...args: JEBOpcode[T]) {
-        this.commandStack = LinkedList_push(this.commandStack, [name, ...args]);
+    pushCommand<T extends OpcodeFunction<any>>(f: T, ...args: GetArgParams<T>) {
+        this.commandStack = LinkedList_push(this.commandStack, [f, ...args]);
     }
     popCommand() {
         if (LinkedList_length(this.commandStack) === 0) throw new JEBError("opcode stack underflow");
@@ -104,15 +107,13 @@ export class JebVM {
         if (this.paused) return false;
         if (LinkedList_length(this.commandStack) === 0) return false;
         const command = this.popCommand();
-        const opcode = this.opcodes[command[0]];
-        if (!opcode) throw new JEBError(`Unknown opcode: ${command[0]}`);
         try {
-            opcode[0](this, command.slice(1));
+            command[0](this, command.slice(1));
         } catch (e) {
             if (isArray(e) && e.length === 3 && isinstance(e[1], JEBError)) throw e[1];
             if (!isinstance(e, JEBError)) throw e;
             e.traceback ??= this.tracebackArray();
-            this.pushCommand("jeb:throw", e);
+            this.pushCommand(OP_throw, e);
         }
         return true;
     }
@@ -124,13 +125,13 @@ export class JebVM {
      */
     start(code: any) {
         if (LinkedList_length(this.commandStack) > 0) throw new Error("VM is already running");
-        this.pushData(code);
-        this.pushCommand("jeb:unwrap", []);
-        this.pushCommand("jeb:eval", undefined);
+        pushData(this, code);
+        pushCommand(this, OP_unwrap, []);
+        pushCommand(this, OP_eval, undefined);
     }
     /**
      * Silently stops running the code, by resetting all stacks state back to the initial empty state.
-     * Does not clear the global or builtins env.
+     * Does not clear the builtins env.
      */
     reset() {
         this.paused = false;
@@ -151,7 +152,7 @@ export class JebVM {
      */
     checkRecursion(length: number) {
         if (this.recursionDepth > length) {
-            this.pushCommand("jeb:throw", new JEBRecursionError("too much recursion", {}, this.tracebackArray()));
+            this.pushCommand(OP_throw, new JEBRecursionError("too much recursion", {}, this.tracebackArray()));
         }
     }
     /**
@@ -240,12 +241,12 @@ export class JebVM {
         throw [, error, ,];
     }
 
-    #auditHooks = new Set<<T extends keyof JEBAuditEvent>(event: T, ...args: JEBAuditEvent[T]) => void>();
+    #auditHooks = new Set<<T extends keyof JEBAuditEvents>(event: T, ...args: JEBAuditEvents[T]) => void>();
     /**
      * Adds an audit hook that will be called every time something that should be audited happens.
      * @returns callback to cancel the audit hook
      */
-    addAuditHook(cb: <T extends keyof JEBAuditEvent>(event: T, ...args: JEBAuditEvent[T]) => void): () => void {
+    addAuditHook(cb: <T extends keyof JEBAuditEvents>(event: T, ...args: JEBAuditEvents[T]) => void): () => void {
         this.audit("jeb:add_audit_hook");
         this.#auditHooks.add(cb);
         return () => this.#auditHooks.delete(cb);
@@ -253,17 +254,13 @@ export class JebVM {
     /**
      * Raises an auditing event
      */
-    audit<T extends keyof JEBAuditEvent>(...args: [event: T, ...JEBAuditEvent[T]]) {
+    audit<T extends keyof JEBAuditEvents>(...args: [event: T, ...JEBAuditEvents[T]]) {
         this.#auditHooks.forEach(hook => hook(...args));
     }
 }
 
 export const pushData = (vm: JebVM, data: any) => vm.pushData(data);
-export const pushCommand: {
-    <T extends new (obj: any, ...args: A) => Wrapper, A extends any[]>(vm: JebVM, name: "jeb:wrap", cls: T, ...extraArgs: A): void;
-    <T extends keyof JEBAuditEvent>(vm: JebVM, name: "jeb:audit", event: T, ...args: JEBAuditEvent[T]): void;
-    <T extends keyof JEBOpcode>(vm: JebVM, name: T, ...args: JEBOpcode[T]): void;
-} = (vm: JebVM, cmd: keyof JEBOpcode, ...args: unknown[]) => vm.pushCommand(cmd, ...args);
+export const pushCommand = <T extends OpcodeFunction<any>>(vm: JebVM, cmd: T, ...args: GetArgParams<T>) => vm.pushCommand(cmd, ...args);
 export const popData = (vm: JebVM) => vm.popData();
 export const popNData = (vm: JebVM, n: number) => vm.popNData(n);
 export const peekData = (vm: JebVM) => vm.peekData();

@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { defineBuiltin, float, Identifier, int, JEBError, JebVM, makeSingleEventWatcher, popData, pushCommand, pushData, typeMatches } from "../src";
+import { define, float, Identifier, int, JEBError, JebVM, makeJSFun, makeSingleEventWatcher, OP_shuffle, popData, pushCommand, pushData, typeMatches } from "../src";
 
 const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) => {
     const vm = new JebVM();
     const out: string[] = [];
     // simple print hook for the tests
-    defineBuiltin(vm, "print", ["args", true], ({ args }) => void out.push(args.map(String).join(" ")), "test print");
+    define(vm, "print", makeJSFun("print", ["args", true], ({ args }) => void out.push(args.map(String).join(" ")), "test print"));
     test(name, () => testBody(vm, out));
 }
 
@@ -44,7 +44,7 @@ describe("stack machine test", () => {
         pushData(vm, 3);
         pushData(vm, 4);
         pushData(vm, 5);
-        pushCommand(vm, "jeb:shuffle", 5, [0, 1, 2, 3, 4]);
+        pushCommand(vm, OP_shuffle, 5, [0, 1, 2, 3, 4]);
         vm.step();
         expect(popData(vm)).toEqual(5);
         expect(popData(vm)).toEqual(4);
@@ -55,7 +55,7 @@ describe("stack machine test", () => {
     testTest("tuck", vm => {
         pushData(vm, 1);
         pushData(vm, 2);
-        pushCommand(vm, "jeb:shuffle", 2, [1, 0, 1]);
+        pushCommand(vm, OP_shuffle, 2, [1, 0, 1]);
         vm.step();
         expect(popData(vm)).toEqual(2);
         expect(popData(vm)).toEqual(1);
@@ -150,7 +150,7 @@ describe("basic", () => {
         try {
             parse("[");
         } catch (error: any) {
-            expect(() => run(vm, ["parseJSON", "["])).toThrow(error.message);
+            expect(() => run(vm, ["jsonparse", "["])).toThrow(error.message);
         }
     });
     testTest("json error 2", vm => {
@@ -162,7 +162,7 @@ describe("basic", () => {
             expect(() => run(vm, ["begin",
                 ["let-in", "x", ["list"]],
                 ["set", [".", ["$", "x"], 0], ["$", "x"]],
-                ["dumpJSON", ["$", "x"]]
+                ["jsonstringify", ["$", "x"]]
             ])).toThrow(error.message);
         }
 
@@ -410,14 +410,14 @@ describe("metaprogramming", () => {
             ["define", "b", 2],
             ["define", "c", 3],
             ["define", "x", ["list", 4, 5, 6]],
-            ["print", ["dumpJSON", ["'", ["foo", "bar", "baz"]]]],
-            ["print", ["dumpJSON", ["~", ["foo", "bar", "baz"]]]],
-            ["print", ["dumpJSON", ["~", ["foo", "bar", ["baz"]]]]],
-            ["print", ["dumpJSON", ["~", ["foo", "bar", [",", ["$", "a"]]]]]],
-            ["print", ["dumpJSON", ["'", ["foo", "bar", [",", ["$", "a"]]]]]],
-            ["print", ["dumpJSON", ["~", ["foo", "bar", [",", ["$", "x"]]]]]],
-            ["print", ["dumpJSON", ["~", ["foo", "bar", [",@", ["$", "x"]]]]]],
-            ["let", [["y", ["list", 1, 2, 3]]], ["print", ["dumpJSON", ["~", ["foo", "bar", [",@", ["$", "y"]]]]]]],
+            ["print", ["jsonstringify", ["'", ["foo", "bar", "baz"]]]],
+            ["print", ["jsonstringify", ["~", ["foo", "bar", "baz"]]]],
+            ["print", ["jsonstringify", ["~", ["foo", "bar", ["baz"]]]]],
+            ["print", ["jsonstringify", ["~", ["foo", "bar", [",", ["$", "a"]]]]]],
+            ["print", ["jsonstringify", ["'", ["foo", "bar", [",", ["$", "a"]]]]]],
+            ["print", ["jsonstringify", ["~", ["foo", "bar", [",", ["$", "x"]]]]]],
+            ["print", ["jsonstringify", ["~", ["foo", "bar", [",@", ["$", "x"]]]]]],
+            ["let", [["y", ["list", 1, 2, 3]]], ["print", ["jsonstringify", ["~", ["foo", "bar", [",@", ["$", "y"]]]]]]],
         ])).toBeTrue();
         expect(out).toEqual([
             stringify(["foo", "bar", "baz"]),
@@ -458,7 +458,7 @@ describe("metaprogramming", () => {
 describe("keyword and splat arguments", () => {
     testTest("kwargs ignore order", (vm, out) => {
         expect(run(vm, ["begin",
-            ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
+            ["define", ["pair", "x", "y"], ["print", ["jsonstringify", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["kw", "y", 2], ["kw", "x", 1]],
         ])).toBeTrue();
         expect(out).toEqual(["[1,2]"]);
@@ -466,7 +466,7 @@ describe("keyword and splat arguments", () => {
 
     testTest("splat unpack into positional", (vm, out) => {
         expect(run(vm, ["begin",
-            ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
+            ["define", ["pair", "x", "y"], ["print", ["jsonstringify", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["splat", ["list", 1, 2]]],
         ])).toBeTrue();
         expect(out).toEqual(["[1,2]"]);
@@ -474,7 +474,7 @@ describe("keyword and splat arguments", () => {
 
     testTest("kwarg unpack into named parameters", (vm, out) => {
         expect(run(vm, ["begin",
-            ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
+            ["define", ["pair", "x", "y"], ["print", ["jsonstringify", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["splat", { x: 1, y: 2 }, true]],
         ])).toBeTrue();
         expect(out).toEqual(["[1,2]"]);
@@ -482,7 +482,7 @@ describe("keyword and splat arguments", () => {
 
     testTest("order enforced", vm => {
         expect(() => run(vm, ["begin",
-            ["define", ["pair", "x", "y"], ["print", ["dumpJSON", ["list", ["$", "x"], ["$", "y"]]]]],
+            ["define", ["pair", "x", "y"], ["print", ["jsonstringify", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["kw", "x", 1], 2],
         ])).toThrow("positional argument can't follow keyword argument");
     });
@@ -538,7 +538,7 @@ describe("fns", () => {
     });
     testTest("spread arguments", (vm, out) => {
         expect(run(vm, ["begin",
-            ["define", ["foo", "x", true], ["print", ["dumpJSON", ["$", "x"]]]],
+            ["define", ["foo", "x", true], ["print", ["jsonstringify", ["$", "x"]]]],
             ["foo", 1, 2, 3],
             ["foo"]
         ])).toBeTrue();

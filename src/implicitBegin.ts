@@ -1,5 +1,6 @@
-import { JebVM } from "./vm";
+import { OP_eval, OP_shuffle } from "./builtins";
 import { NOTHING } from "./define";
+import { JebVM } from "./vm";
 
 /**
  * Sets up instructions to run all of the arguments in order and the result is the value of the last one.
@@ -15,10 +16,10 @@ export const implicitBegin = (vm: JebVM, args: any[]) => {
     // Evaluate all in order (reverse because stack)
     for (var i = len - 1, last = true; i >= 0; i--, last = false) {
         // Drop all but the last one
-        if (!last) vm.pushCommand("jeb:shuffle", 1, []);
+        if (!last) vm.pushCommand(OP_shuffle, 1, []);
         vm.pushData(args[i]);
         // Do a tail call on the last item
-        vm.pushCommand("jeb:eval", undefined, last);
+        vm.pushCommand(OP_eval, undefined, last);
     }
     return NOTHING;
 };

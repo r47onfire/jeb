@@ -9,7 +9,6 @@ export * from "./env";
 export * from "./errors";
 export * from "./implicitBegin";
 export * from "./math";
-export * from "./opcodeTypes";
 export * from "./protocol";
 export * from "./reference";
 export * from "./signature";
