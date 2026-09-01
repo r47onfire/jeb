@@ -1,30 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { define, float, Identifier, int, JEBError, JebVM, makeJSFun, makeSingleEventWatcher, OP_shuffle, popData, pushCommand, pushData, typeMatches } from "../src";
-
-const testTest = (name: string, testBody: (vm: JebVM, out: string[]) => void) => {
-    const vm = new JebVM();
-    const out: string[] = [];
-    // simple print hook for the tests
-    define(vm, "print", makeJSFun("print", ["args", true], ({ args }) => void out.push(args.map(String).join(" ")), "test print"));
-    test(name, () => testBody(vm, out));
-}
-
-const run = (vm: JebVM, code: any, steps = Infinity, recursionLimit = 10000) => {
-    vm.start(code);
-    for (var i = 0; i < steps; i++) {
-        if (!vm.step()) return true;
-        vm.checkRecursion(recursionLimit);
-    }
-    return false;
-}
-
-const rawTraceback = (vm: JebVM) => {
-    const res: (Identifier | undefined)[] = [];
-    var t = vm.tracebackStack;
-    while (t) { res.push(t.value.name); t = t.next; }
-    return res;
-}
+import { float, int, JEBError, makeSingleEventWatcher, OP_shuffle, popData, pushCommand, pushData, typeMatches } from "../src";
+import { rawTraceback, run, testTest } from "../src/indextest";
 
 describe("type matching test", () => {
     test("subclass score", () => {
@@ -38,7 +15,7 @@ describe("type matching test", () => {
 });
 
 describe("stack machine test", () => {
-    testTest("identity", vm => {
+    testTest(test, "identity", vm => {
         pushData(vm, 1);
         pushData(vm, 2);
         pushData(vm, 3);
@@ -52,7 +29,7 @@ describe("stack machine test", () => {
         expect(popData(vm)).toEqual(2);
         expect(popData(vm)).toEqual(1);
     });
-    testTest("tuck", vm => {
+    testTest(test, "tuck", vm => {
         pushData(vm, 1);
         pushData(vm, 2);
         pushCommand(vm, OP_shuffle, 2, [1, 0, 1]);
@@ -64,37 +41,37 @@ describe("stack machine test", () => {
 });
 
 describe("basic", () => {
-    testTest("begin with no args returns null", vm => {
+    testTest(test, "begin with no args returns null", vm => {
         expect(run(vm, ["begin"])).toBeTrue();
         expect(popData(vm)).toBeNull();
     });
     describe("undefined", () => {
-        testTest("getting variable", vm => {
+        testTest(test, "getting variable", vm => {
             expect(() => run(vm, ["$", "nonexistent"])).toThrow('variable "nonexistent" not found');
         });
-        testTest("setting variable", vm => {
+        testTest(test, "setting variable", vm => {
             expect(() => run(vm, ["set", ["$", "nonexistent"], 1])).toThrow('variable "nonexistent" not found');
         });
-        testTest("function", vm => {
+        testTest(test, "function", vm => {
             expect(() => run(vm, ["nonexistent"])).toThrow('function "nonexistent" not found');
         });
     });
-    testTest("basic commands", (vm, out) => {
+    testTest(test, "basic commands", (vm, out) => {
         expect(run(vm, ["begin", ["print", "hi 1"], ["print", "hi 2"], ["print", "hi 3"]])).toBeTrue();
         expect(out).toEqual(["hi 1", "hi 2", "hi 3"]);
     });
-    testTest("basic commands wrapped in fn", (vm, out) => {
+    testTest(test, "basic commands wrapped in fn", (vm, out) => {
         expect(run(vm, [["fn", [], ["print", "hi 1"], ["print", "hi 2"], ["print", "hi 3"]]])).toBeTrue();
         expect(out).toEqual(["hi 1", "hi 2", "hi 3"]);
     });
-    testTest("get complex value", vm => {
+    testTest(test, "get complex value", vm => {
         expect(run(vm, ["begin",
             ["define", ["x"], ["list", ["list", 1], ["list", 2], ["list", 4]]],
             [".", [".", ["x"], 1], 0],
         ])).toBeTrue();
         expect(popData(vm)).toBe(2);
     });
-    testTest("set with existing value", (vm, out) => {
+    testTest(test, "set with existing value", (vm, out) => {
         expect(run(vm, ["begin",
             ["let-in", "x", 0],
             ["print", ["set", ["$", "x"], 10]],
@@ -104,14 +81,14 @@ describe("basic", () => {
         ])).toBeTrue();
         expect(out).toEqual(["10", "10", "11", "11"]);
     });
-    testTest("get with computed indexing", vm => {
+    testTest(test, "get with computed indexing", vm => {
         expect(run(vm, ["begin",
             ["let-in", "x", ["list", 1, 2, 3]],
             [".", ["$", "x"], [".", ["$", "x"], 0]]
         ])).toBeTrue();
         expect(popData(vm)).toEqual(2);
     });
-    testTest("set with old value", (vm, out) => {
+    testTest(test, "set with old value", (vm, out) => {
         expect(run(vm, ["begin",
             ["let-in", "x", 0],
             ["print", ["set", ["$", "x"], 10, true]],
@@ -121,7 +98,7 @@ describe("basic", () => {
         ])).toBeTrue();
         expect(out).toEqual(["0", "10", "10", "11"]);
     });
-    testTest("set complex value lvalue is only evaluated once", (vm, out) => {
+    testTest(test, "set complex value lvalue is only evaluated once", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", "value", { x: 1 }],
             ["define", ["f"], ["print", "called"], ["$", "value"]],
@@ -131,13 +108,13 @@ describe("basic", () => {
         expect(popData(vm)).toEqual({ x: 11 });
         expect(out).toEqual(["called"]);
     });
-    testTest("calling non-functions errors", vm => {
+    testTest(test, "calling non-functions errors", vm => {
         expect(() => run(vm, [1, 2, 3])).toThrow("can't call number");
     });
-    testTest("math overload error", vm => {
+    testTest(test, "math overload error", vm => {
         expect(() => run(vm, ["+", "hi", 1])).toThrow("No overload of add exists for types string, number")
     });
-    testTest("boolean short-circuiting", (vm, out) => {
+    testTest(test, "boolean short-circuiting", (vm, out) => {
         expect(run(vm, ["begin",
             ["or", true, ["print", "a"]],
             ["or", false, ["print", "b"]],
@@ -146,14 +123,14 @@ describe("basic", () => {
         expect(popData(vm)).toEqual(0);
         expect(out).toEqual(["b"]);
     });
-    testTest("json error 1", vm => {
+    testTest(test, "json error 1", vm => {
         try {
             parse("[");
         } catch (error: any) {
             expect(() => run(vm, ["jsonparse", "["])).toThrow(error.message);
         }
     });
-    testTest("json error 2", vm => {
+    testTest(test, "json error 2", vm => {
         try {
             const x: any = [];
             x[0] = x;
@@ -167,14 +144,14 @@ describe("basic", () => {
         }
 
     });
-    testTest("property chain get", vm => {
+    testTest(test, "property chain get", vm => {
         expect(run(vm, ["begin",
             ["define", "x", { a: { b: { foo: 123 } } }],
             [".", [".", [".", ["$", "x"], "a"], "b"], "foo"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(123);
     });
-    testTest("property chain set", vm => {
+    testTest(test, "property chain set", vm => {
         expect(run(vm, ["begin",
             ["define", "x", { a: { b: { foo: 123 } } }],
             ["set", [".", [".", [".", ["$", "x"], "a"], "b"], "foo"], ["+", ["$", "_"], 333]],
@@ -185,7 +162,7 @@ describe("basic", () => {
 });
 
 describe("tail-call elimination", () => {
-    testTest("command stack stays constant", vm => {
+    testTest(test, "command stack stays constant", vm => {
         expect(run(vm, ["begin",
             ["define", ["loop"], ["loop"]],
             ["loop"]
@@ -197,7 +174,7 @@ describe("tail-call elimination", () => {
         expect(rawTraceback(vm)).toEqual(["loop", "begin"]);
     });
 
-    testTest("tail frames are still dropped on return", (vm, out) => {
+    testTest(test, "tail frames are still dropped on return", (vm, out) => {
         expect.assertions(4);
         try {
             run(vm, ["begin",
@@ -217,7 +194,7 @@ describe("tail-call elimination", () => {
 
     });
 
-    testTest("non-tail frames are kept", vm => {
+    testTest(test, "non-tail frames are kept", vm => {
         expect.assertions(1);
         try {
             run(vm, ["begin",
@@ -233,7 +210,7 @@ describe("tail-call elimination", () => {
 });
 
 describe("traceback compression", () => {
-    testTest("compresses long alternating cycle", vm => {
+    testTest(test, "compresses long alternating cycle", vm => {
         expect.assertions(2);
         // a <-> b tail recursion
         expect(run(vm, ["begin",
@@ -252,7 +229,7 @@ describe("traceback compression", () => {
         }
     });
 
-    testTest("nests cycles", vm => {
+    testTest(test, "nests cycles", vm => {
         expect.assertions(2);
         try {
             run(vm, ["begin",
@@ -291,13 +268,13 @@ describe("with / dynamic-wind", () => {
             ...body
         ];
     }
-    testTest("runs before then body then after and returns body", (vm, out) => {
+    testTest(test, "runs before then body then after and returns body", (vm, out) => {
         expect(run(vm, makeWith("before", "after", ["print", "body"], 123))).toBeTrue();
         expect(popData(vm)).toEqual(123);
         expect(out).toEqual(["before false", "body", "after false null"]);
     });
 
-    testTest("after runs on error", (vm, out) => {
+    testTest(test, "after runs on error", (vm, out) => {
         expect.assertions(4);
         try {
             run(vm, makeWith("before", "after", ["throw", ["err", "boom", "test"]]));
@@ -309,12 +286,12 @@ describe("with / dynamic-wind", () => {
         }
     });
 
-    testTest("nested with unwinds in stack order", (vm, out) => {
+    testTest(test, "nested with unwinds in stack order", (vm, out) => {
         expect(run(vm, makeWith("enter outer", "exit outer", makeWith("enter inner", "exit inner", null)))).toBeTrue();
         expect(out).toEqual(["enter outer false", "enter inner false", "exit inner false null", "exit outer false null"]);
     });
 
-    testTest("continuation re-enters with", (vm, out) => {
+    testTest(test, "continuation re-enters with", (vm, out) => {
         expect(run(vm, ["begin",
             ["let-in", "k", null],
             makeWith("enter", "exit",
@@ -340,7 +317,7 @@ describe("with / dynamic-wind", () => {
         expect(out).toEqual(init);
     });
 
-    testTest("continuation escapes with (after runs once)", (vm, out) => {
+    testTest(test, "continuation escapes with (after runs once)", (vm, out) => {
         // escape from inside with via a continuation captured outside
         expect(run(vm, ["begin",
             [["fn", [],
@@ -355,7 +332,7 @@ describe("with / dynamic-wind", () => {
         expect(out).toEqual(["enter false", "inside", "exit true null", "outside"]);
     });
 
-    testTest("uncaught errors retain full traceback", vm => {
+    testTest(test, "uncaught errors retain full traceback", vm => {
         expect.assertions(1);
         try {
             run(vm, ["begin",
@@ -367,14 +344,14 @@ describe("with / dynamic-wind", () => {
         }
     });
 
-    testTest("with requires variable name or null", vm => {
+    testTest(test, "with requires variable name or null", vm => {
         expect(() => run(vm, ["with", { enter: null, exit: null }, false])).toThrow('expected variable name or null as first argument to "with"')
     });
-    testTest("with requires context object", vm => {
+    testTest(test, "with requires context object", vm => {
         expect(() => run(vm, ["with", null, null, false])).toThrow("context manager should be an object")
     });
 
-    testTest("continuation can be called with computed value", vm => {
+    testTest(test, "continuation can be called with computed value", vm => {
         expect(run(vm, ["begin",
             ["let-in", "x", null],
             ["let-in", "y", [["fn", ["f"], ["f", ["$", "return"]]], ["fn", ["k"], ["set", ["$", "x"], ["$", "k"]]]]],
@@ -388,14 +365,14 @@ describe("with / dynamic-wind", () => {
 });
 
 describe("metaprogramming", () => {
-    testTest("eval", (vm, out) => {
+    testTest(test, "eval", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", "x", ["'", ["print", ["$", "a"]]]],
             ["let", [["a", "hello"]], ["eval", ["$", "x"]]],
         ])).toBeTrue();
         expect(out).toEqual(["hello"]);
     });
-    testTest("user-defined macros", (vm, out) => {
+    testTest(test, "user-defined macros", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["twice", [true, "x"]], ["macro", ["list", "+", ["$", "x"], ["$", "x"]]]],
             ["print", ["twice", 2]],
@@ -404,7 +381,7 @@ describe("metaprogramming", () => {
         ])).toBeTrue();
         expect(out).toEqual(["4", "hellohello", "arg evaluated", "arg evaluated", "8"]);
     });
-    testTest("quote/quasiquote", (vm, out) => {
+    testTest(test, "quote/quasiquote", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", "a", 1],
             ["define", "b", 2],
@@ -430,13 +407,13 @@ describe("metaprogramming", () => {
             stringify(["foo", "bar", 1, 2, 3]),
         ]);
     });
-    testTest("bad unquote 1", vm => {
+    testTest(test, "bad unquote 1", vm => {
         expect(() => run(vm, ["~", [","]])).toThrow("expected 1 argument to unquote");
     });
-    testTest("bad unquote 2", vm => {
+    testTest(test, "bad unquote 2", vm => {
         expect(() => run(vm, [",", 1])).toThrow("unquote not valid outside of quasiquote");
     });
-    testTest("bad unquoteSplicing 1", vm => {
+    testTest(test, "bad unquoteSplicing 1", vm => {
         try {
             // @ts-expect-error
             [...1];
@@ -444,19 +421,19 @@ describe("metaprogramming", () => {
             expect(() => run(vm, ["~", [[",@", 1], 2]])).toThrow(String(e));
         }
     });
-    testTest("bad unquoteSplicing 2", vm => {
+    testTest(test, "bad unquoteSplicing 2", vm => {
         expect(() => run(vm, ["~", [[",@"]]])).toThrow("expected 1 argument to unquoteSplicing");
     });
-    testTest("bad unquoteSplicing 3", vm => {
+    testTest(test, "bad unquoteSplicing 3", vm => {
         expect(() => run(vm, ["~", [",@", 1]])).toThrow("unquoteSplicing outside of list");
     });
-    testTest("bad unquoteSplicing 4", vm => {
+    testTest(test, "bad unquoteSplicing 4", vm => {
         expect(() => run(vm, [",@", 1])).toThrow("unquoteSplicing not valid outside of quasiquote");
     });
 });
 
 describe("keyword and splat arguments", () => {
-    testTest("kwargs ignore order", (vm, out) => {
+    testTest(test, "kwargs ignore order", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["pair", "x", "y"], ["print", ["jsonstringify", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["kw", "y", 2], ["kw", "x", 1]],
@@ -464,7 +441,7 @@ describe("keyword and splat arguments", () => {
         expect(out).toEqual(["[1,2]"]);
     });
 
-    testTest("splat unpack into positional", (vm, out) => {
+    testTest(test, "splat unpack into positional", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["pair", "x", "y"], ["print", ["jsonstringify", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["splat", ["list", 1, 2]]],
@@ -472,7 +449,7 @@ describe("keyword and splat arguments", () => {
         expect(out).toEqual(["[1,2]"]);
     });
 
-    testTest("kwarg unpack into named parameters", (vm, out) => {
+    testTest(test, "kwarg unpack into named parameters", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["pair", "x", "y"], ["print", ["jsonstringify", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["splat", { x: 1, y: 2 }, true]],
@@ -480,42 +457,42 @@ describe("keyword and splat arguments", () => {
         expect(out).toEqual(["[1,2]"]);
     });
 
-    testTest("order enforced", vm => {
+    testTest(test, "order enforced", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["pair", "x", "y"], ["print", ["jsonstringify", ["list", ["$", "x"], ["$", "y"]]]]],
             ["pair", ["kw", "x", 1], 2],
         ])).toThrow("positional argument can't follow keyword argument");
     });
 
-    testTest("missing arguments errors", vm => {
+    testTest(test, "missing arguments errors", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["foo", "x", "y"]],
             ["foo", ["kw", "x", 1]],
         ])).toThrow('missing required parameter "y" of function "foo"');
     });
 
-    testTest("too many arguments errors", vm => {
+    testTest(test, "too many arguments errors", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["foo", "x", "y", "z"]],
             ["foo", 1, 2, 3, 4],
         ])).toThrow('too many arguments to function "foo" (expected at most 3)');
     });
 
-    testTest("unpacking too many arguments errors", vm => {
+    testTest(test, "unpacking too many arguments errors", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["foo", "x", "y", "z"]],
             ["foo", 1, 2, ["splat", ["list", 3, 4]]],
         ])).toThrow('too many elements in splat argument to function "foo" (at most 1 can be passed here)');
     });
 
-    testTest("unknown keyword arguments errors", vm => {
+    testTest(test, "unknown keyword arguments errors", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["foo", "x"]],
             ["foo", ["kw", "y", 1]],
         ])).toThrow('unexpected keyword argument "y" to function "foo"');
     });
 
-    testTest("unknown keyword arguments via unpack errors", vm => {
+    testTest(test, "unknown keyword arguments via unpack errors", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["foo", "x"]],
             ["foo", ["splat", { y: 1 }, true]],
@@ -524,19 +501,19 @@ describe("keyword and splat arguments", () => {
 });
 
 describe("fns", () => {
-    testTest("fn optional dynamic env", (vm, out) => {
+    testTest(test, "fn optional dynamic env", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["foo", ["a", ["$", "x"]]], ["print", ["$", "a"]]],
             ["let", [["x", "hello"]], ["foo"], ["foo", "goodbye"]],
         ])).toBeTrue();
         expect(out).toEqual(["hello", "goodbye"]);
     });
-    testTest("fn validation", vm => {
+    testTest(test, "fn validation", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["foo", ["a", 1, 2, 3]], ["print", ["$", "a"]]],
         ])).toThrow("unexpected junk after default expression");
     });
-    testTest("spread arguments", (vm, out) => {
+    testTest(test, "spread arguments", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["foo", "x", true], ["print", ["jsonstringify", ["$", "x"]]]],
             ["foo", 1, 2, 3],
@@ -544,13 +521,13 @@ describe("fns", () => {
         ])).toBeTrue();
         expect(out).toEqual(["[1,2,3]", "[]"]);
     });
-    testTest("required must follow optional", vm => {
+    testTest(test, "required must follow optional", vm => {
         expect(() => run(vm, ["define", ["foo", ["x", 1], "y"], false])).toThrow('required parameter "y" cannot follow optional parameter');
     });
-    testTest("bad params", vm => {
+    testTest(test, "bad params", vm => {
         expect(() => run(vm, ["define", ["foo", 1], false])).toThrow("arg name not found at position 0");
     });
-    testTest("let loop", (vm, out) => {
+    testTest(test, "let loop", (vm, out) => {
         expect(run(vm, ["begin",
             ["let", "loop", [["x", 10]],
                 ["print", ["$", "x"]],
@@ -559,13 +536,13 @@ describe("fns", () => {
         ])).toBeTrue();
         expect(out).toEqual(["10", "9", "8", "7", "6", "5", "4", "3", "2", "1", "0"]);
     });
-    testTest("bad define", vm => {
+    testTest(test, "bad define", vm => {
         expect(() => run(vm, ["define", 1])).toThrow("invalid define syntax")
     });
 });
 
 describe("recursion stress tests", () => {
-    testTest("A000142 (factorial)", vm => {
+    testTest(test, "A000142 (factorial)", vm => {
         const x = 5000n;
         const factorial = (a: bigint): bigint => a > 1 ? a * factorial(a - 1n) : 1n;
         expect(run(vm, ["begin",
@@ -589,7 +566,7 @@ describe("recursion stress tests", () => {
     const fibonacci = MEMOIZE_F(a => a < 2 ? a : fibonacci(a - 1n) + fibonacci(a - 2n));
     const q = MEMOIZE_F(a => a < 3 ? 1n : q(a - q(a - 1n)) + q(a - q(a - 2n)));
     const A063510 = (a: number): number => a < 2 ? 1 : 1 + A063510(a ** 0.5 | 0);
-    testTest("A000045 (Fibonacci sequence)", vm => {
+    testTest(test, "A000045 (Fibonacci sequence)", vm => {
         const x = 5000n;
         expect(run(vm, ["begin",
             MEMOIZE,
@@ -603,7 +580,7 @@ describe("recursion stress tests", () => {
         ], undefined, 10000000)).toBeTrue();
         expect(popData(vm)).toEqual(fibonacci(x));
     });
-    testTest("A005185 (Hofstadter 'Q' sequence)", vm => {
+    testTest(test, "A005185 (Hofstadter 'Q' sequence)", vm => {
         const x = 5000n;
         expect(run(vm, ["begin",
             MEMOIZE,
@@ -617,7 +594,7 @@ describe("recursion stress tests", () => {
         ], undefined, 10000000)).toBeTrue();
         expect(popData(vm)).toEqual(Number(q(x)));
     });
-    testTest("A063510", vm => {
+    testTest(test, "A063510", vm => {
         const x = 1e20;
         expect(run(vm, ["begin",
             ["define", ["A063510", "a"],
@@ -630,7 +607,7 @@ describe("recursion stress tests", () => {
     });
     describe("unlambda", () => {
         const unlambda = (name: string, program: string, expectedOutput: string, autostop = false) => {
-            testTest(name, vm => {
+            testTest(test, name, vm => {
                 var i = 0;
                 var out: string = "";
                 const next = () => program[i++];
@@ -676,20 +653,20 @@ describe("recursion stress tests", () => {
 });
 
 describe("FFI", () => {
-    testTest("FFI calling functions", (vm, out) => {
+    testTest(test, "FFI calling functions", (vm, out) => {
         expect(run(vm, ["begin",
             [(arg: any) => { out.push(arg, { a: 1 } as any); }, "hi"]
         ])).toBeTrue();
         expect(out).toEqual(["hi", { a: 1 } as any]);
     });
-    testTest("FFI get function is bound", vm => {
+    testTest(test, "FFI get function is bound", vm => {
         expect(run(vm, ["begin",
             ["let", [["x", { a: 7, b() { return this.a * 6; } }]],
                 [[".", ["$", "x"], "b"]]]
         ])).toBeTrue();
         expect(popData(vm)).toEqual(42);
     });
-    testTest("FFI function callbacks", (vm, out) => {
+    testTest(test, "FFI function callbacks", (vm, out) => {
         const thrice = (f: (x: string) => void, x: string) => (f(x), f(x), f(x));
         expect(() => run(vm, ["begin",
             ["let", [["x", ["fn", ["x"], ["print", ["$", "x"]]]]],
@@ -701,7 +678,7 @@ describe("FFI", () => {
 });
 
 describe("audit hook protections", () => {
-    testTest("prevents accessing Function", vm => {
+    testTest(test, "prevents accessing Function", vm => {
         vm.addAuditHook(makeSingleEventWatcher("jeb:ffi/object/get", (obj, key) => {
             if (obj[key] === Function) {
                 throw new JEBError("can't access that!");
@@ -709,7 +686,7 @@ describe("audit hook protections", () => {
         }));
         expect(() => run(vm, [".", [".", {}, "constructor"], "constructor"])).toThrow("can't access that!");
     });
-    testTest("infinite loop guard", vm => {
+    testTest(test, "infinite loop guard", vm => {
         vm.addAuditHook(makeSingleEventWatcher("jeb:loop_check", (count) => {
             if (count > 10000) {
                 throw new JEBError("too many loops");
@@ -722,7 +699,7 @@ describe("audit hook protections", () => {
 });
 
 describe("location tracking", () => {
-    testTest("tracks locations", vm => {
+    testTest(test, "tracks locations", vm => {
         expect.assertions(7);
         try {
             run(vm, ["at", "line 0", ["begin",

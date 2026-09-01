@@ -3,7 +3,14 @@
     "private": true,
     "version": "0.1.0",
     "description": "simple JSON evaluation virtual machine with first-class continuations",
-    "main": "src/index.ts",
+    "exports": {
+        ".": {
+            "import": "./src/index.ts"
+        },
+        "./test": {
+            "import": "./src/indextest.ts"
+        }
+    },
     "type": "module",
     "scripts": {
         "build": "bun run scripts/build.ts",
