@@ -49,7 +49,8 @@ export class JebVM {
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
     protocols: Partial<JEBProtocols> = {};
-    copyableState: string[] = [];
+    getState(): any { }
+    restoreState(state: any): void { }
 
     constructor() {
         this.reset();

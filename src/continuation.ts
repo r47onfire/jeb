@@ -18,14 +18,14 @@ export class Continuation<T extends JebVM> {
     /** Closed-over traceback stack in progress */
     traceback: LinkedList<StackCount>;
     /** Other saved state */
-    state: { [K in keyof T]: T[K] };
+    state: any;
     constructor(vm: T, extraOps: Command<T>[]) {
         this.env = vm.currentEnv;
         this.commands = LinkedList_pushAll(vm.commandStack, extraOps);
         this.data = vm.dataStack;
         this.winders = vm.curDynamicWind;
         this.traceback = vm.tracebackStack;
-        this.state = Object.fromEntries(vm.copyableState.map(s => [s, vm[s as keyof T]])) as any;
+        this.state = vm.getState();
     }
     /**
      * Call the continuation and restore the state of the VM
@@ -37,7 +37,7 @@ export class Continuation<T extends JebVM> {
         vm.commandStack = this.commands;
         vm.dataStack = this.data;
         vm.tracebackStack = this.traceback;
-        Object.assign(vm, this.state);
+        vm.restoreState(this.state);
         pushData(vm, data);
         this.winders.processJumpHere(vm);
     }
@@ -64,13 +64,13 @@ export class DynamicWind<T extends JebVM> {
     /** closed-over data stack */
     dataHere: LinkedList<any> = null;
     /** Other saved state */
-    stateHere: { [K in keyof T]: T[K] };
+    stateHere: any;
     constructor(vm: T) {
         this.envHere = vm.currentEnv;
         this.parent = vm.curDynamicWind as DynamicWind<T>;
         this.commandsHere = vm.commandStack;
         this.dataHere = vm.dataStack;
-        this.stateHere = Object.fromEntries(vm.copyableState.map(s => [s, vm[s as keyof T]])) as any;
+        this.stateHere = vm.getState();
     }
     /**
      * sets the handler after it has been processed
@@ -130,6 +130,6 @@ export class DynamicWind<T extends JebVM> {
         vm.commandStack = this.commandsHere;
         vm.dataStack = this.dataHere;
         vm.currentEnv = this.envHere;
-        Object.assign(vm, this.stateHere);
+        vm.restoreState(this.stateHere);
     }
 }
