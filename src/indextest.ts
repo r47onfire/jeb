@@ -2,7 +2,7 @@ import { define, makeJSFun } from "./define";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";
 
-export const makeTestRun = (f: new () => JebVM) => (testfun: (name: string, body: () => void) => void, name: string, testBody: (vm: JebVM, out: string[]) => void) => {
+export const makeTestRun = <T extends JebVM>(f: new () => T) => (testfun: (name: string, body: () => void) => void, name: string, testBody: (vm: JebVM, out: string[]) => void) => {
     const vm = new f();
     const out: string[] = [];
     // simple print hook for the tests
