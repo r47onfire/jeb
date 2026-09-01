@@ -10,7 +10,7 @@ export const makeTestRun = <T extends JebVM>(f: new () => T) => (testfun: (name:
     testfun(name, () => testBody(vm, out));
 }
 
-export const run = (vm: JebVM, code: any, steps = Infinity, recursionLimit = 10000) => {
+export const run = <T extends JebVM>(vm: T, code: any, steps = Infinity, recursionLimit = 10000) => {
     vm.start(code);
     for (var i = 0; i < steps; i++) {
         if (!vm.step()) return true;
