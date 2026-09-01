@@ -368,7 +368,7 @@ Some errors also include a *restart* as part of their \`.context\` - this will b
 .throws jeb:type_error - if \`varname\` is null or \`handlers\` is not an object.
 . Used to manage error handling, contextual resources, and continuation tracking.`);
 
-const OP_with_setup = makeOpcode((vm, { 0: dw, 1: name }: [DynamicWind, Identifier | null]) => {
+const OP_with_setup = makeOpcode(<T extends JebVM>(vm: T, { 0: dw, 1: name }: [DynamicWind<T>, Identifier | null]) => {
     // we just got the before and after handlers evaluated
     const context = popData(vm) as Windable;
     const notObject = typeof context !== "object" || context === null;
@@ -377,7 +377,7 @@ const OP_with_setup = makeOpcode((vm, { 0: dw, 1: name }: [DynamicWind, Identifi
     }
     dw.setHandler(context);
     // set up the winder to be installed AFTER the enter handler runs, so that errors thrown by this handler won't be caught by the exit handler
-    pushCommand(vm, OP_with_install, dw);
+    pushCommand(vm, OP_with_install<T>, dw);
 
     // The result of the follwing options must be an args object to the block body invocation
     pushCommand(vm, OP_with_boxprepare, name);
@@ -391,7 +391,7 @@ const OP_with_setup = makeOpcode((vm, { 0: dw, 1: name }: [DynamicWind, Identifi
 
 const OP_with_boxprepare = makeOpcode((vm, { 0: name }: [Identifier | null]) => pushData(vm, { _: name !== null ? { [name]: popData(vm) } : (popData(vm), {}) }), null);
 
-const OP_with_install = makeOpcode((vm, { 0: dw }: [DynamicWind]) => {
+const OP_with_install = makeOpcode(<T extends JebVM>(vm: T, { 0: dw }: [DynamicWind<T>]) => {
     vm.curDynamicWind = dw;
 }, null);
 
@@ -518,10 +518,10 @@ __initializer(vm => defineApplier(vm, [Continuation], (vm, { 0: k }) => {
     }
 }),
     "Reified GOTO which will jump back to the place it was captured from and return from there instead of returning from where it was called from like usual."));
-const OP_continuation_invoke = makeOpcode((vm, { 0: k }: [Continuation]) => k.invoke(vm, popData(vm).value), null);
+const OP_continuation_invoke = makeOpcode(<T extends JebVM>(vm: T, { 0: k }: [Continuation<T>]) => k.invoke(vm, popData(vm).value), null);
 
 // MARK: logic
-export const OP_if = makeOpcode((vm, { 0: then, 1: else_, 2: isAsm }: [any, any, asm?: false | undefined] | [Command | null, Command | null, true]) => {
+export const OP_if = makeOpcode(<T extends JebVM>(vm: T, { 0: then, 1: else_, 2: isAsm }: [any, any, asm?: false | undefined] | [Command<T> | null, Command<T> | null, true]) => {
     const condition = popData(vm);
     if (isAsm) {
         if (condition) { if (then) pushCommand(vm, ...then); } else if (else_) pushCommand(vm, ...else_);

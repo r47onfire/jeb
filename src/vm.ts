@@ -15,7 +15,7 @@ export { __initializer };
 /**
  * Data for the command
  */
-export type Command = [opcode: OpcodeFunction<any>, ...immediateArgs: any[]];
+export type Command<T extends JebVM> = [opcode: OpcodeFunction<any, T>, ...immediateArgs: any[]];
 export interface StackCount {
     readonly name: Identifier | undefined;
     readonly location: Identifier | undefined;
@@ -26,9 +26,9 @@ export interface StackCount {
 /**
  * Function that implements an opcode for the VM by pushing instructions or pushing and popping data.
  */
-export type OpcodeFunction<T extends any[]> = ((vm: JebVM, ...args: T) => void) & { doc?: string | null };
+export type OpcodeFunction<T extends any[], U extends JebVM> = ((vm: U, ...args: T) => void) & { doc?: string | null };
 
-export type GetArgParams<T extends OpcodeFunction<any>> = Parameters<T>[1] extends infer T extends any[] ? T : [void];
+export type GetArgParams<T extends OpcodeFunction<any, any>> = Parameters<T>[1] extends infer T extends any[] ? T : [void];
 
 /**
  * Base VM for running JEB code
@@ -37,11 +37,11 @@ export class JebVM {
     /** current environment */
     currentEnv!: Env;
     /** stack of commands to execute */
-    commandStack!: LinkedList<Command>;
+    commandStack!: LinkedList<Command<this>>;
     /** stack of values */
     dataStack!: LinkedList<any>;
     /** current dynamic wind stack (linked list / tree) */
-    curDynamicWind!: DynamicWind;
+    curDynamicWind!: DynamicWind<this>;
     /** whether the VM is paused */
     paused!: boolean;
     /** callstack entries */
@@ -49,7 +49,7 @@ export class JebVM {
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
     protocols: Partial<JEBProtocols> = {};
-    copyableState: Exclude<keyof this, keyof JebVM>[] = [];
+    copyableState: string[] = [];
 
     constructor() {
         this.reset();
@@ -86,7 +86,7 @@ export class JebVM {
         this.#checkStack(1);
         return this.dataStack!.value;
     }
-    pushCommand<T extends OpcodeFunction<any>>(f: T, ...args: GetArgParams<T>) {
+    pushCommand<T extends OpcodeFunction<any, this>>(f: T, ...args: GetArgParams<T>) {
         this.commandStack = LinkedList_push(this.commandStack, [f, ...args]);
     }
     popCommand() {
@@ -234,7 +234,7 @@ export class JebVM {
      * Returns the current continuation at this state.
      * @param extraOps Extra opcodes to push to the command stack *when this continuation is invoked* (not now).
      */
-    cc(...extraOps: Command[]) {
+    cc(...extraOps: Command<this>[]) {
         return new Continuation(this, extraOps);
     }
     fatalError(error: JEBError): never {
@@ -259,8 +259,8 @@ export class JebVM {
     }
 }
 
-export const pushData = (vm: JebVM, data: any) => vm.pushData(data);
-export const pushCommand = <T extends OpcodeFunction<any>>(vm: JebVM, cmd: T, ...args: GetArgParams<T>) => vm.pushCommand(cmd, ...args);
-export const popData = (vm: JebVM) => vm.popData();
-export const popNData = (vm: JebVM, n: number) => vm.popNData(n);
-export const peekData = (vm: JebVM) => vm.peekData();
+export const pushData = <T extends JebVM>(vm: T, data: any) => vm.pushData(data);
+export const pushCommand = <T extends OpcodeFunction<any, U>, U extends JebVM>(vm: U, cmd: T, ...args: GetArgParams<T>) => vm.pushCommand(cmd, ...args);
+export const popData = <T extends JebVM>(vm: T) => vm.popData();
+export const popNData = <T extends JebVM>(vm: T, n: number) => vm.popNData(n);
+export const peekData = <T extends JebVM>(vm: T) => vm.peekData();
