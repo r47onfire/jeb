@@ -1,7 +1,9 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { float, int, JEBError, makeSingleEventWatcher, OP_shuffle, popData, pushCommand, pushData, typeMatches } from "../src";
-import { rawTraceback, run, testTest } from "../src/indextest";
+import { float, int, JEBError, JebVM, makeSingleEventWatcher, OP_shuffle, popData, pushCommand, pushData, typeMatches } from "../src";
+import { makeTestRun, rawTraceback, run } from "../src/indextest";
+
+const testTest = makeTestRun(JebVM);
 
 describe("type matching test", () => {
     test("subclass score", () => {
