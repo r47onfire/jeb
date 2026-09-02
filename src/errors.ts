@@ -1,7 +1,7 @@
 import { isinstance, javaHash, rotate32 } from "@r47onfire/game-math";
 import { NOTHING } from "./define";
 import { Identifier } from "./utils";
-import { JebVM } from "./vm";
+import { JebVM, pushCommand, pushData } from "./vm";
 
 /**
  * Mapping of error tag to class constructor (used by the `err` function)
@@ -197,7 +197,6 @@ export const formatStackTraceCompact = (nodes: StackTreeNode[]): string => {
  * wraps it in the given error type and re-throws it, otherwise returns the function result.
  * @param kind Kind of JEB error a thrown error causes
  * @param f The function to catch errors from
- * @returns The result of the function or {@link NOTHING} if the function threw
  * @example
  * ```
  * defineBuiltin(vm, "test", null, false, false,
@@ -219,6 +218,17 @@ export const wrapThrowToError = <T>(kind: new (message: string, options: { cause
  * @param vm VM we're running in
  * @param value Value to check
  */
-export const checkNothingOrPush = (vm: JebVM, value: any) => {
+export const checkNothingOrPush = <T extends JebVM>(vm: T, value: any) => {
     if (value !== NOTHING) vm.pushData(value);
+}
+
+/**
+ * Pauses the VM while the promise is pending, and then resumes it when it
+ * resolves or rejects.
+ */
+export const promisifyVM = <T extends JebVM, X>(vm: T, promise: Promise<X>): void => {
+    vm.paused = true;
+    promise.then(
+        result => (vm.paused = false, pushData(vm, result)),
+        error => (vm.paused = false, pushCommand(vm, () => { throw error; })));
 }
