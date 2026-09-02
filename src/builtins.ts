@@ -451,15 +451,13 @@ __initializer(vm => {
         "Deferred block evaluation");
 });
 const OP_block_invoke = makeOpcode((vm, { 0: b, 1: tail }: [Block, boolean | undefined]) => {
-    if (!tail) {
-        pushCommand(vm, OP_block_invoke_resetEnv, vm.currentEnv);
-    }
+    if (!tail) pushCommand(vm, OP_set_env, vm.currentEnv);
     const env = vm.currentEnv = vm.createEnv(b.closureEnv);
     const injected = popData(vm)._, names = Reflect.ownKeys(injected);
     for (var i = names.length; i >= 0; i--) env.add(names[i]!, injected[names[i]!]);
     implicitBegin(vm, b.body);
 }, null);
-const OP_block_invoke_resetEnv = makeOpcode((vm, { 0: env }: [Env]) => vm.currentEnv = env, null);
+export const OP_set_env = makeOpcode((vm, { 0: env }: [Env]) => vm.currentEnv = env, null);
 const OP_fun_invoke = makeOpcode((vm, { 0: fn, 1: tail }: [Fun<any>, boolean | undefined]) => {
     const argvObject = popData(vm);
     if (!fn.isImplicit) argvObject.return = vm.cc();
