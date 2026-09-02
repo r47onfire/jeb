@@ -228,7 +228,9 @@ export const checkNothingOrPush = <T extends JebVM>(vm: T, value: any) => {
  */
 export const promisifyVM = <T extends JebVM, X>(vm: T, promise: Promise<X>): void => {
     vm.paused = true;
+    const { promise: finish, resolve } = Promise.withResolvers<void>();
+    vm.awaiting = finish;
     promise.then(
-        result => (vm.paused = false, pushData(vm, result)),
-        error => (vm.paused = false, pushCommand(vm, () => { throw error; })));
+        result => (vm.paused = false, pushData(vm, result), resolve()),
+        error => (vm.paused = false, pushCommand(vm, () => { throw error; }), resolve()));
 }

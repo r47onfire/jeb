@@ -44,6 +44,8 @@ export class JebVM {
     curDynamicWind!: DynamicWind<this>;
     /** whether the VM is paused */
     paused!: boolean;
+    /** the Promise that the VM is currently waiting on */
+    awaiting: Promise<void> | null = null;
     /** callstack entries */
     tracebackStack!: LinkedList<StackCount>;
     /** Environment that all builtins live in */
@@ -96,6 +98,9 @@ export class JebVM {
         this.commandStack = rest;
         return value;
     }
+    get done() {
+        return LinkedList_length(this.commandStack) === 0;
+    }
     /**
      * Runs one opcode.
      * @returns true if progress was made, false if there's nothing left to do
@@ -105,8 +110,7 @@ export class JebVM {
      * ```
      */
     step() {
-        if (this.paused) return false;
-        if (LinkedList_length(this.commandStack) === 0) return false;
+        if (this.paused || this.done) return false;
         const command = this.popCommand();
         try {
             command[0](this, command.slice(1));
