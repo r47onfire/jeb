@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { float, int, JEBError, JebVM, makeSingleEventWatcher, OP_shuffle, popData, pushCommand, pushData, typeMatches } from "../src";
-import { makeTestRun, rawTraceback, run } from "../src/indextest";
+import { float, int, JEBError, JebVM, makeJSFun, makeSingleEventWatcher, OP_shuffle, popData, promisifyVM, pushCommand, pushData, typeMatches } from "../src";
+import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
 
@@ -721,4 +721,15 @@ describe("location tracking", () => {
             expect(e.traceback!.some(e => e.leaf && e.location === "line 4")).toBeTrue();
         }
     });
+});
+
+testTest(test, "async test", async vm => {
+    const a = Date.now();
+    expect(await runAsync(vm, [
+        makeJSFun("wait", ["time"], ({ time }, vm) =>
+            promisifyVM(vm, new Promise(resolve =>
+                setTimeout(resolve, time))), ""),
+        1000])).toBeTrue();
+    const b = Date.now();
+    expect(Math.abs(b - a - 1000)).toBeLessThan(10);
 });

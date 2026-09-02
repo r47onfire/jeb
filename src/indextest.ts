@@ -2,7 +2,7 @@ import { define, makeJSFun } from "./define";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";
 
-export const makeTestRun = <T extends JebVM, U>(f: new () => T) => (testfun: (name: string, body: () => U) => void, name: string, testBody: (vm: T, out: string[]) => U) => {
+export const makeTestRun = <T extends JebVM>(f: new () => T) => <U>(testfun: (name: string, body: () => U) => void, name: string, testBody: (vm: T, out: string[]) => U) => {
     const vm = new f();
     const out: string[] = [];
     // simple print hook for the tests
@@ -23,6 +23,7 @@ export const runAsync = async <T extends JebVM>(vm: T, code: any, steps = Infini
     vm.start(code);
     for (var i = 0; i < steps; i++) {
         await vm.awaiting;
+        if (vm.done) return true;
         vm.step();
         vm.checkRecursion(recursionLimit);
     }
