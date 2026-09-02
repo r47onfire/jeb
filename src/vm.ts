@@ -18,7 +18,7 @@ export { __initializer };
 export type Command<T extends JebVM> = [opcode: OpcodeFunction<any, T>, ...immediateArgs: any[]];
 export interface StackCount {
     readonly name: Identifier | undefined;
-    readonly location: Identifier | undefined;
+    readonly location: number | undefined;
     readonly count: number;
     readonly tail: boolean;
 }
@@ -192,7 +192,7 @@ export class JebVM {
      * @param func Name of the function that is now being called
      * @param tailcallHint True if the function was tail-called
      */
-    pushTraceback(func: Identifier | undefined, tailcallHint: boolean, callsiteLocation: Identifier | undefined) {
+    pushTraceback(func: Identifier | undefined, tailcallHint: boolean, callsiteLocation: number | undefined) {
         const top = this.tracebackStack;
         if (top) {
             const { value: { name, tail, location, count }, next } = top;
