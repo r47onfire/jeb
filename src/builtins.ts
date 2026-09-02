@@ -243,7 +243,7 @@ export const OP_get = makeOpcode((vm, { 0: shouldBind }: [boolean]) => {
 ..param {boolean?} [shouldBind=false]
 .sed lvalue -- value
 . Takes an LValue on the top of the stack and unwraps it by calling its get() method.`);
-export const OP_set = makeOpcode((vm, { 0: create, 1: readonly }: [create?: boolean, readonly?: boolean]) => {
+export const OP_set = makeOpcode((vm, { 0: create, 1: readonly }: [create?: boolean, readonly_?: boolean]) => {
     const lvalue = popData(vm) as Reference;
     lvalue.set(vm, peekData(vm), create ?? false, readonly ?? false);
 },
