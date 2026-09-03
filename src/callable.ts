@@ -1,6 +1,6 @@
 import { Block } from "./block";
 import { type HasDocstring } from "./doc";
-import { JEBStateError } from "./errors";
+import { JEBStateError, Location } from "./errors";
 import { ApplyMetadata } from "./protocol";
 import { CallableSignature } from "./signature";
 import { Identifier } from "./utils";
@@ -61,7 +61,7 @@ export class JSFun<S extends CallableSignature = CallableSignature> implements H
         public readonly impl: (
             args: Record<S["params"][number]["name"], any> & (S["rest"] extends { name: infer N extends PropertyKey } ? { [x in N]: any[] } : {}) & (S["kwRest"] extends { name: infer N extends PropertyKey } ? { [x in N]: Record<any, any> } : {}),
             vm: JebVM,
-            location: Identifier | undefined,
+            location: Location | undefined,
         ) => any,
         /**
          * The docstring given - should define the allowable syntax(es) of the function

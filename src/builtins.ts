@@ -12,7 +12,7 @@ import { Continuation, DynamicWind, Windable } from "./continuation";
 import { define, defineAccessor, defineApplier, defineEvaluator, makeJSFun, makeOpcode, NOTHING } from "./define";
 import { OP_doargs } from "./doargs";
 import { Env, gensym } from "./env";
-import { ALL_ERRORS, checkNothingOrPush, JEBError, JEBSyntaxError, JEBTypeError, JEBValueError, wrapThrowToError } from "./errors";
+import { ALL_ERRORS, checkNothingOrPush, JEBError, JEBSyntaxError, JEBTypeError, JEBValueError, Location, wrapThrowToError } from "./errors";
 import { implicitBegin } from "./implicitBegin";
 import { __initializer } from "./initializers";
 import { float, numberOp, Relation } from "./math";
@@ -44,7 +44,7 @@ export const OP_tbPop = makeOpcode(vm => vm.popTraceback(),
     `.imm
 .sed --
 . Pops the top of the traceback stack, including all tailcall entries if there are some.`);
-export const OP_tbPush = makeOpcode((vm, { 0: func, 1: location, 2: tail }: [f: Identifier | undefined, Identifier | undefined, tail?: boolean]) => vm.pushTraceback(func, tail ?? false, location),
+export const OP_tbPush = makeOpcode((vm, { 0: func, 1: location, 2: tail }: [f: Identifier | undefined, Location | undefined, tail?: boolean]) => vm.pushTraceback(func, tail ?? false, location),
     `.imm function tailcall
 ..param {string} function
 ..param {boolean} [tailcall=false]
@@ -69,7 +69,7 @@ Examples:
 * \`N/[1, 2, 3, 4, ..., N-1, 0]\` = N-tuck`);
 
 // MARK: eval
-export const OP_eval = makeOpcode((vm, { 0: location, 1: tail }: [Identifier | undefined, tail?: boolean]) => {
+export const OP_eval = makeOpcode((vm, { 0: location, 1: tail }: [Location | undefined, tail?: boolean]) => {
     const code = popData(vm);
     const p = vm.getProtocol(true, false, "eval", [code]);
     if (p) p.run(vm, [code], { tail: tail ?? false, location });
@@ -110,7 +110,7 @@ __initializer(vm => defineEvaluator(vm, ["object"], (vm, { 0: code }, { location
     }
 },
     "Evaluates all of the property values, and then reassembles the object with the same set of keys with the evaluated values."));
-const arrayEval = (vm: JebVM, code: any[], tail: boolean, location: Identifier | undefined) => {
+const arrayEval = (vm: JebVM, code: any[], tail: boolean, location: Location | undefined) => {
     pushCommand(vm, OP_apply, code.slice(1), location, tail);
     pushCommand(vm, OP_unwrap, []);
     pushCommand(vm, OP_eval, location);
@@ -140,7 +140,7 @@ __initializer(vm => {
 });
 
 // MARK: apply
-export const OP_apply = makeOpcode((vm, { 0: argv, 1: location, 2: tail, 3: noEval }: [any[], location?: Identifier, tail?: boolean, noEval?: boolean]) => {
+export const OP_apply = makeOpcode((vm, { 0: argv, 1: location, 2: tail, 3: noEval }: [any[], location?: Location, tail?: boolean, noEval?: boolean]) => {
     const func = popData(vm);
     const applier = vm.getProtocol(true, false, "apply", [func]);
     if (!applier) {
@@ -162,11 +162,11 @@ export const OP_apply = makeOpcode((vm, { 0: argv, 1: location, 2: tail, 3: noEv
 . Pops the top value from the stack and calls it with the provided arguments.
 The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.
 The \`callAt\` frame will be hidden in the actual traceback.`);
-export const B_atLocation = makeJSFun("at", ["location", [true, "expr"]], ({ location, expr }, vm) => {
+export const B_atLocation = makeJSFun("at", ["start", "end", [true, "expr"]], ({ start, end, expr }, vm) => {
     // Remove self frame from here
     vm.popTraceback(false); // don't drop tail call, just in case this is in tail position
     vm.popCommand(); // This will be the tb_pop pushed by apply above
-    pushCommand(vm, OP_eval, location);
+    pushCommand(vm, OP_eval, [start, end, vm.getCurrentFile()]);
     return expr;
 },
     `.macro (at location expr)
@@ -185,7 +185,7 @@ export const B_keyword = makeJSFun("kw", ["name", "value"], ({ name, value }) =>
 . Redirects the argument into a particular named argument slot.`);
 
 // MARK: string applier
-const OP_apply_id_trampoline = makeOpcode((vm, { 0: tail, 1: location }: [boolean | undefined, Identifier | undefined]) => {
+const OP_apply_id_trampoline = makeOpcode((vm, { 0: tail, 1: location }: [boolean | undefined, Location | undefined]) => {
     const realFunc = popData(vm);
     const argsObj = popData(vm) as { _: any[] };
     pushData(vm, realFunc);
@@ -215,7 +215,7 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
         (_, func) => func,
         "Wrapper for a Javascript function that gives it a few properties to make it easier for JEB to call it.");
 });
-const OP_JSFun_invoke = makeOpcode((vm, { 0: func, 1: location }: [JSFun, loc?: Identifier | undefined]) => checkNothingOrPush(vm, func.impl(popData(vm), vm, location)), null);
+const OP_JSFun_invoke = makeOpcode((vm, { 0: func, 1: location }: [JSFun, loc?: Location | undefined]) => checkNothingOrPush(vm, func.impl(popData(vm), vm, location)), null);
 
 // MARK: variables
 __initializer(vm => {

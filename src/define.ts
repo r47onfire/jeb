@@ -32,7 +32,7 @@ export const define = (vm: JebVM, name: string, obj: any) => {
  * Creates a new opcode for the VM.
  * @param fn The function to implement the opcode.
  */
-export const makeOpcode = <T extends OpcodeFunction<any, any>>(fn: T, doc: string | null): T => {
+export const makeOpcode = <T extends OpcodeFunction<any, JebVM>>(fn: T, doc: string | null): T => {
     (fn as T).doc = doc;
     return fn;
 }

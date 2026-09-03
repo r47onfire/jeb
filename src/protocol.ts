@@ -5,7 +5,7 @@ import { pow } from "lib0/math";
 import { Result } from "ts-res";
 import { NOTHING } from "./define";
 import { Env } from "./env";
-import { JEBError } from "./errors";
+import { JEBError, Location } from "./errors";
 import { Relation } from "./math";
 import { CallableSignature } from "./signature";
 import { Identifier } from "./utils";
@@ -93,12 +93,12 @@ export interface ApplyMetadata {
 
 export interface ApplyFlags {
     tail: boolean;
-    location: Identifier | undefined;
+    location: Location | undefined;
 }
 
 export interface EvalFlags {
     tail: boolean;
-    location: Identifier | undefined;
+    location: Location | undefined;
 }
 
 export interface AccessFlags {

@@ -83,6 +83,8 @@ export class JEBRecursionError extends JEBError {
 
 const STACKFRAME_JOINER = "<-";
 
+export type Location = [start: number | undefined, end: number | undefined, file: string | undefined];
+
 /**
  * Tree node representing a compressed stack trace
  */
@@ -94,16 +96,33 @@ export type StackTreeNode = Readonly<{
 } | {
     leaf: true,
     name: Identifier | undefined;
-    location: number | undefined;
+    location: Location | undefined;
     hash: number;
 }>;
 
-export const createStackLeafNode = (name: Identifier | undefined, location: number | undefined): StackTreeNode => {
-    return { leaf: true, name, location, hash: javaHash(String(name)) ^ (location ?? 0xDEADBEEF) };
+export const createStackLeafNode = (name: Identifier | undefined, location: Location | undefined): StackTreeNode => {
+    return {
+        leaf: true,
+        name,
+        location,
+        hash:
+            javaHash(String(name))
+            ^ (location
+                ? rotate32(javaHash(String(location[2])), 11)
+                ^ rotate32(location[0] ?? 0x51A41, 23)
+                ^ rotate32(location[1] ?? 0xE9D, 29)
+                : 0xDEADBEEF),
+    };
 };
 
 export const createStackInnerNode = (count: number, children: StackTreeNode[]): StackTreeNode => {
-    return { leaf: false, count, children, hash: children.reduce((prev, { hash }) => rotate32(prev, 17) ^ hash, 0x24354657) };
+    return {
+        leaf: false,
+        count,
+        children,
+        hash: children.reduce((prev, { hash }) =>
+            rotate32(prev, 17) ^ hash, 0x24354657)
+    };
 };
 
 export const compressStackTree = (nodes: StackTreeNode[]): StackTreeNode[] => {
@@ -168,7 +187,8 @@ const nodesEqual = (node1: StackTreeNode, node2: StackTreeNode) => {
 
     // either they're equal, or hash collision
     if (node1.leaf && node2.leaf) {
-        return node1.name === node2.name && node1.location === node2.location;
+        if (node1.name !== node2.name) return false;
+        return locationsEqual(node1.location, node2.location);
     }
     if (!node1.leaf && !node2.leaf) {
         // For non-leaf nodes, count and structure must match
@@ -180,6 +200,11 @@ const nodesEqual = (node1: StackTreeNode, node2: StackTreeNode) => {
 const childrenEqual = (children1: StackTreeNode[], children2: StackTreeNode[]): boolean => {
     return children1.length === children2.length
         && children1.every((child1, i) => nodesEqual(child1, children2[i]!));
+}
+
+export const locationsEqual = (location1: Location | undefined, location2: Location | undefined) => {
+    if (!location1 || !location2) return location1 === location2;
+    return location1.every((x, i) => location2[i] === x);
 }
 
 

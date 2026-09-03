@@ -5,7 +5,7 @@ import { JEBAuditEvents } from "./auditHookTypes";
 import { loadBuiltins, OP_eval, OP_throw } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
-import { createStackInnerNode, createStackLeafNode, JEBError, JEBRecursionError, JEBTypeError, StackTreeNode } from "./errors";
+import { createStackInnerNode, createStackLeafNode, JEBError, JEBRecursionError, JEBTypeError, Location, locationsEqual, StackTreeNode } from "./errors";
 import { __initializer, __initializers } from "./initializers";
 import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
 import { OP_unwrap } from "./unwrap";
@@ -18,7 +18,7 @@ export { __initializer };
 export type Command<T extends JebVM> = [opcode: OpcodeFunction<any, T>, ...immediateArgs: any[]];
 export interface StackCount {
     readonly name: Identifier | undefined;
-    readonly location: number | undefined;
+    readonly location: Location | undefined;
     readonly count: number;
     readonly tail: boolean;
 }
@@ -192,11 +192,11 @@ export class JebVM {
      * @param func Name of the function that is now being called
      * @param tailcallHint True if the function was tail-called
      */
-    pushTraceback(func: Identifier | undefined, tailcallHint: boolean, callsiteLocation: number | undefined) {
+    pushTraceback(func: Identifier | undefined, tailcallHint: boolean, callsiteLocation: Location | undefined) {
         const top = this.tracebackStack;
         if (top) {
             const { value: { name, tail, location, count }, next } = top;
-            if (name === func && tail === tailcallHint && location === callsiteLocation) {
+            if (name === func && tail === tailcallHint && locationsEqual(location, callsiteLocation)) {
                 // same name and type = just bump the counter
                 this.tracebackStack = LinkedList_push(next, { name: func, count: count + 1, tail: tailcallHint, location: callsiteLocation });
                 return;
@@ -234,6 +234,9 @@ export class JebVM {
     }
     createEnv(...parents: Env[]) {
         return new Env({}, parents);
+    }
+    getCurrentFile(): string | undefined {
+        return undefined;
     }
     /**
      * Returns the current continuation at this state.
