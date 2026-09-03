@@ -24,7 +24,7 @@ import { Identifier, isIdentifier } from "./utils";
 import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "./vm";
 import { KeywordArg, MacroWrapper, ReferenceWrapper, SplatArg } from "./wrapper";
 
-export const OP_audit = makeOpcode((vm, args: JEBAuditEvent<any>) => {
+export const OP_audit = makeOpcode((vm: JebVM, args: JEBAuditEvent<any>) => {
     vm.audit(...args);
 },
     `.imm name args...
@@ -44,14 +44,14 @@ export const OP_tbPop = makeOpcode(vm => vm.popTraceback(),
     `.imm
 .sed --
 . Pops the top of the traceback stack, including all tailcall entries if there are some.`);
-export const OP_tbPush = makeOpcode((vm, { 0: func, 1: location, 2: tail }: [f: Identifier | undefined, Location | undefined, tail?: boolean]) => vm.pushTraceback(func, tail ?? false, location),
+export const OP_tbPush = makeOpcode((vm: JebVM, { 0: func, 1: location, 2: tail }: [f: Identifier | undefined, Location | undefined, tail?: boolean]) => vm.pushTraceback(func, tail ?? false, location),
     `.imm function tailcall
 ..param {string} function
 ..param {boolean} [tailcall=false]
 . Pushes the function to the traceback stack.`);
 
 // MARK: op: stack shuffle
-export const OP_shuffle = makeOpcode((vm, { 0: n, 1: indices }: [number, number[]]) => {
+export const OP_shuffle = makeOpcode((vm: JebVM, { 0: n, 1: indices }: [number, number[]]) => {
     const items = popNData(vm, n), len = indices.length;
     for (var i = 0; i < len; i++) {
         pushData(vm, items[indices[i]!]!);
@@ -69,7 +69,7 @@ Examples:
 * \`N/[1, 2, 3, 4, ..., N-1, 0]\` = N-tuck`);
 
 // MARK: eval
-export const OP_eval = makeOpcode((vm, { 0: location, 1: tail }: [Location | undefined, tail?: boolean]) => {
+export const OP_eval = makeOpcode((vm: JebVM, { 0: location, 1: tail }: [Location | undefined, tail?: boolean]) => {
     const code = popData(vm);
     const p = vm.getProtocol(true, false, "eval", [code]);
     if (p) p.run(vm, [code], { tail: tail ?? false, location });
@@ -140,7 +140,7 @@ __initializer(vm => {
 });
 
 // MARK: apply
-export const OP_apply = makeOpcode((vm, { 0: argv, 1: location, 2: tail, 3: noEval }: [any[], location?: Location, tail?: boolean, noEval?: boolean]) => {
+export const OP_apply = makeOpcode((vm: JebVM, { 0: argv, 1: location, 2: tail, 3: noEval }: [any[], location?: Location, tail?: boolean, noEval?: boolean]) => {
     const func = popData(vm);
     const applier = vm.getProtocol(true, false, "apply", [func]);
     if (!applier) {
@@ -185,7 +185,7 @@ export const B_keyword = makeJSFun("kw", ["name", "value"], ({ name, value }) =>
 . Redirects the argument into a particular named argument slot.`);
 
 // MARK: string applier
-const OP_apply_id_trampoline = makeOpcode((vm, { 0: tail, 1: location }: [boolean | undefined, Location | undefined]) => {
+const OP_apply_id_trampoline = makeOpcode((vm: JebVM, { 0: tail, 1: location }: [boolean | undefined, Location | undefined]) => {
     const realFunc = popData(vm);
     const argsObj = popData(vm) as { _: any[] };
     pushData(vm, realFunc);
@@ -215,14 +215,14 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
         (_, func) => func,
         "Wrapper for a Javascript function that gives it a few properties to make it easier for JEB to call it.");
 });
-const OP_JSFun_invoke = makeOpcode((vm, { 0: func, 1: location }: [JSFun, loc?: Location | undefined]) => checkNothingOrPush(vm, func.impl(popData(vm), vm, location)), null);
+const OP_JSFun_invoke = makeOpcode((vm: JebVM, { 0: func, 1: location }: [JSFun, loc?: Location | undefined]) => checkNothingOrPush(vm, func.impl(popData(vm), vm, location)), null);
 
 // MARK: variables
 __initializer(vm => {
     defineAccessor(vm, ["object", "function"], (_, { 0: object }, { field, type }) => new ObjectPropertyReference(type, object, field), "Default object property accessor.");
     defineAccessor(vm, [Env], (_, { 0: env }, { field, type }) => new VariableReference(type, env, field as Identifier), "Accessor for variables from an environment.");
 });
-export const OP_index = makeOpcode((vm, { 0: type }: [AccessType]) => {
+export const OP_index = makeOpcode((vm: JebVM, { 0: type }: [AccessType]) => {
     const field = popData(vm) as PropertyKey;
     const obj = popData(vm);
     const accessor = vm.getProtocol(true, false, "access", [obj]);
@@ -235,7 +235,7 @@ export const OP_index = makeOpcode((vm, { 0: type }: [AccessType]) => {
 ..param {code} name - evaluated
 .throws jeb:type_error - if the object can't be indexed
 . Finds an Accessor for the object and pushes the LValue for the given field.`);
-export const OP_get = makeOpcode((vm, { 0: shouldBind }: [boolean]) => {
+export const OP_get = makeOpcode((vm: JebVM, { 0: shouldBind }: [boolean]) => {
     checkNothingOrPush(vm, (popData(vm) as Reference).get(vm, shouldBind))
 },
     `.imm accessType shouldBind
@@ -243,7 +243,7 @@ export const OP_get = makeOpcode((vm, { 0: shouldBind }: [boolean]) => {
 ..param {boolean?} [shouldBind=false]
 .sed lvalue -- value
 . Takes an LValue on the top of the stack and unwraps it by calling its get() method.`);
-export const OP_set = makeOpcode((vm, { 0: create, 1: readonly }: [create?: boolean, readonly_?: boolean]) => {
+export const OP_set = makeOpcode((vm: JebVM, { 0: create, 1: readonly }: [create?: boolean, readonly_?: boolean]) => {
     const lvalue = popData(vm) as Reference;
     lvalue.set(vm, peekData(vm), create ?? false, readonly ?? false);
 },
@@ -275,7 +275,7 @@ export const B_dot = makeJSFun(".", ["obj", "name"], ({ obj, name }, vm) => {
 ..param {PropertyKey} name
 . Returns a reference to \`obj[name]\`.`);
 const OP_set_internal_nested = makeOpcode(vm => pushData(vm, { _: { _: popData(vm) } }), null);
-const OP_set_internal = makeOpcode((vm, { 0: b, 1: old }: [Block, boolean]) => {
+const OP_set_internal = makeOpcode((vm: JebVM, { 0: b, 1: old }: [Block, boolean]) => {
     // accessor is first on stack
     if (old) pushCommand(vm, OP_shuffle, 1, []);
     pushCommand(vm, OP_set);
@@ -304,7 +304,7 @@ export const B_set = makeJSFun("set", [[["ref"], "ref"], [false, "value"], ["old
 . Changes the value of the slot, and returns the new or old value as determined by \`old\`.`);
 
 // MARK: error handling
-export const OP_throw = makeOpcode((vm, { 0: err }: [JEBError]) => {
+export const OP_throw = makeOpcode((vm: JebVM, { 0: err }: [JEBError]) => {
     while (vm.curDynamicWind.parent) {
         // call exit handler with error details
         // if it returns true, it means the error was handled and we can continue execution
@@ -389,7 +389,7 @@ const OP_with_setup = makeOpcode(<T extends JebVM>(vm: T, { 0: dw, 1: name }: [D
     pushData(vm, context.enter);
 }, null);
 
-const OP_with_boxprepare = makeOpcode((vm, { 0: name }: [Identifier | null]) => pushData(vm, { _: name !== null ? { [name]: popData(vm) } : (popData(vm), {}) }), null);
+const OP_with_boxprepare = makeOpcode((vm: JebVM, { 0: name }: [Identifier | null]) => pushData(vm, { _: name !== null ? { [name]: popData(vm) } : (popData(vm), {}) }), null);
 
 const OP_with_install = makeOpcode(<T extends JebVM>(vm: T, { 0: dw }: [DynamicWind<T>]) => {
     vm.curDynamicWind = dw;
@@ -416,7 +416,7 @@ __initializer(vm => defineApplier(vm, ["function"], (vm, { 0: f }) => {
 }),
     `JEB's FFI can call Javascript functions. JEB does not check the \`.length\` of the function since it is wrong in some cases.
 .throws jeb:ffi_error - if the FFI'ed function throws an error`));
-const OP_ffi_invoke = makeOpcode((vm, { 0: f }: [Function]) => {
+const OP_ffi_invoke = makeOpcode((vm: JebVM, { 0: f }: [Function]) => {
     const args = popData(vm)._;
     vm.audit("jeb:ffi/call_function", f, args)
     pushData(vm, wrapThrowToError(JEBError, () => f(...args)));
@@ -450,15 +450,15 @@ __initializer(vm => {
         }),
         "Deferred block evaluation");
 });
-const OP_block_invoke = makeOpcode((vm, { 0: b, 1: tail }: [Block, boolean | undefined]) => {
+const OP_block_invoke = makeOpcode((vm: JebVM, { 0: b, 1: tail }: [Block, boolean | undefined]) => {
     if (!tail) pushCommand(vm, OP_set_env, vm.currentEnv);
     const env = vm.currentEnv = vm.createEnv(b.closureEnv);
     const injected = popData(vm)._, names = Reflect.ownKeys(injected);
     for (var i = names.length; i >= 0; i--) env.add(names[i]!, injected[names[i]!]);
     implicitBegin(vm, b.body);
 }, null);
-export const OP_set_env = makeOpcode((vm, { 0: env }: [Env]) => vm.currentEnv = env, null);
-const OP_fun_invoke = makeOpcode((vm, { 0: fn, 1: tail }: [Fun<any>, boolean | undefined]) => {
+export const OP_set_env = makeOpcode((vm: JebVM, { 0: env }: [Env]) => vm.currentEnv = env, null);
+const OP_fun_invoke = makeOpcode((vm: JebVM, { 0: fn, 1: tail }: [Fun<any>, boolean | undefined]) => {
     const argvObject = popData(vm);
     if (!fn.isImplicit) argvObject.return = vm.cc();
     pushCommand(vm, OP_block_invoke, fn.body, tail);
