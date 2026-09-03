@@ -208,7 +208,7 @@ const wrapLazyValue = (laziness: Laziness.LAZY | Laziness.QUOTED, given: any[], 
     return laziness === Laziness.QUOTED ? given : new Block(env, isSingle ? [given] : given);
 }
 
-export const OP_doargs = makeOpcode((vm, { 0: params, 1: env, 2: noEval, 3: name }: [CallableSignature, Env | undefined, boolean | undefined, Identifier | undefined]) => {
+export const OP_doargs = makeOpcode("doargs", (vm, { 0: params, 1: env, 2: noEval, 3: name }: [CallableSignature, Env | undefined, boolean | undefined, Identifier | undefined]) => {
     const given = popData(vm);
     // Optimization: test if it's all one rest lazy parameter, just special-case that
     const { params: { length }, rest } = params;
@@ -226,4 +226,4 @@ export const OP_doargs = makeOpcode((vm, { 0: params, 1: env, 2: noEval, 3: name
 .sed argslist -- argsobj
 . Processes the given arguments list into the named arguments object as determined by the signature.`);
 
-const OP_doargs_loop = makeOpcode((vm, { 0: state, 1: first }) => wrapThrowToError(JEBValueError, () => state.run(vm, first)), null);
+const OP_doargs_loop = makeOpcode(null, (vm, { 0: state, 1: first }) => wrapThrowToError(JEBValueError, () => state.run(vm, first)), null);

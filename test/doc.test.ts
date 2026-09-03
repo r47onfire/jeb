@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { isString } from "lib0/function";
-import { AccessorParsers, ApplierParsers, DocMetadata, DocMetadataParser, DocNode, EmptyTag, EvaluatorParsers, FunctionOrMacroParsers, JebVM, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs, theTypeName, Type, UnwrapperParsers } from "../src";
+import { AccessorParsers, ALL_OPCODES, ApplierParsers, DocMetadata, DocMetadataParser, DocNode, EmptyTag, EvaluatorParsers, FunctionOrMacroParsers, JebVM, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs, theTypeName, Type, UnwrapperParsers } from "../src";
 
 describe("inline parsing", () => {
     test.each<[string, string, DocNode[]]>([
@@ -79,6 +79,13 @@ describe("tag parsing failures", () => {
 });
 
 describe("parse builtins docstrings", () => {
+    describe("opcodes", () => {
+        test.each<[string, string]>(Object.entries(ALL_OPCODES).flatMap(([name, [, doc]]) => doc !== null ? [[name, doc]] : []))("%s", (_, doc) => {
+            const parsed = parseDoc(doc, OpcodeParsers);
+            expect(parsed).toBeDefined();
+            expect(parsed!.meta.length).toBeGreaterThan(0);
+        });
+    })
     describe("functions/macros", () => {
         test.each<[string, string]>(Object.entries(new JebVM().builtinsEnv.bindings).flatMap(([name, item]) => isString(item?.doc) ? [[name, item.doc as string]] : []))("%s", (_, doc) => {
             const parsed = parseDoc(doc, FunctionOrMacroParsers);
@@ -87,7 +94,6 @@ describe("parse builtins docstrings", () => {
             // console.log(JSON.stringify(parsed!.meta, null, 2));
         });
     });
-
     const t2p = ({ type, doc }: { type: Type[][], doc: string }): [string, string] => [type.map(ts => ts.map(theTypeName).join("|")).join(","), doc];
     describe("appliers", () => {
         test.each<[string, string]>(new JebVM().protocols.apply!.map(t2p))("%s", (_, doc) => {

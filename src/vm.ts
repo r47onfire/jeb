@@ -26,7 +26,7 @@ export interface StackCount {
 /**
  * Function that implements an opcode for the VM by pushing instructions or pushing and popping data.
  */
-export type OpcodeFunction<T extends any[], U extends JebVM> = ((vm: U, ...args: T) => void) & { doc?: string | null };
+export type OpcodeFunction<T extends any[], U extends JebVM> = ((vm: U, ...args: T) => void);
 
 export type GetArgParams<T extends OpcodeFunction<any, any>> = Parameters<T>[1] extends infer T extends any[] ? T : [void];
 

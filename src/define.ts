@@ -5,6 +5,8 @@ import { CallableSignatureFromShorthand, createSignature, ShorthandArgument } fr
 import { JebVM, OpcodeFunction } from "./vm";
 import { Wrapper } from "./wrapper";
 
+export const ALL_OPCODES: Record<string, [fn: OpcodeFunction<any, any>, doc: string | null]> = {};
+
 /**
  * Special symbol to represent 'no value' in contexts where `undefined` is a valid value.
  */
@@ -32,8 +34,11 @@ export const define = (vm: JebVM, name: string, obj: any) => {
  * Creates a new opcode for the VM.
  * @param fn The function to implement the opcode.
  */
-export const makeOpcode = <T extends OpcodeFunction<any, any>>(fn: T, doc: string | null): T => {
-    (fn as T).doc = doc;
+export const makeOpcode = <T extends OpcodeFunction<any, any>>(id: string | null, fn: T, doc: string | null): T => {
+    if (id !== null) {
+        if (ALL_OPCODES[id] !== undefined) throw new Error(`Opcode ${id} is already defined`);
+        ALL_OPCODES[id] = [fn, doc];
+    }
     return fn;
 }
 /**

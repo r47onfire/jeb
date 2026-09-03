@@ -8,7 +8,7 @@ import { MacroWrapper, ReferenceWrapper, Wrapper } from "./wrapper";
 
 type WrapArg<T extends new (obj: any, ...args: any[]) => Wrapper> = [cls: T, ...extraArgs: DropFirst<ConstructorParameters<T>>];
 
-export const OP_wrap = makeOpcode((vm, args: WrapArg<any>) => {
+export const OP_wrap = makeOpcode("wrap", (vm, args: WrapArg<any>) => {
     const item = popData(vm);
     const cls = args[0];
     pushData(vm, new cls(item, ...args.slice(1)));
@@ -18,7 +18,7 @@ export const OP_wrap = makeOpcode((vm, args: WrapArg<any>) => {
 .param {any} args... - the parameters to pass into the constructor after the object
 .sed obj -- wrapped
 . Wraps the object in the given wrapper class.`);
-export const OP_unwrap = makeOpcode((vm, { 0: dontUnwrap }: [string[]]) => {
+export const OP_unwrap = makeOpcode("unwrap", (vm, { 0: dontUnwrap }: [string[]]) => {
     const top = peekData(vm);
     if (isinstance(top, Wrapper) && !dontUnwrap.includes(top.flag)) {
         popData(vm);
