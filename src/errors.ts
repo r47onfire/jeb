@@ -94,12 +94,21 @@ export type StackTreeNode = Readonly<{
 } | {
     leaf: true,
     name: Identifier | undefined;
-    location: number | undefined;
+    file: string | undefined;
+    start: number | undefined;
+    end: number | undefined;
     hash: number;
 }>;
 
-export const createStackLeafNode = (name: Identifier | undefined, location: number | undefined): StackTreeNode => {
-    return { leaf: true, name, location, hash: javaHash(String(name)) ^ (location ?? 0xDEADBEEF) };
+export const createStackLeafNode = (name: Identifier | undefined, file: string | undefined, start: number | undefined, end: number | undefined): StackTreeNode => {
+    return {
+        leaf: true,
+        name,
+        file,
+        start,
+        end,
+        hash: javaHash(String(name)) ^ rotate32(javaHash(String(file)) ^ rotate32((start ?? 0x51A41) ^ rotate32(end ?? 0xE9D, 21), 25), 23)
+    };
 };
 
 export const createStackInnerNode = (count: number, children: StackTreeNode[]): StackTreeNode => {
@@ -166,9 +175,9 @@ const nodesEqual = (node1: StackTreeNode, node2: StackTreeNode) => {
     // quick compare
     if (node1.hash !== node2.hash) return false;
 
-    // either they're equal, or hash collision
+    // either they're equal, or hash endlision
     if (node1.leaf && node2.leaf) {
-        return node1.name === node2.name && node1.location === node2.location;
+        return node1.name === node2.name && node1.file === node2.file && node1.start === node2.start && node1.end === node2.end
     }
     if (!node1.leaf && !node2.leaf) {
         // For non-leaf nodes, count and structure must match

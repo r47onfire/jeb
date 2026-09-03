@@ -18,7 +18,9 @@ export { __initializer };
 export type Command<T extends JebVM> = [opcode: OpcodeFunction<any, T>, ...immediateArgs: any[]];
 export interface StackCount {
     readonly name: Identifier | undefined;
-    readonly location: number | undefined;
+    readonly file: string | undefined;
+    readonly start: number | undefined;
+    readonly end: number | undefined;
     readonly count: number;
     readonly tail: boolean;
 }
@@ -132,7 +134,7 @@ export class JebVM {
         if (LinkedList_length(this.commandStack) > 0) throw new Error("VM is already running");
         pushData(this, code);
         pushCommand(this, OP_unwrap, []);
-        pushCommand(this, OP_eval, undefined);
+        pushCommand(this, OP_eval, undefined, undefined, undefined);
     }
     /**
      * Silently stops running the code, by resetting all stacks state back to the initial empty state.
@@ -170,14 +172,14 @@ export class JebVM {
         var prev: StackCount | undefined, prevCount = 0;
         const flush = () => {
             if (prevCount > 0) {
-                const leaf = createStackLeafNode(prev!.name, prev!.location);
+                const leaf = createStackLeafNode(prev!.name, prev!.file, prev!.start, prev!.end);
                 parts.push(prevCount > 1 ? createStackInnerNode(prevCount, [leaf]) : leaf);
             }
             prevCount = 0;
         };
         while (stack) {
-            const { name, location, count } = stack.value;
-            if (prev && (prev.name !== name || prev.location !== location)) flush();
+            const { name, file, start, end, count } = stack.value;
+            if (prev && (prev.name !== name || prev.file !== file || prev.start !== start || prev.end !== end)) flush();
             const off = min(count, numToDrop);
             prevCount += count - off;
             numToDrop -= off;
@@ -192,17 +194,17 @@ export class JebVM {
      * @param func Name of the function that is now being called
      * @param tailcallHint True if the function was tail-called
      */
-    pushTraceback(func: Identifier | undefined, tailcallHint: boolean, callsiteLocation: number | undefined) {
+    pushTraceback(func: Identifier | undefined, tailcallHint: boolean, cFile: string | undefined, cStart: number | undefined, cEnd: number | undefined) {
         const top = this.tracebackStack;
         if (top) {
-            const { value: { name, tail, location, count }, next } = top;
-            if (name === func && tail === tailcallHint && location === callsiteLocation) {
+            const { value: { name, tail, file, start, end, count }, next } = top;
+            if (name === func && tail === tailcallHint && file === cFile && start === cStart && end === cEnd) {
                 // same name and type = just bump the counter
-                this.tracebackStack = LinkedList_push(next, { name: func, count: count + 1, tail: tailcallHint, location: callsiteLocation });
+                this.tracebackStack = LinkedList_push(next, { name: func, count: count + 1, tail, file, start, end });
                 return;
             }
         }
-        this.tracebackStack = LinkedList_push(top, { name: func, count: 1, tail: tailcallHint, location: callsiteLocation });
+        this.tracebackStack = LinkedList_push(top, { name: func, count: 1, tail: tailcallHint, file: cFile, start: cStart, end: cEnd });
     }
     /**
      * Drops all the tail-call entries off the stack, and then one more
@@ -234,6 +236,9 @@ export class JebVM {
     }
     createEnv(...parents: Env[]) {
         return new Env({}, parents);
+    }
+    getCurrentFile(): string | undefined {
+        return undefined;
     }
     /**
      * Returns the current continuation at this state.

@@ -1,7 +1,7 @@
 import { isinstance } from "@r47onfire/game-math";
 import { isArray } from "lib0/array";
 import { undefinedToNull } from "lib0/conditions";
-import { id, isString } from "lib0/function";
+import { id, isNumber, isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
 import { add } from "lib0/math";
 import { Err, Ok, Result } from "ts-res";
@@ -44,7 +44,7 @@ export const OP_tbPop = makeOpcode(vm => vm.popTraceback(),
     `.imm
 .sed --
 . Pops the top of the traceback stack, including all tailcall entries if there are some.`);
-export const OP_tbPush = makeOpcode((vm, { 0: func, 1: location, 2: tail }: [f: Identifier | undefined, Identifier | undefined, tail?: boolean]) => vm.pushTraceback(func, tail ?? false, location),
+export const OP_tbPush = makeOpcode((vm, { 0: func, 1: file, 2: start, 3: end, 4: tail }: [f: Identifier | undefined, string | undefined, number | undefined, number | undefined, tail?: boolean]) => vm.pushTraceback(func, tail ?? false, file, start, end),
     `.imm function tailcall
 ..param {string} function
 ..param {boolean} [tailcall=false]
@@ -69,17 +69,17 @@ Examples:
 * \`N/[1, 2, 3, 4, ..., N-1, 0]\` = N-tuck`);
 
 // MARK: eval
-export const OP_eval = makeOpcode((vm, { 0: location, 1: tail }: [Identifier | undefined, tail?: boolean]) => {
+export const OP_eval = makeOpcode((vm, { 0: file, 1: start, 2: end, 3: tail }: [string | undefined, number | undefined, number | undefined, tail?: boolean]) => {
     const code = popData(vm);
     const p = vm.getProtocol(true, false, "eval", [code]);
-    if (p) p.run(vm, [code], { tail: tail ?? false, location });
+    if (p) p.run(vm, [code], { tail: tail ?? false, file, start, end });
     else pushData(vm, code);
 },
     `.imm tailcall
 ..param {boolean?} [tailcall=false]
 .sed value -- evaled
 . Evaluates the top item of the stack. An array gets interpreted as a call and passed to [[jeb:apply]], an object has all its properties evaluated and reassembled, and anything else is treated as a literal and left as-is.`);
-export const B_eval = makeJSFun("eval", ["arg"], ({ arg }, vm, location) => { pushData(vm, arg); pushCommand(vm, OP_eval, location); return NOTHING; },
+export const B_eval = makeJSFun("eval", ["arg"], ({ arg }, vm, file, start, end) => { pushData(vm, arg); pushCommand(vm, OP_eval, file, start, end); return NOTHING; },
     `.func (eval arg)
 ..param {code} arg
 .returns {any}
@@ -91,7 +91,7 @@ export const B_macro_wrap = makeJSFun("macro", ["code"], ({ code }) => new Macro
 . Wraps the code in a special object that causes it to be evaluated using [[eval]] in the scope of where it was used and the result of the evaluation used in place of the actual code object.
 This can be used to create an unhygienic syntactic macro by returning the wrapper immediately.`)
 
-__initializer(vm => defineEvaluator(vm, ["object"], (vm, { 0: code }, { location }) => {
+__initializer(vm => defineEvaluator(vm, ["object"], (vm, { 0: code }, { file, start, end }) => {
     if (code === null) {
         pushData(vm, null);
         return;
@@ -106,20 +106,20 @@ __initializer(vm => defineEvaluator(vm, ["object"], (vm, { 0: code }, { location
         pushCommand(vm, OP_shuffle, 1, []);
         pushCommand(vm, OP_set, true);
         pushCommand(vm, OP_shuffle, 2, [1, 0]);
-        pushCommand(vm, OP_eval, location);
+        pushCommand(vm, OP_eval, file, start, end);
     }
 },
     "Evaluates all of the property values, and then reassembles the object with the same set of keys with the evaluated values."));
-const arrayEval = (vm: JebVM, code: any[], tail: boolean, location: Identifier | undefined) => {
-    pushCommand(vm, OP_apply, code.slice(1), location, tail);
+const arrayEval = (vm: JebVM, code: any[], tail: boolean, file: string | undefined, start: number | undefined, end: number | undefined) => {
+    pushCommand(vm, OP_apply, code.slice(1), file, start, end, tail);
     pushCommand(vm, OP_unwrap, []);
-    pushCommand(vm, OP_eval, location);
+    pushCommand(vm, OP_eval, file, start, end);
     pushData(vm, code[0]);
 };
 __initializer(vm => {
-    defineEvaluator(vm, [Array], (vm, { 0: code }, { tail, location }) => {
+    defineEvaluator(vm, [Array], (vm, { 0: code }, { tail, file, start, end }) => {
         if (code.length > 0) {
-            arrayEval(vm, code, tail, location);
+            arrayEval(vm, code, tail, file, start, end);
         }
         else {
             throw new JEBValueError("can't evaluate empty array", { return: vm.cc() });
@@ -140,7 +140,7 @@ __initializer(vm => {
 });
 
 // MARK: apply
-export const OP_apply = makeOpcode((vm, { 0: argv, 1: location, 2: tail, 3: noEval }: [any[], location?: Identifier, tail?: boolean, noEval?: boolean]) => {
+export const OP_apply = makeOpcode((vm, { 0: argv, 1: file, 2: start, 3: end, 4: tail, 5: noEval }: [any[], string | undefined, number | undefined, number | undefined, tail?: boolean, noEval?: boolean]) => {
     const func = popData(vm);
     const applier = vm.getProtocol(true, false, "apply", [func]);
     if (!applier) {
@@ -148,8 +148,8 @@ export const OP_apply = makeOpcode((vm, { 0: argv, 1: location, 2: tail, 3: noEv
     }
     const { name, signature, closureEnv } = applier.describe(vm, func);
     if (name && !tail) pushCommand(vm, OP_tbPop);
-    applier.run(vm, [func], { tail: tail ?? false, location });
-    if (name) pushCommand(vm, OP_tbPush, name, location, tail);
+    applier.run(vm, [func], { tail: tail ?? false, file, start, end });
+    if (name) pushCommand(vm, OP_tbPush, name, file, start, end, tail);
     pushCommand(vm, OP_doargs, signature, closureEnv, noEval ?? false, name);
     pushData(vm, argv);
 },
@@ -162,17 +162,19 @@ export const OP_apply = makeOpcode((vm, { 0: argv, 1: location, 2: tail, 3: noEv
 . Pops the top value from the stack and calls it with the provided arguments.
 The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.
 The \`callAt\` frame will be hidden in the actual traceback.`);
-export const B_atLocation = makeJSFun("at", ["location", [true, "expr"]], ({ location, expr }, vm) => {
+export const B_atLocation = makeJSFun("at", ["start", "end", [true, "expr"]], ({ start, end, expr }, vm) => {
+    if (!isNumber(start)) throw new JEBTypeError("start must be a number");
+    if (!isNumber(end)) throw new JEBTypeError("end must be a number");
     // Remove self frame from here
     vm.popTraceback(false); // don't drop tail call, just in case this is in tail position
     vm.popCommand(); // This will be the tb_pop pushed by apply above
-    pushCommand(vm, OP_eval, location);
+    pushCommand(vm, OP_eval, vm.getCurrentFile(), start, end);
     return expr;
 },
-    `.macro (at location expr)
-..param {opaque-id} location
+    `.macro (at  expr)
+..param {opaque-id} 
 ..param {code} expr
-. Equivalent to \`expr\` as a normal [[eval]]uation, but inserts the metadata of \`location\` into the stack frame to identify the call site itself instead of just the thing that was called.`);
+. Equivalent to \`expr\` as a normal [[eval]]uation, but inserts the metadata of \`\` into the stack frame to identify the call site itself instead of just the thing that was called.`);
 export const B_splat = makeJSFun("splat", ["value", ["kw", false]], ({ value, kw }) => new SplatArg(value, kw),
     `.func (splat arg kw)
 ..param {any[] | object} arg - iterable or object to unpack
@@ -185,22 +187,22 @@ export const B_keyword = makeJSFun("kw", ["name", "value"], ({ name, value }) =>
 . Redirects the argument into a particular named argument slot.`);
 
 // MARK: string applier
-const OP_apply_id_trampoline = makeOpcode((vm, { 0: tail, 1: location }: [boolean | undefined, Identifier | undefined]) => {
+const OP_apply_id_trampoline = makeOpcode((vm, { 0: tail, 1: file, 2: start, 3: end }: [boolean | undefined, string | undefined, number | undefined, number | undefined]) => {
     const realFunc = popData(vm);
     const argsObj = popData(vm) as { _: any[] };
     pushData(vm, realFunc);
-    pushCommand(vm, OP_apply, argsObj._, location, tail);
+    pushCommand(vm, OP_apply, argsObj._, file, start, end, tail);
 }, null);
 __initializer(vm => {
-    defineApplier(vm, ["string", "symbol"], (vm, { 0: func }, { tail, location }) => {
+    defineApplier(vm, ["string", "symbol"], (vm, { 0: func }, { tail, file, start, end }) => {
         // String is a special case because normally strings evaluate to themselves
         // (not to a callable function), but if it's in head position, we implicitly look it up.
-        pushCommand(vm, OP_apply_id_trampoline, tail, location);
+        pushCommand(vm, OP_apply_id_trampoline, tail, file, start, end);
         pushCommand(vm, OP_tbPop);
         pushCommand(vm, OP_unwrap, []);
         pushCommand(vm, OP_get, false);
         pushCommand(vm, OP_shuffle, 2, [1, 0]);
-        pushCommand(vm, OP_tbPush, undefined, location);
+        pushCommand(vm, OP_tbPush, undefined, file, start, end);
         pushData(vm, new VariableReference(AccessType.FUNCTION, vm.currentEnv, func));
     }, () => ({
         name: undefined,
@@ -211,11 +213,11 @@ __initializer(vm => {
 As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the former would be invalid in conventional Lisp.`);
     // MARK: builtin applier
     defineApplier(vm, [JSFun],
-        (vm, { 0: func }, { location }) => pushCommand(vm, OP_JSFun_invoke, func, location),
+        (vm, { 0: func }, { file, start, end }) => pushCommand(vm, OP_JSFun_invoke, func, file, start, end),
         (_, func) => func,
         "Wrapper for a Javascript function that gives it a few properties to make it easier for JEB to call it.");
 });
-const OP_JSFun_invoke = makeOpcode((vm, { 0: func, 1: location }: [JSFun, loc?: Identifier | undefined]) => checkNothingOrPush(vm, func.impl(popData(vm), vm, location)), null);
+const OP_JSFun_invoke = makeOpcode((vm, { 0: func, 1: file, 2: start, 3: end }: [JSFun, string | undefined, number | undefined, number | undefined]) => checkNothingOrPush(vm, func.impl(popData(vm), vm, file, start, end)), null);
 
 // MARK: variables
 __initializer(vm => {
@@ -313,7 +315,7 @@ export const OP_throw = makeOpcode((vm, { 0: err }: [JEBError]) => {
         dw.restore(vm);
         if (dw.handler?.exit) {
             pushCommand(vm, OP_if, null, [OP_throw, err], true);
-            pushCommand(vm, OP_apply, [false, err], undefined, false, true);
+            pushCommand(vm, OP_apply, [false, err], undefined, undefined, undefined, false, true);
             pushData(vm, dw.handler.exit);
             return;
         }
@@ -385,7 +387,7 @@ const OP_with_setup = makeOpcode(<T extends JebVM>(vm: T, { 0: dw, 1: name }: [D
         pushData(vm, {});
         return;
     }
-    pushCommand(vm, OP_apply, [false], undefined);
+    pushCommand(vm, OP_apply, [false], undefined, undefined, undefined);
     pushData(vm, context.enter);
 }, null);
 
@@ -402,7 +404,7 @@ const OP_with_teardown = makeOpcode(vm => {
     if (!dw.handler?.exit) return;
     // discard the exit handler's result
     pushCommand(vm, OP_shuffle, 1, []);
-    pushCommand(vm, OP_apply, [false, null], undefined);
+    pushCommand(vm, OP_apply, [false, null], undefined, undefined, undefined);
     pushData(vm, dw.handler.exit);
 }, null);
 
@@ -525,7 +527,7 @@ export const OP_if = makeOpcode(<T extends JebVM>(vm: T, { 0: then, 1: else_, 2:
         if (condition) { if (then) pushCommand(vm, ...then); } else if (else_) pushCommand(vm, ...else_);
     } else {
         pushData(vm, condition ? then : else_);
-        pushCommand(vm, OP_eval, undefined, true);
+        pushCommand(vm, OP_eval, undefined, undefined, undefined, true);
     }
 },
     `.imm then else isAsm
@@ -558,7 +560,7 @@ export const B_begin = makeJSFun("begin", [[true, "body"], true], ({ body }, vm)
 .returns {any | null} - null if \`body\` is empty, otherwise returns the result of the last body statement
 . Runs each of the body statements in order.`);
 
-export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, location) => {
+export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, file, start, end) => {
     const args = ao.__args!;
     const extractParts = (bindings: any[]) => {
         bindings.forEach(b => {
@@ -586,7 +588,7 @@ export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, locatio
         const body = args.slice(1);
         pushData(vm, [[B_fn, true, params, ...body], ...initializers]);
     }
-    pushCommand(vm, OP_eval, location);
+    pushCommand(vm, OP_eval, file, start, end);
     return NOTHING;
 },
     `.macro (let pairs body...)
@@ -622,7 +624,7 @@ export const B_let_in = makeJSFun("let-in", ["pairs", true], ({ pairs: args }, v
 . Creates a new environment with the given name-value pairs as its bindings, and switches to it. Everything after this will be in the new environment.
 Functions much like [[let]] but with an implicit block after it that continues to the end of the outer block instead of explicit.`);
 
-export const B_define = makeJSFun("define", [[true, "definition"], true], (ao, vm, location) => {
+export const B_define = makeJSFun("define", [[true, "definition"], true], (ao, vm, file, start, end) => {
     const args = ao.definition!;
     const name = args[0] as Identifier | Identifier[];
     const setHelper = (name: Identifier, thing: any) => {
@@ -643,7 +645,7 @@ export const B_define = makeJSFun("define", [[true, "definition"], true], (ao, v
     else throw new JEBSyntaxError("invalid define syntax");
     pushCommand(vm, OP_set, true, true);
     pushCommand(vm, OP_shuffle, 2, [1, 0]);
-    pushCommand(vm, OP_eval, location);
+    pushCommand(vm, OP_eval, file, start, end);
     return NOTHING;
 },
     `.macro (define name value)
@@ -767,10 +769,10 @@ export const B_not = makeJSFun("not", ["value"], ({ value }) => !value, `.func (
 .returns {boolean} - True if \`value\` is falsy (false, zero, undefined, null, or empty string), false otherwise.
 . Boolean inverse.`);
 const booleanHelper = (name: string, shortCircuitOn: boolean) => {
-    return makeJSFun(name, ["a", [true, "b"]], ({ a, b }, vm, location) => {
+    return makeJSFun(name, ["a", [true, "b"]], ({ a, b }, vm, file, start, end) => {
         if ((!!a) === shortCircuitOn) return a;
         pushData(vm, b);
-        pushCommand(vm, OP_eval, location, true);
+        pushCommand(vm, OP_eval, file, start, end, true);
         return NOTHING;
     },
         `.macro (fn a b)

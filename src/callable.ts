@@ -61,7 +61,9 @@ export class JSFun<S extends CallableSignature = CallableSignature> implements H
         public readonly impl: (
             args: Record<S["params"][number]["name"], any> & (S["rest"] extends { name: infer N extends PropertyKey } ? { [x in N]: any[] } : {}) & (S["kwRest"] extends { name: infer N extends PropertyKey } ? { [x in N]: Record<any, any> } : {}),
             vm: JebVM,
-            location: Identifier | undefined,
+            file: string | undefined,
+            start: number | undefined,
+            end: number | undefined,
         ) => any,
         /**
          * The docstring given - should define the allowable syntax(es) of the function

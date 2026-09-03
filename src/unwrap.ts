@@ -37,7 +37,7 @@ __initializer(vm => {
         pushData(vm, obj);
     }, "Unwraps a reference");
     defineUnwrapper(vm, [MacroWrapper], (vm, { 0: { obj } }) => {
-        pushCommand(vm, OP_eval, undefined);
+        pushCommand(vm, OP_eval, undefined, undefined, undefined);
         pushData(vm, obj);
     }, "Unwraps a macro expansion thing");
 });
