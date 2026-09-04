@@ -33,15 +33,15 @@ export type GetArgParams<T extends OpcodeFunction<any, any>> = Parameters<T>[1] 
 /**
  * Base VM for running JEB code
  */
-export class JebVM {
+export class JebVM<T extends JebVM = any> {
     /** current environment */
     currentEnv!: Env;
     /** stack of commands to execute */
-    commandStack!: LinkedList<Command<this>>;
+    commandStack!: LinkedList<Command<T>>;
     /** stack of values */
     dataStack!: LinkedList<any>;
     /** current dynamic wind stack (linked list / tree) */
-    curDynamicWind!: DynamicWind<this>;
+    curDynamicWind!: DynamicWind<T>;
     /** whether the VM is paused */
     paused!: boolean;
     /** the Promise that the VM is currently waiting on */
@@ -56,8 +56,8 @@ export class JebVM {
 
     constructor() {
         this.reset();
-        loadBuiltins(this);
-        __initializers.forEach(f => f(this));
+        loadBuiltins(this as any as T);
+        __initializers.forEach(f => f(this as any as T));
     }
     addProtocol<N extends keyof JEBProtocols>(name: N, impl: JEBProtocols[N][number]) {
         (this.protocols[name] ??= [] as any[]).push(impl);
@@ -89,7 +89,7 @@ export class JebVM {
         this.#checkStack(1);
         return this.dataStack!.value;
     }
-    pushCommand<T extends OpcodeFunction<any, this>>(f: T, ...args: GetArgParams<T>) {
+    pushCommand<TOpcode extends OpcodeFunction<any, T>>(f: TOpcode, ...args: GetArgParams<TOpcode>) {
         this.commandStack = LinkedList_push(this.commandStack, [f, ...args]);
     }
     popCommand() {
@@ -113,7 +113,7 @@ export class JebVM {
         if (this.paused || this.done) return false;
         const command = this.popCommand();
         try {
-            command[0](this, command.slice(1));
+            command[0](this as any as T, command.slice(1));
         } catch (e) {
             if (isArray(e) && e.length === 3 && isinstance(e[1], JEBError)) throw e[1];
             if (!isinstance(e, JEBError)) throw e;
@@ -130,9 +130,9 @@ export class JebVM {
      */
     start(code: any) {
         if (LinkedList_length(this.commandStack) > 0) throw new Error("VM is already running");
-        pushData(this, code);
-        pushCommand(this, OP_unwrap, []);
-        pushCommand(this, OP_eval, undefined);
+        pushData(this as any as T, code);
+        pushCommand(this as any as T, OP_unwrap, []);
+        pushCommand(this as any as T, OP_eval, undefined);
     }
     /**
      * Silently stops running the code, by resetting all stacks state back to the initial empty state.
@@ -142,7 +142,7 @@ export class JebVM {
         this.paused = false;
         this.commandStack = this.dataStack = this.tracebackStack = null;
         this.currentEnv = this.createEnv(this.builtinsEnv);
-        this.curDynamicWind = new DynamicWind(this);
+        this.curDynamicWind = new DynamicWind(this as any as T);
     }
     /**
      * Gets the length of the command stack.
@@ -230,7 +230,7 @@ export class JebVM {
         }
     }
     newDynamicWind() {
-        return new DynamicWind(this);
+        return new DynamicWind(this as any as T);
     }
     createEnv(...parents: Env[]) {
         return new Env({}, parents);
@@ -242,8 +242,8 @@ export class JebVM {
      * Returns the current continuation at this state.
      * @param extraOps Extra opcodes to push to the command stack *when this continuation is invoked* (not now).
      */
-    cc(...extraOps: Command<this>[]) {
-        return new Continuation(this, extraOps);
+    cc(...extraOps: Command<T>[]) {
+        return new Continuation(this as any as T, extraOps);
     }
     fatalError(error: JEBError): never {
         throw [, error, ,];
