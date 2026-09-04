@@ -244,18 +244,19 @@ export const wrapThrowToError = <T>(kind: new (message: string, options: { cause
  * @param value Value to check
  */
 export const checkNothingOrPush = <T extends JebVM>(vm: T, value: any) => {
-    if (value !== NOTHING) vm.pushData(value);
+    if (value !== NOTHING) pushData(vm, value);
 }
 
 /**
  * Pauses the VM while the promise is pending, and then resumes it when it
  * resolves or rejects.
  */
-export const promisifyVM = <T extends JebVM, X>(vm: T, promise: Promise<X>): void => {
+export const promisifyVM = <T extends JebVM, X>(vm: T, promise: Promise<X>): typeof NOTHING => {
     vm.paused = true;
     const { promise: finish, resolve } = Promise.withResolvers<void>();
     vm.awaiting = finish;
     promise.then(
-        result => (vm.paused = false, pushData(vm, result), resolve()),
+        result => (vm.paused = false, checkNothingOrPush(vm, result), resolve()),
         error => (vm.paused = false, pushCommand(vm, () => { throw error; }), resolve()));
+    return NOTHING;
 }
