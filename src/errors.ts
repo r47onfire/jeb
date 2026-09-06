@@ -83,7 +83,7 @@ export class JEBRecursionError extends JEBError {
 
 const STACKFRAME_JOINER = "<-";
 
-export type Location = [start: number | undefined, end: number | undefined, file: string | undefined];
+export type Location = [id: number | undefined, file: string | undefined];
 
 /**
  * Tree node representing a compressed stack trace
@@ -108,9 +108,8 @@ export const createStackLeafNode = (name: Identifier | undefined, location: Loca
         hash:
             javaHash(String(name))
             ^ (location
-                ? rotate32(javaHash(String(location[2])), 11)
-                ^ rotate32(location[0] ?? 0x51A41, 23)
-                ^ rotate32(location[1] ?? 0xE9D, 29)
+                ? rotate32(javaHash(String(location[1])), 11)
+                ^ rotate32(location[0] ?? 0x103E4E, 23)
                 : 0xDEADBEEF),
     };
 };

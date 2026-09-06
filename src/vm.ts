@@ -249,6 +249,7 @@ export class JebVM<T extends JebVM = any> {
         throw [, error, ,];
     }
 
+    // TODO: make this based on event emitter
     #auditHooks = new Set<<T extends keyof JEBAuditEvents>(event: T, ...args: JEBAuditEvents[T]) => void>();
     /**
      * Adds an audit hook that will be called every time something that should be audited happens.
