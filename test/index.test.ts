@@ -704,11 +704,11 @@ describe("location tracking", () => {
     testTest(test, "tracks locations", vm => {
         expect.assertions(7);
         try {
-            run(vm, ["at", 0, ["begin",
-                ["define", ["f"], ["at", 1, ["g"]]],
-                ["define", ["g"], ["at", 2, ["h"]]],
-                ["define", ["h"], ["at", 3, ["error"]]],
-                ["at", 4, ["f"]],
+            run(vm, ["at", [0, 0], ["begin",
+                ["define", ["f"], ["at", [1, 0], ["g"]]],
+                ["define", ["g"], ["at", [2, 0], ["h"]]],
+                ["define", ["h"], ["at", [3, 0], ["error"]]],
+                ["at", [4, 0], ["f"]],
             ]]);
         } catch (e2: any) {
             const e: JEBError = e2;

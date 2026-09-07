@@ -83,7 +83,7 @@ export class JEBRecursionError extends JEBError {
 
 const STACKFRAME_JOINER = "<-";
 
-export type Location = [id: number | undefined, file: string | undefined];
+export type Location = [id: number | undefined, file: number | undefined];
 
 /**
  * Tree node representing a compressed stack trace

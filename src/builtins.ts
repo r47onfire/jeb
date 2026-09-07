@@ -166,11 +166,11 @@ export const OP_apply = makeOpcode("apply", (vm: JebVM, { 0: argv, 1: location, 
 . Pops the top value from the stack and calls it with the provided arguments.
 The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.
 The \`callAt\` frame will be hidden in the actual traceback.`);
-export const B_atLocation = makeJSFun("at", ["pos", [true, "expr"]], ({ pos, expr }, vm) => {
+export const B_atLocation = makeJSFun("at", [[true, "pos"], [true, "expr"]], ({ pos, expr }, vm) => {
     // Remove self frame from here
     vm.popTraceback(false); // don't drop tail call, just in case this is in tail position
     vm.popCommand(); // This will be the tb_pop pushed by apply above
-    pushCommand(vm, OP_eval, [pos, vm.getCurrentFile()]);
+    pushCommand(vm, OP_eval, pos);
     return expr;
 },
     `.macro (at location expr)

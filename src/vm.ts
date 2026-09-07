@@ -235,9 +235,6 @@ export class JebVM<T extends JebVM = any> {
     createEnv(...parents: Env[]) {
         return new Env({}, parents);
     }
-    getCurrentFile(): string | undefined {
-        return undefined;
-    }
     /**
      * Returns the current continuation at this state.
      * @param extraOps Extra opcodes to push to the command stack *when this continuation is invoked* (not now).
