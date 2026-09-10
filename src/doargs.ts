@@ -4,12 +4,13 @@ import { Block } from "./block";
 import { OP_eval } from "./builtins";
 import { makeOpcode, NOTHING } from "./define";
 import { Env } from "./env";
-import { JEBError, JEBSyntaxError, JEBValueError, wrapThrowToError } from "./errors";
+import { JEBError, wrapThrowToError } from "./errors";
 import { CallableSignature, Laziness, LonghandArgument } from "./signature";
 import { Identifier } from "./utils";
 import { JebVM, popData, pushCommand, pushData } from "./vm";
 import { KeywordArg, SplatArg } from "./wrapper";
 import { OP_unwrap } from "./unwrap";
+import { ErrnoCode } from "./errno";
 
 const enum DoargsWhere {
     _BLANK,
@@ -96,7 +97,7 @@ export class DoargsState {
                 if (this.#params.rest) {
                     const { lazy, name } = this.#params.rest;
                     if (lazy !== Laziness.NONE) {
-                        if (this.#noEvalMode) throw new JEBSyntaxError("lazy parameter not allowed here");
+                        if (this.#noEvalMode) throw new JEBError(ErrnoCode.ESYNTAX, "lazy parameter not allowed here");
                         return doneHelper({ ...this.#argsObj, [name!]: wrapLazyValue(lazy, argv.slice(curArgvIndex), this.#callEnv, false) });
                     }
                 }
@@ -104,7 +105,7 @@ export class DoargsState {
             const value = argv[curArgvIndex]!;
             const param = paramsList[curParamIndex];
             if (param && param.lazy !== Laziness.NONE) {
-                if (this.#noEvalMode) throw new JEBSyntaxError("lazy parameter not allowed here");
+                if (this.#noEvalMode) throw new JEBError(ErrnoCode.ESYNTAX, "lazy parameter not allowed here");
                 return wrapLazyValue(param.lazy, value, this.#callEnv, true);
             }
             return this.#noEvalMode ? value : evalHelper(this.#callEnv, value, param);
@@ -126,7 +127,7 @@ export class DoargsState {
                 // Skip keyword-given indices
                 return this.#update(undefined, undefined, undefined, this.#paramsIndex + 1);
             }
-            else throw new JEBValueError(`missing required parameter ${stringify(param.name)} of function ${stringify(this.#name)}`);
+            else throw new JEBError(ErrnoCode.ERANGE, `missing required parameter ${stringify(param.name)} of function ${stringify(this.#name)}`);
         }
         if (isinstance(argValue, KeywordArg)) {
             return this.#storeKeyword(argValue.name, argValue.obj, false, 1);
@@ -158,7 +159,7 @@ export class DoargsState {
     }
     #assertNotSpecial(value: any) {
         if (isinstance(value, KeywordArg) || isinstance(value, SplatArg)) {
-            throw new JEBError("TODO: what happens when a keyword/splat wrapper is inside another argument wrapper?");
+            throw new JEBError(ErrnoCode.ENOSYS, "TODO: what happens when a keyword/splat wrapper is inside another argument wrapper?");
         }
     }
 
@@ -168,13 +169,13 @@ export class DoargsState {
             if (p) {
                 return this.#update({ ...this.#argsObj, [p.name]: { ...(this.#argsObj[p.name] ?? {}), [name]: obj } }, undefined, this.#rawArgsIndex + 1);
             }
-            throw new JEBValueError(`unexpected ${isFromSplat ? "splat " : ""}keyword argument ${stringify(name)} to function ${stringify(this.#name)}`);
+            throw new JEBError(ErrnoCode.ERANGE, `unexpected ${isFromSplat ? "splat " : ""}keyword argument ${stringify(name)} to function ${stringify(this.#name)}`);
         }
         return this.#update({ ...this.#argsObj, [name]: obj }, { ...this.#seenByName, [name]: DoargsWhere.KEYWORD }, this.#rawArgsIndex + rawDelta, undefined, true);
     }
     #storePositional(value: any, isFromSplat: boolean, paramsDelta: number, rawDelta: number): DoargsState {
         if (this.#seenKeyword) {
-            throw new JEBSyntaxError("positional argument can't follow keyword argument");
+            throw new JEBError(ErrnoCode.ESYNTAX, "positional argument can't follow keyword argument");
         }
         this.#assertNotSpecial(value);
         const pList = this.#params.params, index = this.#paramsIndex;
@@ -182,23 +183,23 @@ export class DoargsState {
             const p = this.#params.rest;
             if (p) {
                 if (p.lazy !== Laziness.NONE && isFromSplat) {
-                    throw new JEBValueError("cannot unpack splat argument into lazy rest parameter");
+                    throw new JEBError(ErrnoCode.ERANGE, "cannot unpack splat argument into lazy rest parameter");
                 }
                 return this.#update({ ...this.#argsObj, [p.name]: [...(this.#argsObj[p.name] ?? []), value] }, undefined, this.#rawArgsIndex + rawDelta, this.#paramsIndex + paramsDelta);
             }
             if (isFromSplat) {
-                throw new JEBValueError(`too many elements in splat argument to function ${stringify(this.#name)} (at most ${pList.length - index + 1} can be passed here)`);
+                throw new JEBError(ErrnoCode.ERANGE, `too many elements in splat argument to function ${stringify(this.#name)} (at most ${pList.length - index + 1} can be passed here)`);
             } else {
-                throw new JEBValueError(`too many arguments to function ${stringify(this.#name)} (expected at most ${pList.length})`);
+                throw new JEBError(ErrnoCode.ERANGE, `too many arguments to function ${stringify(this.#name)} (expected at most ${pList.length})`);
             }
         }
         const { name, lazy } = pList[index]!;
         if (lazy !== Laziness.NONE && isFromSplat) {
-            throw new JEBValueError(`cannot unpack splat argument into lazy parameter ${stringify(name)} of function ${stringify(this.#name)}`);
+            throw new JEBError(ErrnoCode.ERANGE, `cannot unpack splat argument into lazy parameter ${stringify(name)} of function ${stringify(this.#name)}`);
         }
         const g = this.#seenByName[name];
         if (g) {
-            throw new JEBValueError(`argument ${stringify(name)} of function ${stringify(this.#name)} already given as ${g === DoargsWhere.KEYWORD ? "keyword" : "positional"} argument`);
+            throw new JEBError(ErrnoCode.ERANGE, `argument ${stringify(name)} of function ${stringify(this.#name)} already given as ${g === DoargsWhere.KEYWORD ? "keyword" : "positional"} argument`);
         }
         return this.#update({ ...this.#argsObj, [name]: value }, { ...this.#seenByName, [name]: DoargsWhere.POSITIONAL }, this.#rawArgsIndex + rawDelta, this.#paramsIndex + paramsDelta);
     }
@@ -226,4 +227,4 @@ export const OP_doargs = makeOpcode("doargs", (vm, { 0: params, 1: env, 2: noEva
 .sed argslist -- argsobj
 . Processes the given arguments list into the named arguments object as determined by the signature.`);
 
-const OP_doargs_loop = makeOpcode(null, (vm, { 0: state, 1: first }) => wrapThrowToError(JEBValueError, () => state.run(vm, first)), null);
+const OP_doargs_loop = makeOpcode(null, (vm, { 0: state, 1: first }) => wrapThrowToError(ErrnoCode.ERANGE, () => state.run(vm, first)), null);

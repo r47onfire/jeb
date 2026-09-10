@@ -12,7 +12,7 @@ import { Continuation, DynamicWind, Windable } from "./continuation";
 import { define, defineAccessor, defineApplier, defineEvaluator, makeJSFun, makeOpcode, NOTHING } from "./define";
 import { OP_doargs } from "./doargs";
 import { Env, gensym } from "./env";
-import { ALL_ERRORS, checkNothingOrPush, JEBError, JEBSyntaxError, JEBTypeError, JEBValueError, Location, wrapThrowToError } from "./errors";
+import { checkNothingOrPush, JEBError, Location, wrapThrowToError } from "./errors";
 import { implicitBegin } from "./implicitBegin";
 import { __initializer } from "./initializers";
 import { float, numberOp, Relation } from "./math";
@@ -23,6 +23,7 @@ import { OP_unwrap, OP_wrap } from "./unwrap";
 import { Identifier, isIdentifier } from "./utils";
 import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "./vm";
 import { KeywordArg, MacroWrapper, ReferenceWrapper, SplatArg } from "./wrapper";
+import { ErrnoCode } from "./errno";
 
 export const OP_audit = makeOpcode("audit", (vm: JebVM, args: JEBAuditEvent<any>) => {
     vm.audit(...args);
@@ -124,7 +125,7 @@ __initializer(vm => {
             arrayEval(vm, code, tail, location);
         }
         else {
-            throw new JEBValueError("can't evaluate empty array", { return: vm.cc() });
+            throw new JEBError(ErrnoCode.EINVAL, "can't evaluate empty array", { return: vm.cc() });
         }
     },
         `Calls the first item as a function.
@@ -146,7 +147,7 @@ export const OP_apply = makeOpcode("apply", (vm: JebVM, { 0: argv, 1: location, 
     const func = popData(vm);
     const applier = vm.getProtocol(true, false, "apply", [func]);
     if (!applier) {
-        throw new JEBTypeError(`can't call ${theTypeName(typeOf(func))}`, { return: vm.cc() });
+        throw new JEBError(ErrnoCode.EINVAL, `can't call ${theTypeName(typeOf(func))}`, { return: vm.cc() });
     }
     const { name, signature, closureEnv } = applier.describe(vm, func);
     if (name && !tail) pushCommand(vm, OP_tbPop);
@@ -231,7 +232,7 @@ export const OP_index = makeOpcode("index", (vm: JebVM, { 0: type }: [AccessType
     const obj = popData(vm);
     const accessor = vm.getProtocol(true, false, "access", [obj]);
     if (!accessor) {
-        throw new JEBTypeError(`${theTypeName(typeOf(obj))} is not subscriptable`);
+        throw new JEBError(ErrnoCode.EINVAL, `${theTypeName(typeOf(obj))} is not subscriptable`);
     }
     checkNothingOrPush(vm, accessor.run(vm, [obj], { field, type }));
 },
@@ -292,7 +293,7 @@ const OP_set_internal = makeOpcode(null, (vm: JebVM, { 0: b, 1: old }: [Block, b
 }, null);
 export const B_set = makeJSFun("set", [[["ref"], "ref"], [false, "value"], ["old", false]], ({ ref, value, old }, vm) => {
     if (!isinstance(ref, ReferenceWrapper)) {
-        throw new JEBTypeError(`cannot assign to ${theTypeName(typeOf(ref))}`);
+        throw new JEBError(ErrnoCode.EINVAL, `cannot assign to ${theTypeName(typeOf(ref))}`);
     }
     pushCommand(vm, OP_set_internal, value, old);
     return ref.obj;
@@ -330,7 +331,7 @@ export const OP_throw = makeOpcode("throw", (vm: JebVM, { 0: err }: [JEBError]) 
 .sed -- (does not return)
 . Throws the error, but allows [[with]] handlers to catch it before throwing to Javascript.`);
 export const B_throw = makeJSFun("throw", ["err"], ({ err }) => {
-    if (!isinstance(err, JEBError)) throw new JEBTypeError("errors must inherit from JEBError");
+    if (!isinstance(err, JEBError)) throw new JEBError(ErrnoCode.EINVAL, "errors must inherit from JEBError");
     throw err;
 },
     `.func (throw err)
@@ -338,16 +339,16 @@ export const B_throw = makeJSFun("throw", ["err"], ({ err }) => {
 .returns {never}
 . Throw an error. If we're inside a [[with]] block, it will trigger the \`exit\` handler of the context object to possibly handle the error.
 If the error is not handled, it will be thrown as a Javascript error, causing the program to halt.`);
-export const B_err = makeJSFun("err", [["message", "no message"], ["type", ,], ["up", 0]], ({ message, type, up }, vm) => new (ALL_ERRORS[type] ?? class extends JEBError { get tag() { return type } })(message, {}, vm.tracebackArray(up)),
+export const B_err = makeJSFun("err", [["type", "EPANIC"], ["message", "no message"], ["up", 0]], ({ type, message, up }, vm) => new JEBError(ErrnoCode[type] ?? type, message, {}, vm.tracebackArray(up)),
     `.func (err message type up)
 ..param {string?} [message="no message"]
-..param {string?} type - type code for error (to look up the correct class)
+..param {string?} type - errno code for error
 ..param {number?} [up=0] - number of stack frames to drop (in order to e.g. attribute the error to the caller)
 . Creates a new error object, but does not actually throw it (use [[throw]] for that).`);
 // MARK: with
 export const B_with = makeJSFun("with", [[true, "binding"], "context", [false, "body"], true], ({ binding, context, body }, vm) => {
     if (!isIdentifier(binding) && binding !== null) {
-        throw new JEBTypeError("expected variable name or null as first argument to \"with\"")
+        throw new JEBError(ErrnoCode.EINVAL, "expected variable name or null as first argument to \"with\"")
     }
     // Capture "from" here so that it doesn't capture the "with/teardown" opcode
     const dw = vm.newDynamicWind();
@@ -377,7 +378,7 @@ const OP_with_setup = makeOpcode(null, <T extends JebVM>(vm: T, { 0: dw, 1: name
     const context = popData(vm) as Windable;
     const notObject = typeof context !== "object" || context === null;
     if (notObject || !("enter" in context || "exit" in context)) {
-        throw new JEBTypeError(notObject ? "context manager should be an object" : "context manager should have 'enter' and/or 'exit' handlers");
+        throw new JEBError(ErrnoCode.EINVAL, notObject ? "context manager should be an object" : "context manager should have 'enter' and/or 'exit' handlers");
     }
     dw.setHandler(context);
     // set up the winder to be installed AFTER the enter handler runs, so that errors thrown by this handler won't be caught by the exit handler
@@ -400,7 +401,7 @@ const OP_with_install = makeOpcode(null, <T extends JebVM>(vm: T, { 0: dw }: [Dy
 }, null);
 
 const OP_with_teardown = makeOpcode(null, vm => {
-    if (!vm.curDynamicWind.parent) throw new JEBError("dynamic wind stack underflow");
+    if (!vm.curDynamicWind.parent) throw new JEBError(ErrnoCode.EPANIC, "dynamic wind stack underflow");
     const dw = vm.curDynamicWind;
     vm.curDynamicWind = dw.parent!;
     if (!dw.handler?.exit) return;
@@ -423,7 +424,7 @@ __initializer(vm => defineApplier(vm, ["function"], (vm, { 0: f }) => {
 const OP_ffi_invoke = makeOpcode(null, (vm: JebVM, { 0: f }: [Function]) => {
     const args = popData(vm)._;
     vm.audit("jeb:ffi/call_function", f, args)
-    pushData(vm, wrapThrowToError(JEBError, () => f(...args)));
+    pushData(vm, wrapThrowToError(ErrnoCode.EJAVASCRIPT, () => f(...args)));
 }, null);
 
 export const B_is_nil = makeJSFun("nil?", ["value"], ({ value }) => undefinedToNull(value) === null,
@@ -566,7 +567,7 @@ export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, locatio
     const args = ao.__args!;
     const extractParts = (bindings: any[]) => {
         bindings.forEach(b => {
-            if (!isArray(b) || b.length !== 2) throw new JEBSyntaxError("invalid let binding");
+            if (!isArray(b) || b.length !== 2) throw new JEBError(ErrnoCode.ESYNTAX, "invalid let binding");
         });
         return [bindings.map(b => b[0]), bindings.map(b => b[1])] as const;
     }
@@ -604,7 +605,7 @@ export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, locatio
 export const B_let_in = makeJSFun("let-in", ["pairs", true], ({ pairs: args }, vm) => {
     const len = args.length
     if ((len & 1) > 0) {
-        throw new JEBSyntaxError("let-in should have an even number of arguments");
+        throw new JEBError(ErrnoCode.ESYNTAX, "let-in should have an even number of arguments");
     }
     var value;
     const newEnv = vm.createEnv(vm.currentEnv);
@@ -612,7 +613,7 @@ export const B_let_in = makeJSFun("let-in", ["pairs", true], ({ pairs: args }, v
         const name = args[i];
         value = args[i + 1];
         if (!isIdentifier(name)) {
-            throw new JEBSyntaxError("let-in name must be a valid identifier");
+            throw new JEBError(ErrnoCode.ESYNTAX, "let-in name must be a valid identifier");
         }
         newEnv.add(name, value);
     }
@@ -644,7 +645,7 @@ export const B_define = makeJSFun("define", [[true, "definition"], true], (ao, v
         const body = args.slice(1);
         setHelper(funcName, [B_fn, params, ...body]);
     }
-    else throw new JEBSyntaxError("invalid define syntax");
+    else throw new JEBError(ErrnoCode.ESYNTAX, "invalid define syntax");
     pushCommand(vm, OP_set, true, true);
     pushCommand(vm, OP_shuffle, 2, [1, 0]);
     pushCommand(vm, OP_eval, location);
@@ -673,13 +674,13 @@ const mathHelper = (operator: string, op2: "add" | "sub" | "mul" | "matMul" | "d
         var f: () => Result<any, any>;
         if (b === NOTHING) {
             if (op1 === undefined) {
-                throw new JEBTypeError(`${stringify(op2)} is not defined for one argument`);
+                throw new JEBError(ErrnoCode.EINVAL, `${stringify(op2)} is not defined for one argument`);
             }
             f = () => vm.getProtocol(false, true, op1, [a]).run(vm, [a]);
         } else {
             f = () => vm.getProtocol(false, true, op2, [a, b]).run(vm, [a, b]);
         }
-        return wrapThrowToError(JEBTypeError, f).else(e => { throw new JEBTypeError(String(e)); })
+        return wrapThrowToError(ErrnoCode.EINVAL, f).else(e => { throw new JEBError(ErrnoCode.ERANGE, String(e)); })
     },
         `.func (${operator} a [b])
 ..param {any} a
@@ -725,9 +726,9 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
         if (len < 2) return true;
         for (var i = 1; i < len; i++) {
             const arg = [a[i - 1], a[i], bits] as [any, any, Relation];
-            const res = wrapThrowToError(JEBTypeError, () => vm.getProtocol(false, true, "cmp", arg).run(vm, arg));
+            const res = wrapThrowToError(ErrnoCode.EINVAL, () => vm.getProtocol(false, true, "cmp", arg).run(vm, arg));
             if (!res.ok) {
-                throw new JEBTypeError("comparison error: " + res.error, { return: vm.cc() });
+                throw new JEBError(ErrnoCode.ERANGE, "comparison error: " + res.error, { return: vm.cc() });
             }
             if (!res.data) return false;
         }
@@ -802,7 +803,7 @@ export const B_tail = makeJSFun("tail", ["list"], ({ list }) => list.slice(1),
 export const B_concat = makeJSFun("concat", ["lists", true], ({ lists }) => {
     const out: any[] = [];
     for (var arg of lists) {
-        wrapThrowToError(JEBTypeError, () => out.push(...arg));
+        wrapThrowToError(ErrnoCode.EINVAL, () => out.push(...arg));
     }
     return out;
 },
@@ -845,18 +846,18 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
 
     // ,x
     if (same(head, B_unquote)) {
-        if (form.length !== 2) throw new JEBSyntaxError("expected 1 argument to unquote");
+        if (form.length !== 2) throw new JEBError(ErrnoCode.ESYNTAX, "expected 1 argument to unquote");
         return depth === 1 ? arg : [B_list, B_unquote, processQuasiquote(vm, arg, depth - 1)];
     }
     // ,@x
     if (same(head, B_unquoteSplicing)) {
-        if (form.length !== 2) throw new JEBSyntaxError("expected 1 argument to unquoteSplicing");
+        if (form.length !== 2) throw new JEBError(ErrnoCode.ESYNTAX, "expected 1 argument to unquoteSplicing");
         if (depth !== 1) return [B_list, B_unquoteSplicing, processQuasiquote(vm, arg, depth - 1)];
-        throw new JEBSyntaxError("unquoteSplicing outside of list");
+        throw new JEBError(ErrnoCode.ESYNTAX, "unquoteSplicing outside of list");
     }
     // nested `
     if (same(head, B_quasiquote)) {
-        if (form.length !== 2) throw new JEBSyntaxError("expected 1 argument to quasiquote");
+        if (form.length !== 2) throw new JEBError(ErrnoCode.ESYNTAX, "expected 1 argument to quasiquote");
         return [B_list, B_quasiquote, processQuasiquote(vm, arg, depth + 1)];
     }
 
@@ -880,7 +881,7 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
             buffer.push(el);
         }
         else if (same(el[0], B_unquoteSplicing)) {
-            if (el.length !== 2) throw new JEBSyntaxError("expected 1 argument to unquoteSplicing");
+            if (el.length !== 2) throw new JEBError(ErrnoCode.ESYNTAX, "expected 1 argument to unquoteSplicing");
             flush();
             parts.push(el[1]); // ,@x → will be spliced by concat
         } else {
@@ -901,24 +902,24 @@ export const B_quasiquote = makeJSFun("quasiquote", [[true, "value"]], ({ value 
 .returns {any}
 . Prevents \`value\` from being evaluated, but walks the elements and replaces [[unquote]] and [[unquoteSplicing]] with the results of evaluating their arguments. The argument to [[unquoteSplicing]] must be a list.`);
 
-export const B_unquote = makeJSFun("unquote", [[true, "value"]], (_, vm) => { throw new JEBSyntaxError("unquote" + " not valid outside of quasiquote", { return: vm.cc() }); },
+export const B_unquote = makeJSFun("unquote", [[true, "value"]], (_, vm) => { throw new JEBError(ErrnoCode.ESYNTAX, "unquote" + " not valid outside of quasiquote", { return: vm.cc() }); },
     `.macro (unquote value) | (, value) | ,value
 .returns {never}
 .throws jeb:syntax_error - when called as a normal function outside of a [[quasiquote]].
 . Marks a value to be interpolated inside a [[quasiquote]].`);
-export const B_unquoteSplicing = makeJSFun("unquoteSplicing", [[true, "value"]], (_, vm) => { throw new JEBSyntaxError("unquoteSplicing" + " not valid outside of quasiquote", { return: vm.cc() }); },
+export const B_unquoteSplicing = makeJSFun("unquoteSplicing", [[true, "value"]], (_, vm) => { throw new JEBError(ErrnoCode.ESYNTAX, "unquoteSplicing" + " not valid outside of quasiquote", { return: vm.cc() }); },
     `.macro (unquoteSplicing value) | (,@ value) | ,@value
 .returns {never}
 .throws jeb:syntax_error - when called as a normal function outside of a [[quasiquote]].
 . Marks a list to be interpolated via splicing inside a [[quasiquote]].`);
 
-export const B_jsonparse = makeJSFun("jsonparse", ["json"], ({ json }) => wrapThrowToError(JEBValueError, () => parse(json)),
+export const B_jsonparse = makeJSFun("jsonparse", ["json"], ({ json }) => wrapThrowToError(ErrnoCode.ESYNTAX, () => parse(json)),
     `.func (jsonparse json)
 ..param {string} json
 .throws jeb:value_error - if the string is not valid JSON
 .returns {any}
 . Parses the string using \`JSON.parse()\` and returns the object.`);
-export const B_jsonstringify = makeJSFun("jsonstringify", ["value"], ({ value }) => wrapThrowToError(JEBValueError, () => stringify(value)),
+export const B_jsonstringify = makeJSFun("jsonstringify", ["value"], ({ value }) => wrapThrowToError(ErrnoCode.ERANGE, () => stringify(value)),
     `.func (jsonstringify value)
 ..param {any} value
 .throws jeb:value_error - if \`value\` contains something that can't be serialized, such as a function or circular reference

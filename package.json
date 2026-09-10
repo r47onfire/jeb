@@ -13,11 +13,12 @@
     },
     "type": "module",
     "scripts": {
-        "build": "bun run scripts/build.ts",
+        "build": "bun run regenerate-errno && bun run scripts/build.ts",
         "test": "BUN_JSC_useTailCalls=0 bun test",
         "test:watch": "BUN_JSC_useTailCalls=0 bun test --watch",
         "clean-dist": "rm -rf dist/*",
-        "prepare": "bun run build --minify"
+        "prepare": "bun run build --minify",
+        "regenerate-errno": "python3 scripts/regenerate_errno.py >src/errno.ts"
     },
     "repository": {
         "type": "git",
@@ -27,7 +28,7 @@
     "author": "dragoncoder047",
     "license": "AGPL-3.0-only",
     "devDependencies": {
-        "@types/bun": "^1.3.13",
+        "@types/bun": "^1.4.2",
         "nodemon": "^3.1.14"
     },
     "dependencies": {

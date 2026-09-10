@@ -1,7 +1,8 @@
 import { isArray } from "lib0/array.js";
 import { stringify } from "lib0/json.js";
-import { JEBSyntaxError } from "./errors";
+import { JEBError } from "./errors";
 import { Identifier, Writable, isIdentifier } from "./utils";
+import { ErrnoCode } from "./errno";
 
 
 export type ShorthandArgument<N extends Identifier = Identifier, F extends readonly (string | boolean)[] = readonly (string | boolean)[]> =
@@ -81,38 +82,38 @@ export const createSignature = <const S extends readonly ShorthandArgument<any, 
         if (isIdentifier(arg)) {
             name = arg;
         } else {
-            if (typeof arg === "boolean") throw new JEBSyntaxError(`invalid boolean flag at position ${i}`);
+            if (typeof arg === "boolean") throw new JEBError(ErrnoCode.ESYNTAX, `invalid boolean flag at position ${i}`);
             const len = arg.length;
             if (isArray(arg[j])) flags = arg[j++] as string[];
             if (typeof arg[j] === "boolean") lazy = arg[j++] ? Laziness.QUOTED : Laziness.LAZY;
             if (!isIdentifier(arg[j])) {
-                throw new JEBSyntaxError(`arg name not found at position ${i}`);
+                throw new JEBError(ErrnoCode.ESYNTAX, `arg name not found at position ${i}`);
             }
             name = arg[j++] as string;
             if (j < len) {
                 required = false;
                 defaultExpr = arg[j++];
             }
-            if (j < len) throw new JEBSyntaxError("unexpected junk after default expression");
+            if (j < len) throw new JEBError(ErrnoCode.ESYNTAX, "unexpected junk after default expression");
         }
         if (!required) seenOptional = true;
-        else if (seenOptional) throw new JEBSyntaxError(`required parameter ${stringify(name)} cannot follow optional parameter`);
+        else if (seenOptional) throw new JEBError(ErrnoCode.ESYNTAX, `required parameter ${stringify(name)} cannot follow optional parameter`);
         const assembledArg: Writable<LonghandArgument<string, string[]>> = { name, required, defaultExpr, lazy, flags };
         if (typeof next === "boolean") {
-            if (!required) throw new JEBSyntaxError(`argument ${stringify(name)} cannot have a default as it is a ${next ? "" : "keyword "}rest argument`);
+            if (!required) throw new JEBError(ErrnoCode.ESYNTAX, `argument ${stringify(name)} cannot have a default as it is a ${next ? "" : "keyword "}rest argument`);
             assembledArg.required = false;
             if (next) {
-                if (processed.rest !== undefined) throw new JEBSyntaxError(`duplicate rest argument ${stringify(name)} (${stringify(processed.rest.name)} already exists)`);
+                if (processed.rest !== undefined) throw new JEBError(ErrnoCode.ESYNTAX, `duplicate rest argument ${stringify(name)} (${stringify(processed.rest.name)} already exists)`);
                 processed.rest = assembledArg;
             } else {
-                if (lazy !== Laziness.NONE) throw new JEBSyntaxError(`keyword rest param cannot be lazy`);
-                if (processed.kwRest !== undefined) throw new JEBSyntaxError(`duplicate keyword rest argument ${stringify(name)} (${stringify(processed.kwRest.name)} already exists)`);
+                if (lazy !== Laziness.NONE) throw new JEBError(ErrnoCode.ESYNTAX, `keyword rest param cannot be lazy`);
+                if (processed.kwRest !== undefined) throw new JEBError(ErrnoCode.ESYNTAX, `duplicate keyword rest argument ${stringify(name)} (${stringify(processed.kwRest.name)} already exists)`);
                 processed.kwRest = assembledArg;
             }
             i++;
         } else {
-            if (processed.rest !== undefined) throw new JEBSyntaxError(`rest arg ${stringify(processed.rest.name)} must not have non-rest arguments after it`);
-            if (processed.kwRest !== undefined) throw new JEBSyntaxError(`keyword rest arg ${stringify(processed.kwRest.name)} must not have non-rest arguments after it`);
+            if (processed.rest !== undefined) throw new JEBError(ErrnoCode.ESYNTAX, `rest arg ${stringify(processed.rest.name)} must not have non-rest arguments after it`);
+            if (processed.kwRest !== undefined) throw new JEBError(ErrnoCode.ESYNTAX, `keyword rest arg ${stringify(processed.kwRest.name)} must not have non-rest arguments after it`);
             processed.params.push(assembledArg);
         }
     }

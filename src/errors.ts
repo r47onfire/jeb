@@ -1,85 +1,22 @@
 import { isinstance, javaHash, rotate32 } from "@r47onfire/game-math";
 import { NOTHING } from "./define";
+import { ErrnoCode, ErrnoDesc } from "./errno";
 import { Identifier } from "./utils";
 import { JebVM, pushCommand, pushData } from "./vm";
-
-/**
- * Mapping of error tag to class constructor (used by the `err` function)
- */
-export const ALL_ERRORS: Record<string, typeof JEBError> = {};
 
 /**
  * Generic base class for an error thrown by a JEB program.
  */
 export class JEBError extends Error {
-    /**
-     * The name of the error type
-     *
-     * NOTE: this must be a getter, not a regular instance property, since when the
-     * error class is initialized for the first time, the value of `this.tag` is used in the {@link JEBError} constructor
-     * to register the tag in the tag-to-class mapping {@link ALL_ERRORS}
-     */
-    get tag() { return "jeb:runtime_error"; }
-    constructor(message: string, public context: Record<string, any> & ErrorOptions = {}, public traceback?: StackTreeNode[]) {
+    constructor(public code: ErrnoCode, message: string, public context: Record<string, any> & ErrorOptions = {}, public traceback?: StackTreeNode[]) {
+        message ??= ErrnoDesc[code];
         super(message, { cause: context.cause });
-        ALL_ERRORS[this.tag] ??= new.target;
         this.name = this.constructor.name;
     }
     toString() {
-        return `(${this.tag}) ${this.message}${this.traceback ? `\nVM stack: ${formatStackTraceCompact(compressStackTree(this.traceback))}` : ""}`
+        return `[${ErrnoCode[this.code] ?? this.code}] ${this.message}${this.traceback ? `\nVM stack: ${formatStackTraceCompact(compressStackTree(this.traceback))}` : ""}`
     }
 }
-
-/**
- * Variable not found.
- */
-export class JEBReferenceError extends JEBError {
-    get tag() { return "jeb:reference_error"; }
-}
-
-/**
- * Value was correct type but out of range.
- */
-export class JEBValueError extends JEBError {
-    get tag() { return "jeb:value_error"; }
-}
-
-/**
- * Value was wrong type.
- */
-export class JEBTypeError extends JEBError {
-    get tag() { return "jeb:type_error"; }
-}
-
-/**
- * Malformed usage or syntax.
- */
-export class JEBSyntaxError extends JEBError {
-    get tag() { return "jeb:syntax_error"; }
-}
-
-/**
- * Program tried to operate on something previously invalidated.
- */
-export class JEBStateError extends JEBError {
-    get tag() { return "jeb:state_error"; }
-}
-
-/**
- * Too many recursive calls.
- */
-export class JEBRecursionError extends JEBError {
-    get tag() { return "jeb:recursion_error"; }
-}
-
-[
-    JEBError,
-    JEBReferenceError,
-    JEBValueError,
-    JEBTypeError,
-    JEBStateError,
-    JEBRecursionError,
-].forEach(e => new e(""));
 
 const STACKFRAME_JOINER = "<-";
 
@@ -228,12 +165,12 @@ export const formatStackTraceCompact = (nodes: StackTreeNode[]): string => {
  *         () => doSomethingThatMayThrow(vm, args[0])));
  * ```
  */
-export const wrapThrowToError = <T>(kind: new (message: string, options: { cause: any }) => JEBError, f: () => T) => {
+export const wrapThrowToError = <T>(kind: ErrnoCode, f: () => T) => {
     try {
         return f();
     } catch (e) {
         if (isinstance(e, JEBError)) throw e;
-        throw new kind(String(e), { cause: e });
+        throw new JEBError(kind, String(e), { cause: e });
     }
 }
 

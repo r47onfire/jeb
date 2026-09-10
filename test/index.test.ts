@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { float, int, JEBError, JebVM, makeJSFun, makeSingleEventWatcher, OP_shuffle, popData, promisifyVM, pushCommand, pushData, typeMatches } from "../src";
+import { ErrnoCode, float, int, JEBError, JebVM, makeJSFun, makeSingleEventWatcher, OP_shuffle, popData, promisifyVM, pushCommand, pushData, typeMatches } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -279,12 +279,12 @@ describe("with / dynamic-wind", () => {
     testTest(test, "after runs on error", (vm, out) => {
         expect.assertions(4);
         try {
-            run(vm, makeWith("before", "after", ["throw", ["err", "boom", "test"]]));
+            run(vm, makeWith("before", "after", ["throw", ["err", "EINTR", "boom"]]));
         } catch (err: any) {
             expect(err).toBeDefined();
             expect(err.toString()).toContain("boom");
             expect(err.toString()).toContain("VM stack: err<-with");
-            expect(out).toEqual(["before false", "after false (test) boom\nVM stack: err<-with"]);
+            expect(out).toEqual(["before false", "after false [EINTR] boom\nVM stack: err<-with"]);
         }
     });
 
@@ -683,7 +683,7 @@ describe("audit hook protections", () => {
     testTest(test, "prevents accessing Function", vm => {
         vm.addAuditHook(makeSingleEventWatcher("jeb:ffi/object/get", (obj, key) => {
             if (obj[key] === Function) {
-                throw new JEBError("can't access that!");
+                throw new JEBError(ErrnoCode.EPERM, "can't access that!");
             }
         }));
         expect(() => run(vm, [".", [".", {}, "constructor"], "constructor"])).toThrow("can't access that!");
@@ -691,7 +691,7 @@ describe("audit hook protections", () => {
     testTest(test, "infinite loop guard", vm => {
         vm.addAuditHook(makeSingleEventWatcher("jeb:loop_check", (count) => {
             if (count > 10000) {
-                throw new JEBError("too many loops");
+                throw new JEBError(ErrnoCode.ELOOP, "too many loops");
             }
         }));
         expect(() => run(vm, [

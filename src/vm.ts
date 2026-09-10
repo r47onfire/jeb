@@ -5,11 +5,12 @@ import { JEBAuditEvents } from "./auditHookTypes";
 import { loadBuiltins, OP_eval, OP_throw } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
-import { createStackInnerNode, createStackLeafNode, JEBError, JEBRecursionError, JEBTypeError, Location, locationsEqual, StackTreeNode } from "./errors";
+import { createStackInnerNode, createStackLeafNode, JEBError, Location, locationsEqual, StackTreeNode } from "./errors";
 import { __initializer, __initializers } from "./initializers";
 import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
 import { OP_unwrap } from "./unwrap";
 import { Identifier, Tuple } from "./utils";
+import { ErrnoCode } from "./errno";
 export { __initializer };
 
 /**
@@ -64,14 +65,14 @@ export class JebVM<T extends JebVM = any> {
     }
     getProtocol<N extends keyof JEBProtocols, T extends boolean>(fast: boolean, assert: T, name: N, args: Tuple<any, ArgcForName<N>>): JEBProtocols[N][number] | (T extends true ? never : undefined) {
         const res = getProtocolHandler(this.protocols, fast, name, args);
-        if (assert && !res) throw new JEBTypeError(`No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${args.map(x => theTypeName(typeOf(x))).join(", ")}`);
+        if (assert && !res) throw new JEBError(ErrnoCode.ERANGE, `No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${args.map(x => theTypeName(typeOf(x))).join(", ")}`);
         return res!;
     }
     pushData(value: any) {
         this.dataStack = LinkedList_push(this.dataStack, value);
     }
     #checkStack(n: number) {
-        if (LinkedList_length(this.dataStack) < n) throw new JEBError("data stack underflow");
+        if (LinkedList_length(this.dataStack) < n) throw new JEBError(ErrnoCode.EPANIC, "data stack underflow");
     }
     popNData(n: number) {
         this.#checkStack(n);
@@ -93,7 +94,7 @@ export class JebVM<T extends JebVM = any> {
         this.commandStack = LinkedList_push(this.commandStack, [f, ...args]);
     }
     popCommand() {
-        if (LinkedList_length(this.commandStack) === 0) throw new JEBError("opcode stack underflow");
+        if (LinkedList_length(this.commandStack) === 0) throw new JEBError(ErrnoCode.EPANIC, "opcode stack underflow");
         const { 0: value, 1: rest } = LinkedList_pop(this.commandStack!);
         this.commandStack = rest;
         return value;
@@ -157,7 +158,7 @@ export class JebVM<T extends JebVM = any> {
      */
     checkRecursion(length: number) {
         if (this.recursionDepth > length) {
-            this.pushCommand(OP_throw, new JEBRecursionError("too much recursion", {}, this.tracebackArray()));
+            this.pushCommand(OP_throw, new JEBError(ErrnoCode.ELOOP, "too much recursion", {}, this.tracebackArray()));
         }
     }
     /**
@@ -209,7 +210,7 @@ export class JebVM<T extends JebVM = any> {
      */
     popTraceback(dropTail = true) {
         var cur = this.tracebackStack;
-        if (!cur) throw new JEBError("traceback stack underflow");
+        if (!cur) throw new JEBError(ErrnoCode.EPANIC, "traceback stack underflow");
 
         // drop all TCO'ed frames
         if (dropTail) while (cur && cur.value.tail) {

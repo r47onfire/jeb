@@ -1,6 +1,7 @@
 import { Block } from "./block";
 import { type HasDocstring } from "./doc";
-import { JEBStateError, Location } from "./errors";
+import { ErrnoCode } from "./errno";
+import { JEBError, Location } from "./errors";
 import { ApplyMetadata } from "./protocol";
 import { CallableSignature } from "./signature";
 import { Identifier } from "./utils";
@@ -101,12 +102,12 @@ export class Fun<S extends CallableSignature<any, any, any>> extends CallableCla
      * JEB lambdas are currently not callable via javascript.
      */
     __call__(): never {
-        throw new JEBStateError("cannot call JEB fn");
+        throw new JEBError(ErrnoCode.ENOTSUP, "cannot call JEB fn");
     }
     /**
      * JEB lambda are not class constructors.
      */
     __new__(): never {
-        throw new JEBStateError("cannot construct from JEB fn");
+        throw new JEBError(ErrnoCode.ENOTSUP, "cannot construct from JEB fn");
     }
 }

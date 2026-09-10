@@ -2,10 +2,11 @@ import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
 import { Fun } from "./callable";
 import { Env } from "./env";
-import { JEBReferenceError, JEBTypeError, wrapThrowToError } from "./errors";
+import { JEBError, wrapThrowToError } from "./errors";
 import { AccessType, Reference } from "./protocol";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";
+import { ErrnoCode } from "./errno";
 
 export class ObjectPropertyReference extends Reference {
     constructor(type: AccessType, public obj: any, public name: PropertyKey) { super(type); }
@@ -17,7 +18,7 @@ export class ObjectPropertyReference extends Reference {
     }
     set(vm: JebVM, value: any) {
         vm.audit("jeb:ffi/object/set", this.obj, this.name, value);
-        wrapThrowToError(JEBTypeError, () => {
+        wrapThrowToError(ErrnoCode.EJAVASCRIPT, () => {
             this.obj[this.name] = value;
         });
     }
@@ -42,12 +43,12 @@ export class VariableReference extends Reference {
             if (didSet === undefined) {
                 this.referenceError();
             } else if (!didSet) {
-                throw new JEBTypeError(`${stringify(this.name)} is a constant`);
+                throw new JEBError(ErrnoCode.EROFS, `${stringify(this.name)} is a constant`);
             }
         }
         if (isinstance(value, Fun)) value.name ??= this.name;
     }
     protected referenceError(): never {
-        throw new JEBReferenceError(this.notFoundMessage);
+        throw new JEBError(ErrnoCode.ENAME, this.notFoundMessage);
     }
 }
