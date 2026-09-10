@@ -129,8 +129,8 @@ __initializer(vm => {
         }
     },
         `Calls the first item as a function.
-.throws jeb:type_error - if the first item is not callable
-.throws jeb:value_error - if the list is empty`);
+.throws EINVAL - if the first item is not callable
+.throws ERANGE - if the list is empty`);
 
     defineEvaluator(vm, [JSFun], (vm, { 0: f }) => pushData(vm, f),
         "Builtin functions evaluate to themselves.");
@@ -162,8 +162,8 @@ export const OP_apply = makeOpcode("apply", (vm: JebVM, { 0: argv, 1: location, 
 ..param {boolean?} [tailcall=false]
 ..param {boolean?} noEval
 .sed functor -- result
-.throws jeb:type_error - when the object is not callable
-.throws jeb:value_error - when the argument count is wrong
+.throws EINVAL - when the object is not callable
+.throws ERANGE - when the argument count is wrong
 . Pops the top value from the stack and calls it with the provided arguments.
 The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.
 The \`callAt\` frame will be hidden in the actual traceback.`);
@@ -238,7 +238,7 @@ export const OP_index = makeOpcode("index", (vm: JebVM, { 0: type }: [AccessType
 },
     `.sed obj name -- lvalue
 ..param {code} name - evaluated
-.throws jeb:type_error - if the object can't be indexed
+.throws EINVAL - if the object can't be indexed
 . Finds an Accessor for the object and pushes the LValue for the given field.`);
 export const OP_get = makeOpcode("get", (vm: JebVM, { 0: shouldBind }: [boolean]) => {
     checkNothingOrPush(vm, (popData(vm) as Reference).get(vm, shouldBind))
@@ -266,7 +266,7 @@ const B_dollar = makeJSFun("$", ["name"], ({ name }, vm) => {
 },
     `.func ($ name)
 ..param {string} name
-.throws jeb:reference_error - if the name is not defined anywhere
+.throws ENAME - if the name is not defined anywhere
 .returns {any}
 . Look up the variable with this name in the current environment.`);
 export const B_dot = makeJSFun(".", ["obj", "name"], ({ obj, name }, vm) => {
@@ -303,8 +303,7 @@ export const B_set = makeJSFun("set", [[["ref"], "ref"], [false, "value"], ["old
 ..param {T} value
 ...injected {U} _ - old value of field
 ..param {boolean?} [old=false]
-..throws jeb:value_error - if the array of names is malformed
-.throws jeb:reference_error - if the value is not defined anywhere
+.throws ENAME - if the value is not defined anywhere
 .returns {old ? U : T}
 . Changes the value of the slot, and returns the new or old value as determined by \`old\`.`);
 
@@ -370,7 +369,7 @@ When entering the block, the \`enter\` hook will be called with \`true\` or \`fa
 When exiting the block, the \`exit\` hook will be called. \`continuation\` is as with the \`enter\` handler (indicating if the block exit is due to a continuation or not), and \`err\` will be \`null\` if there is no error being handled, or non-\`null\` if there is an error in progess. The \`exit\` handler can return \`true\` to indicate that it has handled the error, and prevent it from propagating up the call stack.
 Some errors also include a *restart* as part of their \`.context\` - this will be a continuation that when invoked, will jump back to the expression that caused the error and resume execution with the substituted value. It is usually named \`return\`.
 ..param {code} body...
-.throws jeb:type_error - if \`varname\` is null or \`handlers\` is not an object.
+.throws EINVAL - if \`varname\` is null or \`handlers\` is not an object.
 . Used to manage error handling, contextual resources, and continuation tracking.`);
 
 const OP_with_setup = makeOpcode(null, <T extends JebVM>(vm: T, { 0: dw, 1: name }: [DynamicWind<T>, Identifier | null]) => {
@@ -420,7 +419,7 @@ __initializer(vm => defineApplier(vm, ["function"], (vm, { 0: f }) => {
     macro: (f as any).MACRO ?? false,
 }),
     `JEB's FFI can call Javascript functions. JEB does not check the \`.length\` of the function since it is wrong in some cases.
-.throws jeb:ffi_error - if the FFI'ed function throws an error`));
+.throws EJAVASCRIPT - if the FFI'ed function throws an error`));
 const OP_ffi_invoke = makeOpcode(null, (vm: JebVM, { 0: f }: [Function]) => {
     const args = popData(vm)._;
     vm.audit("jeb:ffi/call_function", f, args)
@@ -685,7 +684,7 @@ const mathHelper = (operator: string, op2: "add" | "sub" | "mul" | "matMul" | "d
         `.func (${operator} a [b])
 ..param {any} a
 ..param {any?} b
-.throws jeb:type_error - if no overload was found for the given argument types
+.throws EPROTONOSUPPORT - if no overload was found for the given argument types
 . ${doc}`);
     __initializer(vm => vm.addProtocol(op2, { type: [["number", "bigint"], ["number", "bigint"]], run: (_, { 0: a, 1: b }) => Ok(f2(a, b)), doc }));
     if (op1) {
@@ -905,24 +904,24 @@ export const B_quasiquote = makeJSFun("quasiquote", [[true, "value"]], ({ value 
 export const B_unquote = makeJSFun("unquote", [[true, "value"]], (_, vm) => { throw new JEBError(ErrnoCode.ESYNTAX, "unquote" + " not valid outside of quasiquote", { return: vm.cc() }); },
     `.macro (unquote value) | (, value) | ,value
 .returns {never}
-.throws jeb:syntax_error - when called as a normal function outside of a [[quasiquote]].
+.throws ESYNTAX - when called as a normal function outside of a [[quasiquote]].
 . Marks a value to be interpolated inside a [[quasiquote]].`);
 export const B_unquoteSplicing = makeJSFun("unquoteSplicing", [[true, "value"]], (_, vm) => { throw new JEBError(ErrnoCode.ESYNTAX, "unquoteSplicing" + " not valid outside of quasiquote", { return: vm.cc() }); },
     `.macro (unquoteSplicing value) | (,@ value) | ,@value
 .returns {never}
-.throws jeb:syntax_error - when called as a normal function outside of a [[quasiquote]].
+.throws ESYNTAX - when called as a normal function outside of a [[quasiquote]].
 . Marks a list to be interpolated via splicing inside a [[quasiquote]].`);
 
 export const B_jsonparse = makeJSFun("jsonparse", ["json"], ({ json }) => wrapThrowToError(ErrnoCode.ESYNTAX, () => parse(json)),
     `.func (jsonparse json)
 ..param {string} json
-.throws jeb:value_error - if the string is not valid JSON
+.throws ESYNTAX - if the string is not valid JSON
 .returns {any}
 . Parses the string using \`JSON.parse()\` and returns the object.`);
 export const B_jsonstringify = makeJSFun("jsonstringify", ["value"], ({ value }) => wrapThrowToError(ErrnoCode.ERANGE, () => stringify(value)),
     `.func (jsonstringify value)
 ..param {any} value
-.throws jeb:value_error - if \`value\` contains something that can't be serialized, such as a function or circular reference
+.throws ERANGE - if \`value\` contains something that can't be serialized, such as a function or circular reference
 .returns {string}
 . Stringifies the object to JSON using \`JSON.stringify()\`.`);
 

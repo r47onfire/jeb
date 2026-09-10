@@ -683,7 +683,7 @@ describe("audit hook protections", () => {
     testTest(test, "prevents accessing Function", vm => {
         vm.addAuditHook(makeSingleEventWatcher("jeb:ffi/object/get", (obj, key) => {
             if (obj[key] === Function) {
-                throw new JEBError(ErrnoCode.EPERM, "can't access that!");
+                throw new JEBError(ErrnoCode.EACCES, "can't access that!");
             }
         }));
         expect(() => run(vm, [".", [".", {}, "constructor"], "constructor"])).toThrow("can't access that!");
@@ -691,7 +691,7 @@ describe("audit hook protections", () => {
     testTest(test, "infinite loop guard", vm => {
         vm.addAuditHook(makeSingleEventWatcher("jeb:loop_check", (count) => {
             if (count > 10000) {
-                throw new JEBError(ErrnoCode.ELOOP, "too many loops");
+                throw new JEBError(ErrnoCode.EPROCLIM, "too many loops");
             }
         }));
         expect(() => run(vm, [
@@ -724,12 +724,13 @@ describe("location tracking", () => {
 });
 
 testTest(test, "async test", async vm => {
+    const TIME = 1000;
     const a = Date.now();
     expect(await runAsync(vm, [
         makeJSFun("wait", ["time"], ({ time }, vm) =>
             promisifyVM(vm, new Promise(resolve =>
                 setTimeout(resolve, time))), ""),
-        1000])).toBeTrue();
+        TIME])).toBeTrue();
     const b = Date.now();
-    expect(Math.abs(b - a - 1000)).toBeLessThan(10);
+    expect(Math.abs(b - a - TIME)).toBeLessThan(10);
 });

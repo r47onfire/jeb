@@ -1,5 +1,6 @@
 import subprocess
 import re
+import sys
 
 errno_h_expanded = subprocess.check_output(
     ["gcc", "-E", "-"],
@@ -17,8 +18,23 @@ errno_triples = {
     # ERANGE for value error
     -3: ("ESYNTAX", "Unrecognized syntax"),
     -4: ("EJAVASCRIPT", "Javascript error"),
-    # ELOOP for recursion error
-    -255: ("EPANIC", "Internal error")
+    # EPROCLIM for recursion error
+    -255: ("EPANIC", "Internal error"),
+
+    # Some HTTP error equivalents
+    1000: ("EHTTP", "HTTP error"),
+    221: ("EKICKED", "Bye"),
+    400: ("EBADREQ", "Bad request"),
+    401: ("EUNAUTH", "Unauthorized"),
+    403: ("EREFUSED", "Forbidden"),
+    404: ("ENOTFOUND", "Not found"),
+    418: ("ETEAPOT", "I'm a teapot"),
+    429: ("ERATELIMIT", "Too many requests"),
+    451: ("ELAWYER", "Unavailable for legal reasons"),
+    500: ("ESERVERERROR", "Internal server error"),
+    502: ("EUPSTREAM", "Bad gateway"),
+    504: ("EPROXYWAIT", "Gateway timeout"),
+    999: ("ELOGIN", "Request denied"),
 }
 
 seen = set()
@@ -32,6 +48,8 @@ for file in real_errno_h:
         num = int(str_num)
         if num not in errno_triples:
             errno_triples[num] = (name, text)
+        else:
+            print("Duplicated:", num, name, text, file=sys.stderr)
 
 print("/**")
 print(" * @fileoverview")

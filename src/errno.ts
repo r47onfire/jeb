@@ -2,8 +2,8 @@
  * @fileoverview
  * AUTO-GENERATED! DO NOT EDIT!
  * Checked files:
- * * /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/errno.h
  * * /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/errno.h
+ * * /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/errno.h
  */
 /**
  * Errno database mapping E-code to value
@@ -33,6 +33,58 @@ export enum ErrnoCode {
      * Internal error
      */
     EPANIC = -255,
+    /**
+     * HTTP error
+     */
+    EHTTP = 1000,
+    /**
+     * Bye
+     */
+    EKICKED = 221,
+    /**
+     * Bad request
+     */
+    EBADREQ = 400,
+    /**
+     * Unauthorized
+     */
+    EUNAUTH = 401,
+    /**
+     * Forbidden
+     */
+    EREFUSED = 403,
+    /**
+     * Not found
+     */
+    ENOTFOUND = 404,
+    /**
+     * I'm a teapot
+     */
+    ETEAPOT = 418,
+    /**
+     * Too many requests
+     */
+    ERATELIMIT = 429,
+    /**
+     * Unavailable for legal reasons
+     */
+    ELAWYER = 451,
+    /**
+     * Internal server error
+     */
+    ESERVERERROR = 500,
+    /**
+     * Bad gateway
+     */
+    EUPSTREAM = 502,
+    /**
+     * Gateway timeout
+     */
+    EPROXYWAIT = 504,
+    /**
+     * Request denied
+     */
+    ELOGIN = 999,
     /**
      * Operation not permitted
      */
@@ -469,6 +521,19 @@ export const ErrnoDesc: Record<ErrnoCode, string> = {
     [ErrnoCode.ESYNTAX]: 'Unrecognized syntax',
     [ErrnoCode.EJAVASCRIPT]: 'Javascript error',
     [ErrnoCode.EPANIC]: 'Internal error',
+    [ErrnoCode.EHTTP]: 'HTTP error',
+    [ErrnoCode.EKICKED]: 'Bye',
+    [ErrnoCode.EBADREQ]: 'Bad request',
+    [ErrnoCode.EUNAUTH]: 'Unauthorized',
+    [ErrnoCode.EREFUSED]: 'Forbidden',
+    [ErrnoCode.ENOTFOUND]: 'Not found',
+    [ErrnoCode.ETEAPOT]: "I'm a teapot",
+    [ErrnoCode.ERATELIMIT]: 'Too many requests',
+    [ErrnoCode.ELAWYER]: 'Unavailable for legal reasons',
+    [ErrnoCode.ESERVERERROR]: 'Internal server error',
+    [ErrnoCode.EUPSTREAM]: 'Bad gateway',
+    [ErrnoCode.EPROXYWAIT]: 'Gateway timeout',
+    [ErrnoCode.ELOGIN]: 'Request denied',
     [ErrnoCode.EPERM]: 'Operation not permitted',
     [ErrnoCode.ENOENT]: 'No such file or directory',
     [ErrnoCode.ESRCH]: 'No such process',
