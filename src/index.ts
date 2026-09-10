@@ -7,6 +7,7 @@ export * from "./define";
 export * from "./doc";
 export * from "./env";
 export * from "./errno";
+export * from "./errnoInheritance";
 export * from "./errors";
 export * from "./implicitBegin";
 export * from "./math";

@@ -10,6 +10,7 @@ errno_h_expanded = subprocess.check_output(
 real_errno_h = re.findall(r'"?(\S*?errno\.h\S*?)', errno_h_expanded)
 
 errno_triples = {
+    0: ("EFAIL", "Something went wrong"),
     -1: ("ENAME", "Variable not found"),
     -2: ("EFUNC", "Function not found"),
     # EINVAL for type error
@@ -39,11 +40,20 @@ print(" * Checked files:")
 for file in seen:
     print(f" * * {file}")
 print(" */")
+print("/**")
+print(" * Errno database mapping E-code to value")
+print(" */")
 print("export enum ErrnoCode {")
 for n, (name, text) in errno_triples.items():
+    print("    /**")
+    print(f"     * {text}")
+    print("     */")
     print(f"    {name} = {n},")
 print("};")
 print()
+print("/**")
+print(" * Errno database mapping E-code to string description default")
+print(" */")
 print("export const ErrnoDesc: Record<ErrnoCode, string> = {")
 for n, (name, text) in errno_triples.items():
     print(f"    [ErrnoCode.{name}]: {text!r},")
