@@ -601,11 +601,13 @@ export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, locatio
 .param {code} body...
 . Each of the pairs' *expression*s will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.`);
 
-export const B_let_in = makeJSFun("let-in", ["pairs", true], ({ pairs: args }, vm) => {
-    const len = args.length
+export const B_let_in = makeJSFun("let-in", [[true, "pairs"], true], ({ pairs: ao }, vm) => {
+    const args = ao! as any[];
+    const len = args.length;
     if ((len & 1) > 0) {
         throw new JEBError(ErrnoCode.ESYNTAX, "let-in should have an even number of arguments");
     }
+    if (len === 0) return null;
     var value;
     const newEnv = vm.createEnv(vm.currentEnv);
     for (var i = 0; i < len; i += 2) {
@@ -614,17 +616,23 @@ export const B_let_in = makeJSFun("let-in", ["pairs", true], ({ pairs: args }, v
         if (!isIdentifier(name)) {
             throw new JEBError(ErrnoCode.ESYNTAX, "let-in name must be a valid identifier");
         }
-        newEnv.add(name, value);
+        pushData(vm, new VariableReference(AccessType.VARIABLE, newEnv, name));
+        pushData(vm, value);
+        if (i > 0) pushCommand(vm, OP_shuffle, 1, []);
+        pushCommand(vm, OP_set, true, false);
+        pushCommand(vm, OP_shuffle, 2, [1, 0]);
+        pushCommand(vm, OP_eval, undefined);
     }
     vm.currentEnv = newEnv;
-    return value;
+    return NOTHING;
 },
     `.func (let-in name value [name value]...)
 ..param {string} name
 ..param {any} value
 ..returns {any} - the last value
 . Creates a new environment with the given name-value pairs as its bindings, and switches to it. Everything after this will be in the new environment.
-Functions much like [[let]] but with an implicit block after it that continues to the end of the outer block instead of explicit.`);
+Functions much like [[let]] but with an implicit block after it that continues to the end of the outer block instead of explicit.
+The \`value\`s are in a "letrec" group and will be able to close over each other if they're functions.`);
 
 export const B_define = makeJSFun("define", [[true, "definition"], true], (ao, vm, location) => {
     const args = ao.definition!;

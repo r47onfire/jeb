@@ -2,23 +2,23 @@
  * @fileoverview
  * AUTO-GENERATED! DO NOT EDIT!
  * Checked files:
- * * /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/errno.h
  * * /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/errno.h
+ * * /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/errno.h
  */
 /**
  * Errno database mapping E-code to value
  */
 export enum ErrnoCode {
     /**
-     * Something went wrong
+     * Unspecified error
      */
     EFAIL = 0,
     /**
-     * Variable not found
+     * No such variable
      */
     ENAME = -1,
     /**
-     * Function not found
+     * No such function
      */
     EFUNC = -2,
     /**
@@ -515,9 +515,9 @@ export enum ErrnoCode {
  * Errno database mapping E-code to string description default
  */
 export const ErrnoDesc: Record<ErrnoCode, string> = {
-    [ErrnoCode.EFAIL]: 'Something went wrong',
-    [ErrnoCode.ENAME]: 'Variable not found',
-    [ErrnoCode.EFUNC]: 'Function not found',
+    [ErrnoCode.EFAIL]: 'Unspecified error',
+    [ErrnoCode.ENAME]: 'No such variable',
+    [ErrnoCode.EFUNC]: 'No such function',
     [ErrnoCode.ESYNTAX]: 'Unrecognized syntax',
     [ErrnoCode.EJAVASCRIPT]: 'Javascript error',
     [ErrnoCode.EPANIC]: 'Internal error',

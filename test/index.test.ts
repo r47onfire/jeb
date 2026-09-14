@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { ErrnoCode, float, int, JEBError, JebVM, makeJSFun, makeSingleEventWatcher, OP_shuffle, popData, promisifyVM, pushCommand, pushData, typeMatches } from "../src";
+import { ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, makeSingleEventWatcher, OP_shuffle, popData, promisifyVM, pushCommand, pushData, typeMatches } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -733,4 +733,15 @@ testTest(test, "async test", async vm => {
         TIME])).toBeTrue();
     const b = Date.now();
     expect(Math.abs(b - a - TIME)).toBeLessThan(10);
+});
+
+testTest(test, "names stick on functions", vm => {
+    expect(run(vm, ["begin",
+        ["let-in", "foo", ["fn", []], "bar", null],
+        ["set", ["$", "bar"], ["$", "foo"]],
+        ["$", "bar"],
+    ])).toBeTrue();
+    const i = popData(vm);
+    expect(i).toBeInstanceOf(Fun);
+    expect(i.name).toEqual("foo");
 });

@@ -5,7 +5,7 @@ export const ErrnoParent: Record<ErrnoCode, ErrnoCode[] | undefined> = {
     [ErrnoCode.EPANIC]: undefined, // Root of all nonrecoverable exceptions
 
     // Custom errors
-    [ErrnoCode.ENAME]: [ErrnoCode.EFAIL],
+    [ErrnoCode.ENAME]: [ErrnoCode.ENOENT, ErrnoCode.EFAIL],
     [ErrnoCode.EFUNC]: [ErrnoCode.ENAME],
     [ErrnoCode.ENOATTR]: [ErrnoCode.ENAME],
     [ErrnoCode.ESYNTAX]: [ErrnoCode.EFAIL],

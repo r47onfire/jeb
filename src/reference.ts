@@ -5,7 +5,7 @@ import { Env } from "./env";
 import { JEBError, wrapThrowToError } from "./errors";
 import { AccessType, Reference } from "./protocol";
 import { Identifier } from "./utils";
-import { JebVM } from "./vm";
+import { __initializer, JebVM } from "./vm";
 import { ErrnoCode } from "./errno";
 
 export class ObjectPropertyReference extends Reference {
@@ -32,7 +32,7 @@ export class VariableReference extends Reference {
             `${type === AccessType.VARIABLE ? "variable" : "function"} ${stringify(this.name)} not found`;
     }
     get() {
-        return this.env.get(this.name).else(() => this.referenceError());
+        return this.env.get(this.name).else(() => this.#referenceError());
     }
     set(vm: JebVM, value: any, create: boolean, readonly: boolean) {
         if (create) {
@@ -41,14 +41,22 @@ export class VariableReference extends Reference {
         } else {
             const didSet = this.env.set(this.name, value);
             if (didSet === undefined) {
-                this.referenceError();
+                this.#referenceError();
             } else if (!didSet) {
                 throw new JEBError(ErrnoCode.EROFS, `${stringify(this.name)} is a constant`);
             }
         }
-        if (isinstance(value, Fun)) value.name ??= this.name;
+        vm.getProtocol(true, false, "name", [value])?.run(vm, [value], { name: this.name });
     }
-    protected referenceError(): never {
+    #referenceError(): never {
         throw new JEBError(ErrnoCode.ENAME, this.notFoundMessage);
     }
 }
+
+__initializer(vm => {
+    vm.addProtocol("name", {
+        type: [[Fun]],
+        run(vm, { 0: fun }, { name }) { fun.name ??= name; },
+        doc: "",
+    });
+});

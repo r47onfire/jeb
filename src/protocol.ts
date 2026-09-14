@@ -136,6 +136,7 @@ export interface JEBProtocols {
     eval: ProtocolsList<void, [Type[]], {}, void, EvalFlags>;
     access: ProtocolsList<Reference | typeof NOTHING, [Type[]], {}, void, AccessFlags>;
     unwrap: ProtocolsList<void, [(typeof Wrapper)[]], {}, void, void>;
+    name: ProtocolsList<void, [Type[]], {}, void, { name: Identifier }>;
     // Math protocols
     add: BinaryProtocolToResult;
     abs: UnaryProtocolToResult;
