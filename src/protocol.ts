@@ -50,7 +50,7 @@ export function typeMatches(obj: any, type: Type): number {
 }
 
 export const theTypeName = (type: Type) => type === true ? "any" : isString(type) ? type : type.name;
-export const typeOf = (x: any): Type => { const t = typeof x; if (t === "object" && x.constructor !== Object) return x.constructor; else return t; }
+export const typeOf = (x: any): Type => { const t = typeof x; if (t === "object" && x && x.constructor !== Object) return x.constructor; else return t; }
 
 export type TypeValue<T extends Type> = T extends true ? any : T extends keyof TypeMap ? TypeMap[T] : T extends abstract new (...args: any[]) => infer U ? U : never;
 export type TypeArrayValue<T extends Type[][], D extends Record<number, any>> = number extends T["length"] ? TypeValue<T[number][number]> : T extends [...infer Head extends Type[][], infer Tail extends Type[]] ? [...TypeArrayValue<Head, D>, Head["length"] extends keyof D ? D[Head["length"]] : TypeValue<Tail[number]>] : [];
