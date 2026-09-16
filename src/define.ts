@@ -2,6 +2,7 @@ import { stringify } from "lib0/json";
 import { JSFun } from "./callable";
 import { AccessFlags, ApplyFlags, ApplyMetadata, EvalFlags, ProtocolObj, Reference, Type } from "./protocol";
 import { CallableSignatureFromShorthand, createSignature, ShorthandArgument } from "./signature";
+import { Identifier } from "./utils";
 import { JebVM, OpcodeFunction } from "./vm";
 import { Wrapper } from "./wrapper";
 
@@ -20,13 +21,13 @@ export const NOTHING = Symbol("NOTHING");
  * e.g. an FFI callback).
  * @returns the builtin function, for referring to later
  */
-export const makeJSFun = <const T extends ShorthandArgument<any, any>[]>(name: string, signature: T, fn: JSFun<CallableSignatureFromShorthand<T>>["impl"], doc: string) => {
+export const makeJSFun = <const T extends ShorthandArgument<any, any>[]>(name: Identifier, signature: T, fn: JSFun<CallableSignatureFromShorthand<T>>["impl"], doc: string) => {
     return new JSFun(name, createSignature(signature), fn as any, doc);
 }
 /**
  * Defines the object in the VM's builtins scope as a constant.
  */
-export const define = (vm: JebVM, name: string, obj: any) => {
+export const define = (vm: JebVM, name: Identifier, obj: any) => {
     if (vm.builtinsEnv.get(name).ok) throw new Error(`Builtin ${stringify(name)} is already defined`);
     vm.builtinsEnv.addConst(name, obj);
 }
