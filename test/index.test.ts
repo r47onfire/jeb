@@ -189,7 +189,7 @@ describe("tail-call elimination", () => {
         } catch (err: any) {
             expect(out).toEqual(["hello", "hello"]);
             // foo and bar were tail-called, only begin and error survive
-            expect(err.toString()).toContain("VM stack: err<-begin");
+            expect(err.toString()).toContain("traceback: err<-begin");
             expect(err.toString()).not.toContain("foo");
             expect(err.toString()).not.toContain("bar");
         }
@@ -206,7 +206,7 @@ describe("tail-call elimination", () => {
             ]);
         } catch (err: any) {
             // f -> g is NOT a tail call (it's an argument), so both stay
-            expect(err.toString()).toContain("VM stack: err<-g<-f<-begin");
+            expect(err.toString()).toContain("traceback: err<-g<-f<-begin");
         }
     });
 });
@@ -283,8 +283,8 @@ describe("with / dynamic-wind", () => {
         } catch (err: any) {
             expect(err).toBeDefined();
             expect(err.toString()).toContain("boom");
-            expect(err.toString()).toContain("VM stack: err<-with");
-            expect(out).toEqual(["before false", "after false [EINTR] boom\nVM stack: err<-with"]);
+            expect(err.toString()).toContain("traceback: err<-with");
+            expect(out).toEqual(["before false", "after false [EINTR] boom\ntraceback: err<-with"]);
         }
     });
 

@@ -3,18 +3,30 @@ import { NOTHING } from "./define";
 import { ErrnoCode, ErrnoDesc } from "./errno";
 import { Identifier } from "./utils";
 import { JebVM, pushCommand, pushData } from "./vm";
+import { Continuation } from "./continuation";
+
+export interface JEBErrorOptions {
+    children?: JEBError[];
+}
+
+export interface JEBErrorContext {
+    [x: string]: unknown;
+    return?: Continuation<any>;
+}
 
 /**
  * Generic base class for an error thrown by a JEB program.
  */
 export class JEBError extends Error {
-    constructor(public code: ErrnoCode, message: string, public context: Record<string, any> & ErrorOptions = {}, public traceback?: StackTreeNode[]) {
+    public children: JEBError[];
+    constructor(public code: ErrnoCode, message: string, public options: ErrorOptions & JEBErrorOptions = {}, public context: JEBErrorContext = {}, public traceback?: StackTreeNode[]) {
         message ??= ErrnoDesc[code];
-        super(message, { cause: context.cause });
+        super(message, { cause: options.cause });
         this.name = this.constructor.name;
+        this.children = options.children ?? [];
     }
-    toString() {
-        return `[${ErrnoCode[this.code] ?? this.code}] ${this.message}${this.traceback ? `\nVM stack: ${formatStackTraceCompact(compressStackTree(this.traceback))}` : ""}`
+    toString(): string {
+        return `[${ErrnoCode[this.code] ?? this.code}] ${this.message}${this.traceback ? `\ntraceback: ${formatStackTraceCompact(compressStackTree(this.traceback))}` : ""}${isinstance(this.cause, JEBError) ? `\ncaused by: ${this.cause.toString()}${this.children.map(c => c.toString().split("\n").map(l => "  " + l).join("\n")).join("\n\n")}` : ""}`
     }
 }
 

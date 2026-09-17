@@ -125,7 +125,7 @@ __initializer(vm => {
             arrayEval(vm, code, tail, location);
         }
         else {
-            throw new JEBError(ErrnoCode.EINVAL, "can't evaluate empty array", { return: vm.cc() });
+            throw new JEBError(ErrnoCode.EINVAL, "can't evaluate empty array", {}, { return: vm.cc() });
         }
     },
         `Calls the first item as a function.
@@ -147,7 +147,7 @@ export const OP_apply = makeOpcode("apply", (vm: JebVM, { 0: argv, 1: location, 
     const func = popData(vm);
     const applier = vm.getProtocol(true, false, "apply", [func]);
     if (!applier) {
-        throw new JEBError(ErrnoCode.EINVAL, `can't call ${theTypeName(typeOf(func))}`, { return: vm.cc() });
+        throw new JEBError(ErrnoCode.EINVAL, `can't call ${theTypeName(typeOf(func))}`, {}, { return: vm.cc() });
     }
     const { name, signature, closureEnv } = applier.describe(vm, func);
     if (name && !tail) pushCommand(vm, OP_tbPop);
@@ -339,7 +339,7 @@ export const B_throw = makeJSFun("throw", ["err"], ({ err }) => {
 .returns {never}
 . Throw an error. If we're inside a [[with]] block, it will trigger the \`exit\` handler of the context object to possibly handle the error.
 If the error is not handled, it will be thrown as a Javascript error, causing the program to halt.`);
-export const B_err = makeJSFun("err", [["type", "EPANIC"], ["message", "no message"], ["up", 0]], ({ type, message, up }, vm) => new JEBError(ErrnoCode[withType(type, ["string"], "type") as any] ?? type as any, withType(message, ["string"], "message"), {}, vm.tracebackArray(withType(up, ["number"], "up"))),
+export const B_err = makeJSFun("err", [["type", "EPANIC"], ["message", "no message"], ["up", 0]], ({ type, message, up }, vm) => new JEBError(ErrnoCode[withType(type, ["string"], "type") as any] ?? type as any, withType(message, ["string"], "message"), {}, {}, vm.tracebackArray(withType(up, ["number"], "up"))),
     `.func (err message type up)
 ..param {string?} [message="no message"]
 ..param {string?} type - errno code for error
@@ -734,7 +734,7 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
             const arg = [a[i - 1], a[i], bits] as [any, any, Relation];
             const res = wrapThrowToError(ErrnoCode.EINVAL, () => vm.getProtocol(false, true, "cmp", arg).run(vm, arg));
             if (!res.ok) {
-                throw new JEBError(ErrnoCode.ERANGE, "comparison error: " + res.error, { return: vm.cc() });
+                throw new JEBError(ErrnoCode.ERANGE, "comparison error: " + res.error, {}, { return: vm.cc() });
             }
             if (!res.data) return false;
         }
@@ -908,12 +908,12 @@ export const B_quasiquote = makeJSFun("quasiquote", [[true, "value"]], ({ value 
 .returns {any}
 . Prevents \`value\` from being evaluated, but walks the elements and replaces [[unquote]] and [[unquoteSplicing]] with the results of evaluating their arguments. The argument to [[unquoteSplicing]] must be a list.`);
 
-export const B_unquote = makeJSFun("unquote", [[true, "value"]], (_, vm) => { throw new JEBError(ErrnoCode.ESYNTAX, "unquote" + " not valid outside of quasiquote", { return: vm.cc() }); },
+export const B_unquote = makeJSFun("unquote", [[true, "value"]], (_, vm) => { throw new JEBError(ErrnoCode.ESYNTAX, "unquote" + " not valid outside of quasiquote", {}, { return: vm.cc() }); },
     `.macro (unquote value) | (, value) | ,value
 .returns {never}
 .throws ESYNTAX - when called as a normal function outside of a [[quasiquote]].
 . Marks a value to be interpolated inside a [[quasiquote]].`);
-export const B_unquoteSplicing = makeJSFun("unquoteSplicing", [[true, "value"]], (_, vm) => { throw new JEBError(ErrnoCode.ESYNTAX, "unquoteSplicing" + " not valid outside of quasiquote", { return: vm.cc() }); },
+export const B_unquoteSplicing = makeJSFun("unquoteSplicing", [[true, "value"]], (_, vm) => { throw new JEBError(ErrnoCode.ESYNTAX, "unquoteSplicing" + " not valid outside of quasiquote", {}, { return: vm.cc() }); },
     `.macro (unquoteSplicing value) | (,@ value) | ,@value
 .returns {never}
 .throws ESYNTAX - when called as a normal function outside of a [[quasiquote]].

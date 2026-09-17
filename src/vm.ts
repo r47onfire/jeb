@@ -158,7 +158,7 @@ export class JebVM<T extends JebVM = any> {
      */
     checkRecursion(length: number) {
         if (this.recursionDepth > length) {
-            this.pushCommand(OP_throw, new JEBError(ErrnoCode.EPROCLIM, "too much recursion", {}, this.tracebackArray()));
+            this.pushCommand(OP_throw, new JEBError(ErrnoCode.EPROCLIM, "too much recursion", {}, {}, this.tracebackArray()));
         }
     }
     /**
