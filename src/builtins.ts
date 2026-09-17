@@ -12,18 +12,18 @@ import { Continuation, DynamicWind, Windable } from "./continuation";
 import { define, defineAccessor, defineApplier, defineEvaluator, makeJSFun, makeOpcode, NOTHING } from "./define";
 import { OP_doargs } from "./doargs";
 import { Env, gensym } from "./env";
+import { ErrnoCode } from "./errno";
 import { checkNothingOrPush, JEBError, Location, wrapThrowToError } from "./errors";
 import { implicitBegin } from "./implicitBegin";
 import { __initializer } from "./initializers";
 import { float, numberOp, Relation } from "./math";
-import { AccessType, Reference, theTypeName, typeOf } from "./protocol";
+import { AccessType, Reference, theTypeName, typecheck, typeOf, withType } from "./protocol";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { CallableSignature, createSignature, Laziness, LonghandArgument } from "./signature";
 import { OP_unwrap, OP_wrap } from "./unwrap";
 import { Identifier, isIdentifier } from "./utils";
 import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "./vm";
 import { KeywordArg, MacroWrapper, ReferenceWrapper, SplatArg } from "./wrapper";
-import { ErrnoCode } from "./errno";
 
 export const OP_audit = makeOpcode("audit", (vm: JebVM, args: JEBAuditEvent<any>) => {
     vm.audit(...args);
@@ -33,7 +33,7 @@ export const OP_audit = makeOpcode("audit", (vm: JebVM, args: JEBAuditEvent<any>
 ..param {any[]} args
 . Raises an auditing event with the given arguments.`);
 
-export const B_audit = makeJSFun("audit", ["event", "params", true], ({ event, params }, vm) => vm.audit(event, ...params),
+export const B_audit = makeJSFun("audit", ["event", "params", true], ({ event, params }, vm) => vm.audit(withType(event, ["string"], "event"), ...params),
     `.func (audit event params...)
 ..param {keyof JEBAuditEvents} event
 ..param {any[]} params
@@ -168,22 +168,23 @@ export const OP_apply = makeOpcode("apply", (vm: JebVM, { 0: argv, 1: location, 
 The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.
 The \`callAt\` frame will be hidden in the actual traceback.`);
 export const B_atLocation = makeJSFun("at", [[true, "pos"], [true, "expr"]], ({ pos, expr }, vm) => {
+    typecheck(pos, [Array], "pos");
     // Remove self frame from here
     vm.popTraceback(false); // don't drop tail call, just in case this is in tail position
     vm.popCommand(); // This will be the tb_pop pushed by apply above
-    pushCommand(vm, OP_eval, pos);
+    pushCommand(vm, OP_eval, pos as Location);
     return expr;
 },
     `.macro (at location expr)
 ..param {opaque-id} location
 ..param {code} expr
 . Equivalent to \`expr\` as a normal [[eval]]uation, but inserts the metadata of \`location\` into the stack frame to identify the call site itself instead of just the thing that was called.`);
-export const B_splat = makeJSFun("splat", ["value", ["kw", false]], ({ value, kw }) => new SplatArg(value, kw),
+export const B_splat = makeJSFun("splat", ["value", ["kw", false]], ({ value, kw }) => new SplatArg(value, withType(kw, ["boolean"], "kw")),
     `.func (splat arg kw)
 ..param {any[] | object} arg - iterable or object to unpack
 ..param {boolean?} [kw=false] - whether to unpack into positional or keyword arguments
 . Causes the value to unpack into keyword or positional arguments instead of being passed as a single value.`);
-export const B_keyword = makeJSFun("kw", ["name", "value"], ({ name, value }) => new KeywordArg(value, name),
+export const B_keyword = makeJSFun("kw", ["name", "value"], ({ name, value }) => new KeywordArg(value, withType(name, ["string"], "name")),
     `.func (kw name value)
 ..param {string} name - name of keyword arg to unpack into
 ..param {any} value
@@ -220,7 +221,7 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
         (_, func) => func,
         "Wrapper for a Javascript function that gives it a few properties to make it easier for JEB to call it.");
 });
-const OP_JSFun_invoke = makeOpcode(null, (vm: JebVM, { 0: func, 1: location }: [JSFun, loc?: Location | undefined]) => checkNothingOrPush(vm, func.impl(popData(vm), vm, location)), null);
+const OP_JSFun_invoke = makeOpcode(null, <T extends JebVM>(vm: T, { 0: func, 1: location }: [JSFun<T>, loc?: Location | undefined]) => checkNothingOrPush(vm, func.impl(popData(vm), vm, location)), null);
 
 // MARK: variables
 __initializer(vm => {
@@ -295,7 +296,7 @@ export const B_set = makeJSFun("set", [[["ref"], "ref"], [false, "value"], ["old
     if (!isinstance(ref, ReferenceWrapper)) {
         throw new JEBError(ErrnoCode.EINVAL, `cannot assign to ${theTypeName(typeOf(ref))}`);
     }
-    pushCommand(vm, OP_set_internal, value, old);
+    pushCommand(vm, OP_set_internal, value as Block, withType(old, ["boolean"], "old"));
     return ref.obj;
 },
     `.macro (set slot value old)
@@ -338,7 +339,7 @@ export const B_throw = makeJSFun("throw", ["err"], ({ err }) => {
 .returns {never}
 . Throw an error. If we're inside a [[with]] block, it will trigger the \`exit\` handler of the context object to possibly handle the error.
 If the error is not handled, it will be thrown as a Javascript error, causing the program to halt.`);
-export const B_err = makeJSFun("err", [["type", "EPANIC"], ["message", "no message"], ["up", 0]], ({ type, message, up }, vm) => new JEBError(ErrnoCode[type] ?? type, message, {}, vm.tracebackArray(up)),
+export const B_err = makeJSFun("err", [["type", "EPANIC"], ["message", "no message"], ["up", 0]], ({ type, message, up }, vm) => new JEBError(ErrnoCode[withType(type, ["string"], "type") as any] ?? type as any, withType(message, ["string"], "message"), {}, vm.tracebackArray(withType(up, ["number"], "up"))),
     `.func (err message type up)
 ..param {string?} [message="no message"]
 ..param {string?} type - errno code for error
@@ -354,7 +355,7 @@ export const B_with = makeJSFun("with", [[true, "binding"], "context", [false, "
     // this looks backwards because it is - it's a stack, so the last one pushed (at the bottom)
     // is the first one executed
     pushCommand(vm, OP_with_teardown);
-    pushCommand(vm, OP_block_invoke, body, false);
+    pushCommand(vm, OP_block_invoke, body as any as Block, false);
     pushCommand(vm, OP_with_setup, dw, binding);
     pushData(vm, context);
     return NOTHING;
@@ -471,17 +472,17 @@ const OP_fun_invoke = makeOpcode(null, (vm: JebVM, { 0: fn, 1: tail }: [Fun<any>
 
 const B_fn = makeJSFun("fn", [[true, "params"], [true, "body"], true], ({ params, body }, vm) => {
     var isImplicit = false;
-    if (typeof params === "boolean") {
-        isImplicit = params;
-        params = body[0];
-        body = body.slice(1);
+    if (!isArray(params)) {
+        isImplicit = params as any;
+        params = withType(body![0], [Array], "fn.params");
+        body = body!.slice(1);
     }
     var docstring = "";
-    if (isString(body[0]) && body.length > 1) {
-        docstring = body[0];
-        body = body.slice(1);
+    if (isString(body![0]) && body!.length > 1) {
+        docstring = body![0];
+        body = body!.slice(1);
     }
-    return new Fun(isImplicit, undefined, createSignature(params), new Block(vm.currentEnv, body), docstring);
+    return new Fun(isImplicit, undefined, createSignature(params), new Block(vm.currentEnv, body!), docstring);
 },
     `.macro (fn (parameters...) body...) (fn true (parameters...) docstring body...)
 The form with \`true\` right after the \`fn\` defines it as an implicit function, where the special \`return\` continuation is not injected and the call will not show up in the traceback of an error (it would normally show as \`[anonymous]\` unless assigned to a name).
@@ -573,7 +574,7 @@ export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, locatio
     // TODO: rewrite this transformation using Block ??
     if (isIdentifier(args[0])) {
         const loopname = args[0];
-        const { 0: params, 1: initializers } = extractParts(args[1]);
+        const { 0: params, 1: initializers } = extractParts(withType(args[1], [Array], "let.bindings"));
         const body = args.slice(2);
         const recur = gensym("recur");
         const counter = gensym("counter");
@@ -586,7 +587,7 @@ export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, locatio
                     ...body]],
             [recur, 0, ...initializers]], 0]);
     } else {
-        const { 0: params, 1: initializers } = extractParts(args[0]);
+        const { 0: params, 1: initializers } = extractParts(withType(args[0], [Array], "let.bindings"));
         const body = args.slice(1);
         pushData(vm, [[B_fn, true, params, ...body], ...initializers]);
     }
@@ -673,8 +674,7 @@ Expands into a [[fn]].
 // MARK: Operators
 const mathHelper = (operator: string, op2: "add" | "sub" | "mul" | "matMul" | "div" | "mod" | "pow" | "bitAnd" | "bitOr" | "bitXor", op1: "abs" | "neg" | "inv" | undefined,
     f2: (a: number | bigint, b: number | bigint) => number | bigint,
-    num: (x: number) => any,
-    big: (x: bigint) => any,
+    f1: (x: bigint) => any,
     doc: string,
 ) => {
     const b = makeJSFun(operator, ["a", ["b", NOTHING]], ({ a, b }, vm) => {
@@ -697,16 +697,15 @@ const mathHelper = (operator: string, op2: "add" | "sub" | "mul" | "matMul" | "d
     __initializer(vm => vm.addProtocol(op2, { type: [["number", "bigint"], ["number", "bigint"]], run: (_, { 0: a, 1: b }) => Ok(f2(a, b)), doc }));
     if (op1) {
         __initializer(vm => {
-            vm.addProtocol(op1, { type: [["number"]], run: (_, { 0: a }) => Ok(num(a)), doc });
-            vm.addProtocol(op1, { type: [["bigint"]], run: (_, { 0: a }) => Ok(big(a)), doc });
+            vm.addProtocol(op1, { type: [["number", "bigint"]], run: (_, { 0: a }) => Ok(f1(a)), doc });
         });
     }
     return b;
 }
-export const B_plus = mathHelper("+", "add", "abs", numberOp(add), Math.abs, a => a > 0 ? a : -a, "Adds numbers or concatenates strings.");
+export const B_plus = mathHelper("+", "add", "abs", numberOp(add), a => a > 0 ? a : -a, "Adds numbers or concatenates strings.");
 __initializer(vm => vm.addProtocol("add", { type: [["string"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(a + b), doc: "Concatenates strings" }));
-export const B_minus = mathHelper("-", "sub", "neg", numberOp((a, b) => a - b), a => -a, a => -a, "Subtracts numbers.\nIn the case of one number, returns the additive inverse (i.e. the negative).");
-export const B_mul = mathHelper("*", "mul", undefined, numberOp((a, b) => a * b), id, id, "Multiplies numbers.\nThe special case of `string * number` or `number * string` results in repeating the string N times.");
+export const B_minus = mathHelper("-", "sub", "neg", numberOp((a, b) => a - b), a => -a, "Subtracts numbers.\nIn the case of one number, returns the additive inverse (i.e. the negative).");
+export const B_mul = mathHelper("*", "mul", undefined, numberOp((a, b) => a * b), id, "Multiplies numbers.\nThe special case of `string * number` or `number * string` results in repeating the string N times.");
 const repeat = (a: string, b: number): Result<string, string> => {
     if (b < 0) return Err("Cannot repeat a negative number of times");
     if ((b | 0) !== b) return Err("Cannot repeat a non-integer number of times");
@@ -716,13 +715,13 @@ __initializer(vm => {
     vm.addProtocol("mul", { type: [["string"], ["number"]], run: (_, { 0: a, 1: b }) => Ok(repeat(a, b)), doc: "Repeats strings" });
     vm.addProtocol("mul", { type: [["number"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(repeat(b, a)), doc: "Repeats strings" });
 });
-export const B_div = mathHelper("/", "div", "inv", (a, b) => float(a) / float(b), a => 1 / a, a => 1 / float(a), "Divides numbers.\nIn the case of one number, returns the multiplicative inverse (i.e. the reciprocal).");
-export const B_mod = mathHelper("%", "mod", undefined, numberOp((a, b) => a % b), id, id, "Computes the modulo of two numbers.");
-export const B_pow = mathHelper("pow", "pow", undefined, numberOp((a, b) => a ** b), id, id, "Computes the power of numbers.\nHowever, this function still folds from the right like the other math functions, so unlike how power is notated mathematically (where `a^b^c^d^e` means `a^(b^(c^(d^e)))`), `[\"pow\", a, b, c, d, e]` is interpreted as `(((a^b)^c)^d)^e`.");
-export const B_bitAnd = mathHelper("bit-and", "bitAnd", undefined, numberOp((a, b) => a & b), id, id, "Computes the bitwise AND of all numbers.");
-export const B_bitOr = mathHelper("bit-or", "bitOr", undefined, numberOp((a, b) => a | b), id, id, "Computes the bitwise OR of all numbers.");
-export const B_bitXor = mathHelper("bit-xor", "bitXor", undefined, numberOp((a, b) => a ^ b), id, id, "Computes the bitwise XOR of all numbers.");
-export const B_bitInv = makeJSFun("bit-inv", ["a"], ({ a }) => ~a, `.func (bit-inv number)
+export const B_div = mathHelper("/", "div", "inv", (a, b) => float(a) / float(b), a => 1 / float(a), "Divides numbers.\nIn the case of one number, returns the multiplicative inverse (i.e. the reciprocal).");
+export const B_mod = mathHelper("%", "mod", undefined, numberOp((a, b) => a % b), id, "Computes the modulo of two numbers.");
+export const B_pow = mathHelper("pow", "pow", undefined, numberOp((a, b) => a ** b), id, "Computes the power of numbers.\nHowever, this function still folds from the right like the other math functions, so unlike how power is notated mathematically (where `a^b^c^d^e` means `a^(b^(c^(d^e)))`), `[\"pow\", a, b, c, d, e]` is interpreted as `(((a^b)^c)^d)^e`.");
+export const B_bitAnd = mathHelper("bit-and", "bitAnd", undefined, numberOp((a, b) => a & b), id, "Computes the bitwise AND of all numbers.");
+export const B_bitOr = mathHelper("bit-or", "bitOr", undefined, numberOp((a, b) => a | b), id, "Computes the bitwise OR of all numbers.");
+export const B_bitXor = mathHelper("bit-xor", "bitXor", undefined, numberOp((a, b) => a ^ b), id, "Computes the bitwise XOR of all numbers.");
+export const B_bitInv = makeJSFun("bit-inv", ["a"], ({ a }) => ~withType(a, ["number", "bigint"], "a"), `.func (bit-inv number)
 ..param {number} a
 . Computes the two's complement signed bitwise inverse of the number.`);
 
@@ -799,18 +798,18 @@ export const B_list = makeJSFun("list", ["values", true], ({ values }) => values
 ..param {T} values...
 .returns {T[]}
 . Returns the arguments in a list.`);
-export const B_head = makeJSFun("head", ["list"], ({ list }) => list[0],
+export const B_head = makeJSFun("head", ["list"], ({ list }) => withType(list, [Array], "list")[0],
     `.func (head list)
 ..param {T[]} list
 .returns {T} - The first element in the list`);
-export const B_tail = makeJSFun("tail", ["list"], ({ list }) => list.slice(1),
+export const B_tail = makeJSFun("tail", ["list"], ({ list }) => withType(list, [Array], "list").slice(1),
     `.func (tail list)
 ..param {T[]} list
 ..returns {T[]} - A copy of the list without the first element`);
 export const B_concat = makeJSFun("concat", ["lists", true], ({ lists }) => {
     const out: any[] = [];
     for (var arg of lists) {
-        wrapThrowToError(ErrnoCode.EINVAL, () => out.push(...arg));
+        wrapThrowToError(ErrnoCode.EINVAL, () => out.push(...arg as any));
     }
     return out;
 },
@@ -920,7 +919,7 @@ export const B_unquoteSplicing = makeJSFun("unquoteSplicing", [[true, "value"]],
 .throws ESYNTAX - when called as a normal function outside of a [[quasiquote]].
 . Marks a list to be interpolated via splicing inside a [[quasiquote]].`);
 
-export const B_jsonparse = makeJSFun("jsonparse", ["json"], ({ json }) => wrapThrowToError(ErrnoCode.ESYNTAX, () => parse(json)),
+export const B_jsonparse = makeJSFun("jsonparse", ["json"], ({ json }) => wrapThrowToError(ErrnoCode.ESYNTAX, () => parse(withType(json, ["string"], "json"))),
     `.func (jsonparse json)
 ..param {string} json
 .throws ESYNTAX - if the string is not valid JSON

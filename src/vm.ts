@@ -5,12 +5,12 @@ import { JEBAuditEvents } from "./auditHookTypes";
 import { loadBuiltins, OP_eval, OP_throw } from "./builtins";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
+import { ErrnoCode } from "./errno";
 import { createStackInnerNode, createStackLeafNode, JEBError, Location, locationsEqual, StackTreeNode } from "./errors";
 import { __initializer, __initializers } from "./initializers";
 import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
 import { OP_unwrap } from "./unwrap";
 import { Identifier, Tuple } from "./utils";
-import { ErrnoCode } from "./errno";
 export { __initializer };
 
 /**
@@ -51,7 +51,7 @@ export class JebVM<T extends JebVM = any> {
     tracebackStack!: LinkedList<StackCount>;
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
-    protocols: Partial<JEBProtocols> = {};
+    protocols: Partial<JEBProtocols<T>> = {};
     getState(): any { }
     restoreState(state: any): void { }
 
@@ -60,10 +60,10 @@ export class JebVM<T extends JebVM = any> {
         loadBuiltins(this as any as T);
         __initializers.forEach(f => f(this as any as T));
     }
-    addProtocol<N extends keyof JEBProtocols>(name: N, impl: JEBProtocols[N][number]) {
+    addProtocol<N extends keyof JEBProtocols<T>>(name: N, impl: JEBProtocols<T>[N][number]) {
         (this.protocols[name] ??= [] as any[]).push(impl);
     }
-    getProtocol<N extends keyof JEBProtocols, T extends boolean>(fast: boolean, assert: T, name: N, args: Tuple<any, ArgcForName<N>>): JEBProtocols[N][number] | (T extends true ? never : undefined) {
+    getProtocol<N extends keyof JEBProtocols<T>, A extends boolean>(fast: boolean, assert: A, name: N, args: Tuple<any, ArgcForName<T, N>>): JEBProtocols<T>[N][number] | (A extends true ? never : undefined) {
         const res = getProtocolHandler(this.protocols, fast, name, args);
         if (assert && !res) throw new JEBError(ErrnoCode.ERANGE, `No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${args.map(x => theTypeName(typeOf(x))).join(", ")}`);
         return res!;

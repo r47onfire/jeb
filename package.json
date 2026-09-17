@@ -9,11 +9,14 @@
         },
         "./test": {
             "import": "./src/indextest.ts"
+        },
+        "./doc": {
+            "import": "./src/doc.ts"
         }
     },
     "type": "module",
     "scripts": {
-        "build": "bun run regenerate-errno && bun run scripts/build.ts",
+        "build": "rm -rf dist/ && bun run regenerate-errno && bun run scripts/build.ts",
         "test": "BUN_JSC_useTailCalls=0 bun test",
         "test:watch": "BUN_JSC_useTailCalls=0 bun test --watch",
         "clean-dist": "rm -rf dist/*",

@@ -45,7 +45,7 @@ export abstract class CallableClass extends class { constructor(self: object) { 
  * The Javascript function has access to the VM so it can push opcodes to
  * implement more than just computation.
  */
-export class JSFun<S extends CallableSignature = CallableSignature> implements HasDocstring, ApplyMetadata {
+export class JSFun<T extends JebVM, S extends CallableSignature = CallableSignature> implements HasDocstring, ApplyMetadata {
     constructor(
         /**
          * The name of the function as it should appear in a traceback.
@@ -60,8 +60,8 @@ export class JSFun<S extends CallableSignature = CallableSignature> implements H
          * return value is pushed (even if it's `undefined`).
          */
         public readonly impl: (
-            args: Record<S["params"][number]["name"], any> & (S["rest"] extends { name: infer N extends PropertyKey } ? { [x in N]: any[] } : {}) & (S["kwRest"] extends { name: infer N extends PropertyKey } ? { [x in N]: Record<any, any> } : {}),
-            vm: JebVM,
+            args: Record<S["params"][number]["name"], unknown> & (S["rest"] extends { name: infer N extends PropertyKey } ? { [x in N]: unknown[] } : {}) & (S["kwRest"] extends { name: infer N extends PropertyKey } ? { [x in N]: Record<PropertyKey, unknown> } : {}),
+            vm: T,
             location: Location | undefined,
         ) => any,
         /**

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { isString } from "lib0/function";
-import { AccessorParsers, ALL_OPCODES, ApplierParsers, DocMetadata, DocMetadataParser, DocNode, EmptyTag, EvaluatorParsers, FunctionOrMacroParsers, JebVM, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs, theTypeName, Type, UnwrapperParsers } from "../src";
+import { ALL_OPCODES, JebVM, theTypeName, Type } from "../src";
+import { AccessorParsers, ApplierParsers, DocMetadata, DocMetadataParser, DocNode, EmptyTag, EvaluatorParsers, FunctionOrMacroParsers, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs, UnwrapperParsers } from "../src/doc";
 
 describe("inline parsing", () => {
     test.each<[string, string, DocNode[]]>([

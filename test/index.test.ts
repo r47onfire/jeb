@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, makeSingleEventWatcher, OP_shuffle, popData, promisifyVM, pushCommand, pushData, typeMatches } from "../src";
+import { ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, makeSingleEventWatcher, OP_shuffle, popData, promisifyVM, pushCommand, pushData, typeMatches, withType } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -729,7 +729,7 @@ testTest(test, "async test", async vm => {
     expect(await runAsync(vm, [
         makeJSFun("wait", ["time"], ({ time }, vm) =>
             promisifyVM(vm, new Promise(resolve =>
-                setTimeout(resolve, time))), ""),
+                setTimeout(resolve, withType(time, ["number"], "time")))), ""),
         TIME])).toBeTrue();
     const b = Date.now();
     expect(Math.abs(b - a - TIME)).toBeLessThan(10);

@@ -3,7 +3,7 @@ Bun.build({
     format: "esm",
     splitting: true,
     outdir: "dist/",
-    entrypoints: ["src/index.ts"],
+    entrypoints: ["src/index.ts", "src/indextest.ts", "src/doc.ts"],
     naming: {
         entry: "[dir]/[name].[ext]",
         chunk: "[dir]/[hash].[ext]",
