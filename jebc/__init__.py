@@ -27,8 +27,8 @@ js_identifier = Word(unicode.alphas + unicode.nums + "_$")
 
 object_key = string | js_identifier
 
-# $var → ["get", "var"]
-variable = (Suppress("$") + symbol).set_parse_action(lambda t: [["$", t[0]]])
+# $foo → ["local", "foo"]
+variable = (Suppress("$") + symbol).set_parse_action(lambda t: [["local", t[0]]])
 
 # quotes
 

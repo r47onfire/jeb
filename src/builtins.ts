@@ -241,7 +241,7 @@ export const OP_index = makeOpcode("index", (vm: JebVM, { 0: type }: [AccessType
 ..param {code} name - evaluated
 .throws EINVAL - if the object can't be indexed
 . Finds an Accessor for the object and pushes the LValue for the given field.`);
-export const OP_get = makeOpcode("get", (vm: JebVM, { 0: shouldBind }: [boolean]) => {
+export const OP_get = makeOpcode("local", (vm: JebVM, { 0: shouldBind }: [boolean]) => {
     checkNothingOrPush(vm, (popData(vm) as Reference).get(vm, shouldBind))
 },
     `.imm accessType shouldBind
@@ -259,24 +259,24 @@ export const OP_set = makeOpcode("set", (vm: JebVM, { 0: create, 1: readonly }: 
 ..param {boolean?} [readonly=false]
 .sed value lvalue -- value
 . Takes an LValue on the top of the stack and calls the \`set()\` method with the next item in the stack as the value to set.`);
-const B_dollar = makeJSFun("$", ["name"], ({ name }, vm) => {
+const B_var = makeJSFun("local", ["name"], ({ name }, vm) => {
     pushCommand(vm, OP_wrap, ReferenceWrapper);
     pushCommand(vm, OP_index, AccessType.VARIABLE);
     pushData(vm, vm.currentEnv);
     return name;
 },
-    `.func ($ name)
+    `.func (local name)
 ..param {string} name
 .throws ENAME - if the name is not defined anywhere
 .returns {any}
 . Look up the variable with this name in the current environment.`);
-export const B_dot = makeJSFun(".", ["obj", "name"], ({ obj, name }, vm) => {
+export const B_index = makeJSFun("index", ["obj", "name"], ({ obj, name }, vm) => {
     pushCommand(vm, OP_wrap, ReferenceWrapper);
     pushCommand(vm, OP_index, AccessType.PROPERTY);
     pushData(vm, obj);
     return name;
 },
-    `.func (. obj name)
+    `.func (index obj name)
 ..param {any} obj
 ..param {PropertyKey} name
 . Returns a reference to \`obj[name]\`.`);
@@ -428,7 +428,7 @@ const OP_ffi_invoke = makeOpcode(null, (vm: JebVM, { 0: f }: [Function]) => {
 }, null);
 
 export const B_is_nil = makeJSFun("nil?", ["value"], ({ value }) => undefinedToNull(value) === null,
-    `.func (nil? value)
+    `.func (isNil value)
 ..param {any} value
 .returns {boolean}
 . \`true\` if the object is Javascript \`undefined\` or \`null\`. Any other value (including \`false\`, \`""\`, or \`[]\`) is considered not-null, even though it might still be falsy.`);
@@ -579,11 +579,11 @@ export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, locatio
         const recur = gensym("recur");
         const counter = gensym("counter");
         pushData(vm, [[B_fn, true, [recur],
-            [B_set, [B_dollar, recur],
+            [B_set, [B_var, recur],
                 [B_fn, true, [counter, ...params],
-                    [B_audit, "jeb:loop_check", [B_dollar, counter]],
+                    [B_audit, "jeb:loop_check", [B_var, counter]],
                     [B_let_in, loopname, [B_fn, true, params,
-                        [recur, [B_plus, 1, [B_dollar, counter]], ...params.map(p => [B_dollar, p])]]],
+                        [recur, [B_plus, 1, [B_var, counter]], ...params.map(p => [B_var, p])]]],
                     ...body]],
             [recur, 0, ...initializers]], 0]);
     } else {
@@ -602,11 +602,11 @@ export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, locatio
 .param {code} body...
 . Each of the pairs' *expression*s will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.`);
 
-export const B_let_in = makeJSFun("let-in", [[true, "pairs"], true], ({ pairs: ao }, vm) => {
+export const B_let_in = makeJSFun("letIn", [[true, "pairs"], true], ({ pairs: ao }, vm) => {
     const args = ao! as any[];
     const len = args.length;
     if ((len & 1) > 0) {
-        throw new JEBError(ErrnoCode.ESYNTAX, "let-in should have an even number of arguments");
+        throw new JEBError(ErrnoCode.ESYNTAX, "letIn should have an even number of arguments");
     }
     if (len === 0) return null;
     var value;
@@ -615,7 +615,7 @@ export const B_let_in = makeJSFun("let-in", [[true, "pairs"], true], ({ pairs: a
         const name = args[i];
         value = args[i + 1];
         if (!isIdentifier(name)) {
-            throw new JEBError(ErrnoCode.ESYNTAX, "let-in name must be a valid identifier");
+            throw new JEBError(ErrnoCode.ESYNTAX, "letIn name must be a valid identifier");
         }
         pushData(vm, new VariableReference(AccessType.VARIABLE, newEnv, name));
         pushData(vm, value);
@@ -627,7 +627,7 @@ export const B_let_in = makeJSFun("let-in", [[true, "pairs"], true], ({ pairs: a
     vm.currentEnv = newEnv;
     return NOTHING;
 },
-    `.func (let-in name value [name value]...)
+    `.func (letIn name value [name value]...)
 ..param {string} name
 ..param {any} value
 ..returns {any} - the last value
@@ -702,10 +702,10 @@ const mathHelper = (operator: string, op2: "add" | "sub" | "mul" | "matMul" | "d
     }
     return b;
 }
-export const B_plus = mathHelper("+", "add", "abs", numberOp(add), a => a > 0 ? a : -a, "Adds numbers or concatenates strings.");
+export const B_plus = mathHelper("add", "add", "abs", numberOp(add), a => a > 0 ? a : -a, "Adds numbers or concatenates strings.");
 __initializer(vm => vm.addProtocol("add", { type: [["string"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(a + b), doc: "Concatenates strings" }));
-export const B_minus = mathHelper("-", "sub", "neg", numberOp((a, b) => a - b), a => -a, "Subtracts numbers.\nIn the case of one number, returns the additive inverse (i.e. the negative).");
-export const B_mul = mathHelper("*", "mul", undefined, numberOp((a, b) => a * b), id, "Multiplies numbers.\nThe special case of `string * number` or `number * string` results in repeating the string N times.");
+export const B_minus = mathHelper("sub", "sub", "neg", numberOp((a, b) => a - b), a => -a, "Subtracts numbers.\nIn the case of one number, returns the additive inverse (i.e. the negative).");
+export const B_mul = mathHelper("mul", "mul", undefined, numberOp((a, b) => a * b), id, "Multiplies numbers.\nThe special case of `string * number` or `number * string` results in repeating the string N times.");
 const repeat = (a: string, b: number): Result<string, string> => {
     if (b < 0) return Err("Cannot repeat a negative number of times");
     if ((b | 0) !== b) return Err("Cannot repeat a non-integer number of times");
@@ -715,13 +715,13 @@ __initializer(vm => {
     vm.addProtocol("mul", { type: [["string"], ["number"]], run: (_, { 0: a, 1: b }) => Ok(repeat(a, b)), doc: "Repeats strings" });
     vm.addProtocol("mul", { type: [["number"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(repeat(b, a)), doc: "Repeats strings" });
 });
-export const B_div = mathHelper("/", "div", "inv", (a, b) => float(a) / float(b), a => 1 / float(a), "Divides numbers.\nIn the case of one number, returns the multiplicative inverse (i.e. the reciprocal).");
-export const B_mod = mathHelper("%", "mod", undefined, numberOp((a, b) => a % b), id, "Computes the modulo of two numbers.");
+export const B_div = mathHelper("div", "div", "inv", (a, b) => float(a) / float(b), a => 1 / float(a), "Divides numbers.\nIn the case of one number, returns the multiplicative inverse (i.e. the reciprocal).");
+export const B_mod = mathHelper("mod", "mod", undefined, numberOp((a, b) => a % b), id, "Computes the modulo of two numbers.");
 export const B_pow = mathHelper("pow", "pow", undefined, numberOp((a, b) => a ** b), id, "Computes the power of numbers.\nHowever, this function still folds from the right like the other math functions, so unlike how power is notated mathematically (where `a^b^c^d^e` means `a^(b^(c^(d^e)))`), `[\"pow\", a, b, c, d, e]` is interpreted as `(((a^b)^c)^d)^e`.");
-export const B_bitAnd = mathHelper("bit-and", "bitAnd", undefined, numberOp((a, b) => a & b), id, "Computes the bitwise AND of all numbers.");
-export const B_bitOr = mathHelper("bit-or", "bitOr", undefined, numberOp((a, b) => a | b), id, "Computes the bitwise OR of all numbers.");
-export const B_bitXor = mathHelper("bit-xor", "bitXor", undefined, numberOp((a, b) => a ^ b), id, "Computes the bitwise XOR of all numbers.");
-export const B_bitInv = makeJSFun("bit-inv", ["a"], ({ a }) => ~withType(a, ["number", "bigint"], "a"), `.func (bit-inv number)
+export const B_bitAnd = mathHelper("bitAnd", "bitAnd", undefined, numberOp((a, b) => a & b), id, "Computes the bitwise AND of all numbers.");
+export const B_bitOr = mathHelper("bitOr", "bitOr", undefined, numberOp((a, b) => a | b), id, "Computes the bitwise OR of all numbers.");
+export const B_bitXor = mathHelper("bitXor", "bitXor", undefined, numberOp((a, b) => a ^ b), id, "Computes the bitwise XOR of all numbers.");
+export const B_bitInv = makeJSFun("bitInv", ["a"], ({ a }) => ~withType(a, ["number", "bigint"], "a"), `.func (bitInv number)
 ..param {number} a
 . Computes the two's complement signed bitwise inverse of the number.`);
 
@@ -745,12 +745,12 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
 . ${doc}`);
 }
 const compDocHelper = (phrase: string) => `True if the sequence of items is strictly ${phrase} when read from left to right.`;
-export const B_eq = comparisonHelper("=", Relation.EQUAL, "True if all of the items are equal.");
-export const B_not_eq = comparisonHelper("!=", Relation.NOT_EQ, "True if no adjacent pair of items are equal.");
-export const B_less = comparisonHelper("<", Relation.LESS, compDocHelper("increasing"));
-export const B_greater = comparisonHelper(">", Relation.GREATER, compDocHelper("decreasing"));
-export const B_less_eq = comparisonHelper("<=", Relation.LESS_EQ, compDocHelper("nondecreasing"));
-export const B_greater_eq = comparisonHelper(">=", Relation.GREATER_EQ, compDocHelper("nonincreasing"));
+export const B_eq = comparisonHelper("eq", Relation.EQUAL, "True if all of the items are equal.");
+export const B_not_eq = comparisonHelper("notEq", Relation.NOT_EQ, "True if no adjacent pair of items are equal.");
+export const B_less = comparisonHelper("less", Relation.LESS, compDocHelper("increasing"));
+export const B_greater = comparisonHelper("greater", Relation.GREATER, compDocHelper("decreasing"));
+export const B_less_eq = comparisonHelper("lessEq", Relation.LESS_EQ, compDocHelper("nondecreasing"));
+export const B_greater_eq = comparisonHelper("greaterEq", Relation.GREATER_EQ, compDocHelper("nonincreasing"));
 
 const compareFn = (_: JebVM, { 0: a, 1: b, 2: c }: [any, any, Relation]) => {
     if (a == b) return Ok(!!(c & Relation.EQUAL));
@@ -919,14 +919,14 @@ export const B_unquoteSplicing = makeJSFun("unquoteSplicing", [[true, "value"]],
 .throws ESYNTAX - when called as a normal function outside of a [[quasiquote]].
 . Marks a list to be interpolated via splicing inside a [[quasiquote]].`);
 
-export const B_jsonparse = makeJSFun("jsonparse", ["json"], ({ json }) => wrapThrowToError(ErrnoCode.ESYNTAX, () => parse(withType(json, ["string"], "json"))),
-    `.func (jsonparse json)
+export const B_jsonparse = makeJSFun("jsonParse", ["json"], ({ json }) => wrapThrowToError(ErrnoCode.ESYNTAX, () => parse(withType(json, ["string"], "json"))),
+    `.func (jsonParse json)
 ..param {string} json
 .throws ESYNTAX - if the string is not valid JSON
 .returns {any}
 . Parses the string using \`JSON.parse()\` and returns the object.`);
-export const B_jsonstringify = makeJSFun("jsonstringify", ["value"], ({ value }) => wrapThrowToError(ErrnoCode.ERANGE, () => stringify(value)),
-    `.func (jsonstringify value)
+export const B_jsonstringify = makeJSFun("jsonStringify", ["value"], ({ value }) => wrapThrowToError(ErrnoCode.ERANGE, () => stringify(value)),
+    `.func (jsonStringify value)
 ..param {any} value
 .throws ERANGE - if \`value\` contains something that can't be serialized, such as a function or circular reference
 .returns {string}
@@ -947,35 +947,35 @@ export const loadBuiltins = (vm: JebVM) => {
     define(vm, "at", B_atLocation);
     define(vm, "splat", B_splat);
     define(vm, "kw", B_keyword);
-    define(vm, "$", B_dollar);
-    define(vm, ".", B_dot);
+    define(vm, "local", B_var);
+    define(vm, "index", B_index);
     define(vm, "set", B_set);
     define(vm, "throw", B_throw);
     define(vm, "err", B_err);
     define(vm, "with", B_with);
-    define(vm, "nil?", B_is_nil);
+    define(vm, "isNil", B_is_nil);
     define(vm, "fn", B_fn);
     define(vm, "if", B_if);
     define(vm, "begin", B_begin);
     define(vm, "let", B_let);
-    define(vm, "let-in", B_let_in);
+    define(vm, "letIn", B_let_in);
     define(vm, "define", B_define);
-    define(vm, "+", B_plus);
-    define(vm, "-", B_minus);
-    define(vm, "*", B_mul);
-    define(vm, "/", B_div);
-    define(vm, "%", B_mod);
+    define(vm, "add", B_plus);
+    define(vm, "sub", B_minus);
+    define(vm, "mul", B_mul);
+    define(vm, "div", B_div);
+    define(vm, "mod", B_mod);
     define(vm, "pow", B_pow);
-    define(vm, "bit-and", B_bitAnd);
-    define(vm, "bit-or", B_bitOr);
-    define(vm, "bit-xor", B_bitXor);
-    define(vm, "bit-inv", B_bitInv);
-    define(vm, "=", B_eq);
-    define(vm, "!=", B_not_eq);
-    define(vm, "<", B_less);
-    define(vm, ">", B_greater);
-    define(vm, "<=", B_less_eq);
-    define(vm, ">=", B_greater_eq);
+    define(vm, "bitAnd", B_bitAnd);
+    define(vm, "bitOr", B_bitOr);
+    define(vm, "bitXor", B_bitXor);
+    define(vm, "bitInv", B_bitInv);
+    define(vm, "eq", B_eq);
+    define(vm, "notEq", B_not_eq);
+    define(vm, "less", B_less);
+    define(vm, "greater", B_greater);
+    define(vm, "lessEq", B_less_eq);
+    define(vm, "greaterEq", B_greater_eq);
     define(vm, "not", B_not);
     define(vm, "and", B_and_shortcircuit);
     define(vm, "or", B_or_shortcircuit);
@@ -984,15 +984,11 @@ export const loadBuiltins = (vm: JebVM) => {
     define(vm, "tail", B_tail);
     define(vm, "concat", B_concat);
     define(vm, "quote", B_quote);
-    define(vm, "'", B_quote);
     define(vm, "quasiquote", B_quasiquote);
-    define(vm, "~", B_quasiquote);
     define(vm, "unquote", B_unquote);
-    define(vm, ",", B_unquote);
     define(vm, "unquoteSplicing", B_unquoteSplicing);
-    define(vm, ",@", B_unquoteSplicing);
-    define(vm, "jsonparse", B_jsonparse);
-    define(vm, "jsonstringify", B_jsonstringify);
+    define(vm, "jsonParse", B_jsonparse);
+    define(vm, "jsonStringify", B_jsonstringify);
 }
 // MARK: end of loadBuiltins();
 
