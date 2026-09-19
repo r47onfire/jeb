@@ -241,7 +241,7 @@ export const OP_index = makeOpcode("index", (vm: JebVM, { 0: type }: [AccessType
 ..param {code} name - evaluated
 .throws EINVAL - if the object can't be indexed
 . Finds an Accessor for the object and pushes the LValue for the given field.`);
-export const OP_get = makeOpcode("local", (vm: JebVM, { 0: shouldBind }: [boolean]) => {
+export const OP_get = makeOpcode("get", (vm: JebVM, { 0: shouldBind }: [boolean]) => {
     checkNothingOrPush(vm, (popData(vm) as Reference).get(vm, shouldBind))
 },
     `.imm accessType shouldBind
@@ -259,7 +259,7 @@ export const OP_set = makeOpcode("set", (vm: JebVM, { 0: create, 1: readonly }: 
 ..param {boolean?} [readonly=false]
 .sed value lvalue -- value
 . Takes an LValue on the top of the stack and calls the \`set()\` method with the next item in the stack as the value to set.`);
-const B_var = makeJSFun("local", ["name"], ({ name }, vm) => {
+export const B_local = makeJSFun("local", ["name"], ({ name }, vm) => {
     pushCommand(vm, OP_wrap, ReferenceWrapper);
     pushCommand(vm, OP_index, AccessType.VARIABLE);
     pushData(vm, vm.currentEnv);
@@ -579,11 +579,11 @@ export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, locatio
         const recur = gensym("recur");
         const counter = gensym("counter");
         pushData(vm, [[B_fn, true, [recur],
-            [B_set, [B_var, recur],
+            [B_set, [B_local, recur],
                 [B_fn, true, [counter, ...params],
-                    [B_audit, "jeb:loop_check", [B_var, counter]],
+                    [B_audit, "jeb:loop_check", [B_local, counter]],
                     [B_let_in, loopname, [B_fn, true, params,
-                        [recur, [B_plus, 1, [B_var, counter]], ...params.map(p => [B_var, p])]]],
+                        [recur, [B_plus, 1, [B_local, counter]], ...params.map(p => [B_local, p])]]],
                     ...body]],
             [recur, 0, ...initializers]], 0]);
     } else {
@@ -947,7 +947,7 @@ export const loadBuiltins = (vm: JebVM) => {
     define(vm, "at", B_atLocation);
     define(vm, "splat", B_splat);
     define(vm, "kw", B_keyword);
-    define(vm, "local", B_var);
+    define(vm, "local", B_local);
     define(vm, "index", B_index);
     define(vm, "set", B_set);
     define(vm, "throw", B_throw);
