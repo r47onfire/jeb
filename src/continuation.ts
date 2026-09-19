@@ -18,7 +18,7 @@ export class Continuation<T extends JebVM> {
     /** Closed-over traceback stack in progress */
     traceback: LinkedList<StackCount>;
     /** Other saved state */
-    state: any;
+    state: ReturnType<T["getState"]>;
     constructor(vm: T, extraOps: Command<T>[]) {
         this.env = vm.currentEnv;
         this.commands = LinkedList_pushAll(vm.commandStack, extraOps);
@@ -64,7 +64,7 @@ export class DynamicWind<T extends JebVM> {
     /** closed-over data stack */
     dataHere: LinkedList<any> = null;
     /** Other saved state */
-    stateHere: any;
+    stateHere: ReturnType<T["getState"]>;
     constructor(vm: T) {
         this.envHere = vm.currentEnv;
         this.parent = vm.curDynamicWind as DynamicWind<T>;
