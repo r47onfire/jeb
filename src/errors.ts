@@ -19,7 +19,7 @@ export interface JEBErrorContext {
  */
 export class JEBError extends Error {
     public children: JEBError[];
-    constructor(public code: ErrnoCode, message: string, public options: ErrorOptions & JEBErrorOptions = {}, public context: JEBErrorContext = {}, public traceback?: StackTreeNode[]) {
+    constructor(public code: ErrnoCode, message?: string, public options: ErrorOptions & JEBErrorOptions = {}, public context: JEBErrorContext = {}, public traceback?: StackTreeNode[]) {
         message ??= ErrnoDesc[code];
         super(message, { cause: options.cause });
         this.name = this.constructor.name;
