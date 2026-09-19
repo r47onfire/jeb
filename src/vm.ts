@@ -1,4 +1,4 @@
-import { isinstance, LinkedList, LinkedList_length, LinkedList_pop, LinkedList_popN, LinkedList_push } from "@r47onfire/game-math";
+import { EventDispatcher, isinstance, LinkedList, LinkedList_length, LinkedList_pop, LinkedList_popN, LinkedList_push } from "@r47onfire/game-math";
 import { isArray } from "lib0/array";
 import { min } from "lib0/math";
 import { JEBAuditEvents } from "./auditHookTypes";
@@ -34,7 +34,7 @@ export type GetArgParams<T extends OpcodeFunction<any, any>> = Parameters<T>[1] 
 /**
  * Base VM for running JEB code
  */
-export class JebVM<T extends JebVM = any> {
+export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents> {
     /** current environment */
     currentEnv!: Env;
     /** stack of commands to execute */
@@ -56,6 +56,7 @@ export class JebVM<T extends JebVM = any> {
     restoreState(state: any): void { }
 
     constructor() {
+        super();
         this.reset();
         loadBuiltins(this as any as T);
         __initializers.forEach(f => f(this as any as T));
@@ -245,24 +246,6 @@ export class JebVM<T extends JebVM = any> {
     }
     fatalError(error: JEBError): never {
         throw [, error, ,];
-    }
-
-    // TODO: make this based on event emitter
-    #auditHooks = new Set<<T extends keyof JEBAuditEvents>(event: T, ...args: JEBAuditEvents[T]) => void>();
-    /**
-     * Adds an audit hook that will be called every time something that should be audited happens.
-     * @returns callback to cancel the audit hook
-     */
-    addAuditHook(cb: <T extends keyof JEBAuditEvents>(event: T, ...args: JEBAuditEvents[T]) => void): () => void {
-        this.audit("jeb:add_audit_hook");
-        this.#auditHooks.add(cb);
-        return () => this.#auditHooks.delete(cb);
-    }
-    /**
-     * Raises an auditing event
-     */
-    audit<T extends keyof JEBAuditEvents>(...args: [event: T, ...JEBAuditEvents[T]]) {
-        this.#auditHooks.forEach(hook => hook(...args));
     }
 }
 

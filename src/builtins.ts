@@ -5,7 +5,7 @@ import { id, isString } from "lib0/function";
 import { parse, stringify } from "lib0/json";
 import { add } from "lib0/math";
 import { Err, Ok, Result } from "ts-res";
-import { JEBAuditEvent } from "./auditHookTypes";
+import { JEBAuditEvents } from "./auditHookTypes";
 import { Block } from "./block";
 import { Fun, JSFun } from "./callable";
 import { Continuation, DynamicWind, Windable } from "./continuation";
@@ -25,19 +25,19 @@ import { Identifier, isIdentifier } from "./utils";
 import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "./vm";
 import { KeywordArg, MacroWrapper, ReferenceWrapper, SplatArg } from "./wrapper";
 
-export const OP_audit = makeOpcode("audit", (vm: JebVM, args: JEBAuditEvent<any>) => {
-    vm.audit(...args);
+export const OP_audit = makeOpcode("audit", <T extends keyof JEBAuditEvents>(vm: JebVM, args: [name: T, arg: JEBAuditEvents[T]]) => {
+    vm.emit(...args);
 },
-    `.imm name args...
+    `.imm name arg
 ..param {keyof JEBAuditEvents} name
-..param {any[]} args
-. Raises an auditing event with the given arguments.`);
+..param {any} arg
+. Raises an auditing event with the given argument.`);
 
-export const B_audit = makeJSFun("audit", ["event", "params", true], ({ event, params }, vm) => vm.audit(withType(event, ["string"], "event"), ...params),
-    `.func (audit event params...)
+export const B_audit = makeJSFun("audit", ["event", "param"], ({ event, param }, vm) => vm.emit(withType(event, ["string"], "event"), param),
+    `.func (audit event param)
 ..param {keyof JEBAuditEvents} event
-..param {any[]} params
-. Raises an auditing event with the given arguments.`);
+..param {any} param
+. Raises an auditing event with the given argument.`);
 
 
 // MARK: op: traceback push/pop
@@ -423,7 +423,7 @@ __initializer(vm => defineApplier(vm, ["function"], (vm, { 0: f }) => {
 .throws EJAVASCRIPT - if the FFI'ed function throws an error`));
 const OP_ffi_invoke = makeOpcode(null, (vm: JebVM, { 0: f }: [Function]) => {
     const args = popData(vm)._;
-    vm.audit("jeb:ffi/call_function", f, args)
+    vm.emit("jeb:ffi/call_function", [f, args]);
     pushData(vm, wrapThrowToError(ErrnoCode.EJAVASCRIPT, () => f(...args)));
 }, null);
 

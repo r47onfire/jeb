@@ -11,13 +11,13 @@ import { ErrnoCode } from "./errno";
 export class ObjectPropertyReference extends Reference {
     constructor(type: AccessType, public obj: any, public name: PropertyKey) { super(type); }
     get(vm: JebVM, shouldBind: boolean) {
-        vm.audit("jeb:ffi/object/get", this.obj, this.name);
+        vm.emit("jeb:ffi/object/get", [this.name, this.obj]);
         var value = this.obj[this.name];
         if (shouldBind && typeof value === "function") value = value.bind(this.obj);
         return value;
     }
     set(vm: JebVM, value: any) {
-        vm.audit("jeb:ffi/object/set", this.obj, this.name, value);
+        vm.emit("jeb:ffi/object/set", [this.name, this.obj, value]);
         wrapThrowToError(ErrnoCode.EJAVASCRIPT, () => {
             this.obj[this.name] = value;
         });

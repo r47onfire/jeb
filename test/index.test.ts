@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, makeSingleEventWatcher, OP_shuffle, popData, promisifyVM, pushCommand, pushData, typeMatches, withType } from "../src";
+import { ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_shuffle, popData, promisifyVM, pushCommand, pushData, typeMatches, withType } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -681,19 +681,19 @@ describe("FFI", () => {
 
 describe("audit hook protections", () => {
     testTest(test, "prevents accessing Function", vm => {
-        vm.addAuditHook(makeSingleEventWatcher("jeb:ffi/object/get", (obj, key) => {
+        vm.on("jeb:ffi/object/get", ([key, obj]) => {
             if (obj[key] === Function) {
                 throw new JEBError(ErrnoCode.EACCES, "can't access that!");
             }
-        }));
+        });
         expect(() => run(vm, ["index", ["index", {}, "constructor"], "constructor"])).toThrow("can't access that!");
     });
     testTest(test, "infinite loop guard", vm => {
-        vm.addAuditHook(makeSingleEventWatcher("jeb:loop_check", (count) => {
+        vm.on("jeb:loop_check", count => {
             if (count > 10000) {
                 throw new JEBError(ErrnoCode.EPROCLIM, "too many loops");
             }
-        }));
+        });
         expect(() => run(vm, [
             ["let", "loop", [], ["loop"]]
         ], 10000000)).toThrow("too many loops");
