@@ -21,7 +21,7 @@ export const NOTHING = Symbol("NOTHING");
  * e.g. an FFI callback).
  * @returns the builtin function, for referring to later
  */
-export const makeJSFun = <V extends JebVM, const T extends ShorthandArgument<any, any>[]>(name: Identifier, signature: T, fn: JSFun<V, CallableSignatureFromShorthand<T>>["impl"], doc: string) => {
+export const makeJSFun = <V extends JebVM, const T extends ShorthandArgument<any, any>[]>(name: Identifier, signature: T, fn: JSFun<V, CallableSignatureFromShorthand<T>>["impl"], doc: string): JSFun<V, CallableSignatureFromShorthand<T>> => {
     return new JSFun(name, createSignature(signature), fn as any, doc);
 }
 /**
