@@ -13,6 +13,7 @@ export * from "./math";
 export * from "./protocol";
 export * from "./reference";
 export * from "./signature";
+export * from "./unwrap";
 export * from "./utils";
 export * from "./vm";
 export * from "./wrapper";
