@@ -1,4 +1,3 @@
-import { isinstance } from "@r47onfire/game-math";
 import { isString } from "lib0/function";
 import { stringify } from "lib0/json";
 import { pow } from "lib0/math";
@@ -39,7 +38,7 @@ export function typeMatches(obj: any, type: Type): number {
     if (isString(type)) {
         return typeof obj === type ? 3 : 0;
     } else {
-        if (!isinstance(obj, type)) return 0;
+        if (!(obj instanceof type)) return 0;
         var score = 3;
         while (type) {
             score++;

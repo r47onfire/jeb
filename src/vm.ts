@@ -1,4 +1,4 @@
-import { EventDispatcher, isinstance, LinkedList, LinkedList_length, LinkedList_pop, LinkedList_popN, LinkedList_push } from "@r47onfire/game-math";
+import { EventDispatcher, LinkedList, LinkedList_length, LinkedList_pop, LinkedList_popN, LinkedList_push } from "@r47onfire/game-math";
 import { isArray } from "lib0/array";
 import { min } from "lib0/math";
 import { JEBAuditEvents } from "./auditHookTypes";
@@ -117,8 +117,8 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
         try {
             command[0](this as any as T, command.slice(1));
         } catch (e) {
-            if (isArray(e) && e.length === 3 && isinstance(e[1], JEBError)) throw e[1];
-            if (!isinstance(e, JEBError)) throw e;
+            if (isArray(e) && e.length === 3 && e[1] instanceof JEBError) throw e[1];
+            if (!(e instanceof JEBError)) throw e;
             e.traceback ??= this.tracebackArray();
             this.pushCommand(OP_throw, e);
         }

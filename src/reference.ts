@@ -1,4 +1,3 @@
-import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
 import { Fun } from "./callable";
 import { Env } from "./env";

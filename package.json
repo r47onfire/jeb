@@ -36,7 +36,7 @@
     },
     "dependencies": {
         "@r47onfire/game-math": "github:r47onfire/game-math",
-        "lib0": "^0.2.117",
+        "lib0": "^0.2.118",
         "ts-res": "github:r47onfire/ts-res"
     }
 }

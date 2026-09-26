@@ -2,8 +2,8 @@
  * @fileoverview
  * AUTO-GENERATED! DO NOT EDIT!
  * Checked files:
- * * /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/errno.h
  * * /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/errno.h
+ * * /Library/Developer/CommandLineTools/SDKs/MacOSX.sdk/usr/include/sys/errno.h
  */
 /**
  * Errno database mapping E-code to value

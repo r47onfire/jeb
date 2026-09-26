@@ -1,4 +1,4 @@
-import { isinstance, javaHash, rotate32 } from "@r47onfire/game-math";
+import { javaHash, rotate32 } from "@r47onfire/game-math";
 import { NOTHING } from "./define";
 import { ErrnoCode, ErrnoDesc } from "./errno";
 import { Identifier } from "./utils";
@@ -26,7 +26,7 @@ export class JEBError extends Error {
         this.children = options.children ?? [];
     }
     toString(): string {
-        return `[${ErrnoCode[this.code] ?? this.code}] ${this.message}${this.traceback ? `\ntraceback: ${formatStackTraceCompact(compressStackTree(this.traceback))}` : ""}${isinstance(this.cause, JEBError) ? `\ncaused by: ${this.cause.toString()}${this.children.map(c => c.toString().split("\n").map(l => "  " + l).join("\n")).join("\n\n")}` : ""}`
+        return `[${ErrnoCode[this.code] ?? this.code}] ${this.message}${this.traceback ? `\ntraceback: ${formatStackTraceCompact(compressStackTree(this.traceback))}` : ""}${this.cause instanceof JEBError ? `\ncaused by: ${this.cause.toString()}${this.children.map(c => c.toString().split("\n").map(l => "  " + l).join("\n")).join("\n\n")}` : ""}`
     }
 }
 
@@ -181,7 +181,7 @@ export const wrapThrowToError = <T>(kind: ErrnoCode, f: () => T) => {
     try {
         return f();
     } catch (e) {
-        if (isinstance(e, JEBError)) throw e;
+        if (e instanceof JEBError) throw e;
         throw new JEBError(kind, String(e), { cause: e });
     }
 }

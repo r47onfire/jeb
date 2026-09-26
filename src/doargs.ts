@@ -1,4 +1,3 @@
-import { isinstance } from "@r47onfire/game-math";
 import { stringify } from "lib0/json";
 import { Block } from "./block";
 import { OP_eval } from "./builtins";
@@ -129,10 +128,10 @@ export class DoargsState {
             }
             else throw new JEBError(ErrnoCode.ERANGE, `missing required parameter ${stringify(param.name)} of function ${stringify(this.#name)}`);
         }
-        if (isinstance(argValue, KeywordArg)) {
+        if (argValue instanceof KeywordArg) {
             return this.#storeKeyword(argValue.name, argValue.obj, false, 1);
         }
-        if (isinstance(argValue, SplatArg)) {
+        if (argValue instanceof SplatArg) {
             if (argValue.isKeyword) {
                 const values = { ...argValue.obj }, names = Reflect.ownKeys(values);
                 var state: DoargsState = this;
@@ -158,7 +157,7 @@ export class DoargsState {
         return this.#storePositional(argValue, false, 1, 1);
     }
     #assertNotSpecial(value: any) {
-        if (isinstance(value, KeywordArg) || isinstance(value, SplatArg)) {
+        if (value instanceof KeywordArg || value instanceof SplatArg) {
             throw new JEBError(ErrnoCode.ENOSYS, "TODO: what happens when a keyword/splat wrapper is inside another argument wrapper?");
         }
     }

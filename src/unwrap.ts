@@ -1,4 +1,3 @@
-import { isinstance } from "@r47onfire/game-math";
 import { OP_eval, OP_get } from "./builtins";
 import { defineUnwrapper, makeOpcode } from "./define";
 import { __initializer } from "./initializers";
@@ -20,7 +19,7 @@ export const OP_wrap = makeOpcode("wrap", (vm, args: WrapArg<any>) => {
 . Wraps the object in the given wrapper class.`);
 export const OP_unwrap = makeOpcode("unwrap", (vm, { 0: dontUnwrap }: [string[]]) => {
     const top = peekData(vm);
-    if (isinstance(top, Wrapper) && !dontUnwrap.includes(top.flag)) {
+    if (top instanceof Wrapper && !dontUnwrap.includes(top.flag)) {
         popData(vm);
         pushCommand(vm, OP_unwrap, dontUnwrap);
         vm.getProtocol(false, true, "unwrap", [top]).run(vm, [top]);

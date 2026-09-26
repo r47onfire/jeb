@@ -1,4 +1,3 @@
-import { isinstance } from "@r47onfire/game-math";
 import { isArray } from "lib0/array";
 import { undefinedToNull } from "lib0/conditions";
 import { id, isString } from "lib0/function";
@@ -293,7 +292,7 @@ const OP_set_internal = makeOpcode(null, (vm: JebVM, { 0: b, 1: old }: [Block, b
     pushCommand(vm, OP_shuffle, 1, [0, 0]);
 }, null);
 export const B_set = makeJSFun("set", [[["ref"], "ref"], [false, "value"], ["old", false]], ({ ref, value, old }, vm) => {
-    if (!isinstance(ref, ReferenceWrapper)) {
+    if (!(ref instanceof ReferenceWrapper)) {
         throw new JEBError(ErrnoCode.EINVAL, `cannot assign to ${theTypeName(typeOf(ref))}`);
     }
     pushCommand(vm, OP_set_internal, value as Block, withType(old, ["boolean"], "old"));
@@ -331,7 +330,7 @@ export const OP_throw = makeOpcode("throw", (vm: JebVM, { 0: err }: [JEBError]) 
 .sed -- (does not return)
 . Throws the error, but allows [[with]] handlers to catch it before throwing to Javascript.`);
 export const B_throw = makeJSFun("throw", ["err"], ({ err }) => {
-    if (!isinstance(err, JEBError)) throw new JEBError(ErrnoCode.EINVAL, "errors must inherit from JEBError");
+    if (!(err instanceof JEBError)) throw new JEBError(ErrnoCode.EINVAL, "errors must inherit from JEBError");
     throw err;
 },
     `.func (throw err)
