@@ -307,6 +307,17 @@ export const B_set = makeJSFun("set", [[["ref"], "ref"], [false, "value"], ["old
 .returns {old ? U : T}
 . Changes the value of the slot, and returns the new or old value as determined by \`old\`.`);
 
+export const B_ref = makeJSFun("ref", [[["ref"], "ref"]], ({ ref }) => withType(ref, [ReferenceWrapper]).obj,
+    `.macro (ref x)
+..param {[assignable location]} x
+. Asserts that \`x\` is a valid assignable, and then returns a reference to it, which can be assigned to or read with [[deref]].`);
+
+export const B_deref = makeJSFun("deref", ["ref"], ({ ref }) => new ReferenceWrapper(withType(ref, [Reference])),
+    `.func (deref x)
+..param {Reference} x
+. Asserts that \`x\` is a valid reference value created by [[ref]], and then returns the value stored in the reference.
+This function works with [[set]] to be able to change the value of the reference as well.`);
+
 // MARK: error handling
 export const OP_throw = makeOpcode("throw", (vm: JebVM, { 0: err }: [JEBError]) => {
     while (vm.curDynamicWind.parent) {
@@ -949,6 +960,8 @@ export const loadBuiltins = (vm: JebVM) => {
     define(vm, "local", B_local);
     define(vm, "index", B_index);
     define(vm, "set", B_set);
+    define(vm, "ref", B_ref);
+    define(vm, "deref", B_deref);
     define(vm, "throw", B_throw);
     define(vm, "err", B_err);
     define(vm, "with", B_with);

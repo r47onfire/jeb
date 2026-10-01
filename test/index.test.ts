@@ -434,6 +434,44 @@ describe("metaprogramming", () => {
     });
 });
 
+describe("references", () => {
+    testTest(test, "require deref to change", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 1],
+            ["letIn", "y", ["ref", ["local", "x"]]],
+            ["set", ["local", "y"], 2],
+            ["local", "x"],
+        ])).toBeTrue();
+        expect(popData(vm)).not.toEqual(2);
+    });
+    testTest(test, "can be changed with deref", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 1],
+            ["letIn", "y", ["ref", ["local", "x"]]],
+            ["set", ["deref", ["local", "y"]], 2],
+            ["local", "x"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(2);
+    });
+    testTest(test, "work with properties", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", { foo: 1 }],
+            ["letIn", "y", ["ref", ["index", ["local", "x"], "foo"]]],
+            ["set", ["deref", ["local", "y"]], 2],
+            ["local", "x"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual({ foo: 2 });
+    });
+    testTest(test, "transparently unwrap", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", { foo: 1 }],
+            ["letIn", "y", ["ref", ["index", ["local", "x"], "foo"]]],
+            ["deref", ["local", "y"]],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(1);
+    });
+});
+
 describe("keyword and splat arguments", () => {
     testTest(test, "kwargs ignore order", (vm, out) => {
         expect(run(vm, ["begin",
