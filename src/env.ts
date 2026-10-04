@@ -14,27 +14,38 @@ export class Env {
         readonly parents: readonly Env[] = []
     ) { }
     /**
-     * Look up the value, and return its value (in an ok result)
-     * or an err result if not found
+     * Returns the Env in which the given variable is defined.
      */
-    get(name: Identifier): Result<any, void> {
+    scopeFor(name: Identifier): Result<Env, void> {
         if (hasOwn(this.bindings, name)) {
-            return Ok(this.bindings[name]);
+            return Ok(this);
         }
-        for (var i = this.parents.length - 1; i >= 0; i--) {
-            const result = this.parents[i]!.get(name);
+        const p = this.parents, len = p.length;
+        for (var i = 0; i < len; i++) {
+            const result = p[i]!.scopeFor(name);
             if (result.ok) return result;
         }
         return Err();
     }
     /**
-     * Defines the value in this scope (always succeeds)
+     * Look up the value, and return its value (in an ok result)
+     * or an err result if not found
+     */
+    get(name: Identifier): Result<any, void> {
+        const res = this.scopeFor(name);
+        if (!res.ok) return res;
+        return Ok(res.data.bindings[name]);
+    }
+    /**
+     * Defines the value in this scope (always succeeds).
+     * Note: bailing on trying to reassign a constant is not checked here.
      */
     add(name: Identifier, value: any) {
         this.bindings[name] = value;
     }
     /**
-     * Defines the constant in this scope (always succeeds)
+     * Defines the constant in this scope (always succeeds).
+     * Note: bailing on trying to reassign a constant is not checked here.
      */
     addConst(name: Identifier, value: any) {
         this.add(name, value);
@@ -46,17 +57,12 @@ export class Env {
      * or undefined if it wasn't defined anywhere.
      */
     set(name: Identifier, value: any): boolean | undefined {
-        if (hasOwn(this.bindings, name)) {
-            if (this.constants[name]) return false;
-            this.bindings[name] = value;
-            return true;
-        }
-        const parents = this.parents, len = parents.length;
-        for (var i = 0; i < len; i++) {
-            const result = parents[i]!.set(name, value);
-            if (result !== undefined) return result;
-        }
-        return undefined;
+        const res = this.scopeFor(name);
+        if (!res.ok) return undefined;
+        const env = res.data;
+        if (env.constants[name]) return false;
+        env.bindings[name] = value;
+        return true;
     }
 }
 
