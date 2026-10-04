@@ -4,6 +4,8 @@ from pyparsing import pyparsing_unicode as unicode
 ParserElement.set_default_whitespace_chars(" \t\r\n")
 ParserElement.enable_packrat()
 
+__all__ = ["transpile"]
+
 # --- tokens ---
 LPAR, RPAR = map(Suppress, "()")
 LBRACE, RBRACE = map(Suppress, "{}")
@@ -27,7 +29,7 @@ js_identifier = Word(unicode.alphas + unicode.nums + "_$")
 
 object_key = string | js_identifier
 
-# $foo → ["local", "foo"]
+# $foo -> ["local", "foo"]
 variable = (Suppress("$") + symbol).set_parse_action(lambda t: [["local", t[0]]])
 
 # quotes
