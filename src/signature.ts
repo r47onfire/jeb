@@ -67,6 +67,8 @@ export interface CallableSignature<P extends readonly LonghandArgument<any, any>
 
 export type CallableSignatureFromShorthand<S extends readonly ShorthandArgument<any, any>[]> = CallableSignature<ShorthandToLonghand<S>, ExtractRest<S, true>, ExtractRest<S, false>>;
 
+declare const x: CallableSignatureFromShorthand<[[false, "onchange"], [["ref"], "refs"], true]>;
+
 export const createSignature = <const S extends readonly ShorthandArgument<any, any>[]>(signature: S): CallableSignatureFromShorthand<S> => {
     const processed: Writable<CallableSignature<any, any, any>> = {
         params: [],

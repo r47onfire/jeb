@@ -1,4 +1,6 @@
+import { RemovableSet } from "@r47onfire/game-math";
 import { Err, Ok, Result } from "ts-res";
+import { Block } from "./block";
 import { Identifier } from "./utils";
 
 const hasOwn = Object.hasOwn;
@@ -9,6 +11,7 @@ const hasOwn = Object.hasOwn;
 
 export class Env {
     readonly constants: Record<Identifier, true> = {};
+    readonly watchers: Record<Identifier, RemovableSet<Block>> = {};
     constructor(
         readonly bindings: Record<Identifier, any> = {},
         readonly parents: readonly Env[] = []
@@ -26,6 +29,9 @@ export class Env {
             if (result.ok) return result;
         }
         return Err();
+    }
+    watch(name: Identifier, handler: Block) {
+        return (this.watchers[name] ??= new RemovableSet()).push(handler);
     }
     /**
      * Look up the value, and return its value (in an ok result)
@@ -53,16 +59,16 @@ export class Env {
     }
     /**
      * Finds the scope in which this value is defined, and sets it there.
-     * Returns true if it was set, false if it's a constant and can't be changed,
+     * Returns the env it was just set in if it was set, false if it's a constant and can't be changed,
      * or undefined if it wasn't defined anywhere.
      */
-    set(name: Identifier, value: any): boolean | undefined {
+    set(name: Identifier, value: any): Env | false | undefined {
         const res = this.scopeFor(name);
         if (!res.ok) return undefined;
         const env = res.data;
         if (env.constants[name]) return false;
         env.bindings[name] = value;
-        return true;
+        return env;
     }
 }
 

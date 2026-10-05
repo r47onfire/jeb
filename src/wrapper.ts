@@ -5,7 +5,7 @@ import { Reference } from "./protocol";
  */
 export abstract class Wrapper {
     abstract flag: string;
-    constructor(public obj: any) { };
+    constructor(readonly obj: any) { };
 }
 
 /**
@@ -13,7 +13,7 @@ export abstract class Wrapper {
  */
 export class KeywordArg extends Wrapper {
     flag = "keyword" as const;
-    constructor(obj: any, public name: string) { super(obj); }
+    constructor(obj: any, readonly name: string) { super(obj); }
 }
 
 /**
@@ -21,7 +21,7 @@ export class KeywordArg extends Wrapper {
  */
 export class SplatArg extends Wrapper {
     flag = "splat" as const;
-    constructor(obj: any, public isKeyword: boolean) { super(obj); }
+    constructor(obj: any, readonly isKeyword: boolean) { super(obj); }
 }
 
 /**

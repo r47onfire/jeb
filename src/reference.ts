@@ -1,14 +1,15 @@
 import { stringify } from "lib0/json";
+import { OP_apply, OP_shuffle } from "./builtins";
 import { Fun } from "./callable";
 import { Env } from "./env";
+import { ErrnoCode } from "./errno";
 import { JEBError, wrapThrowToError } from "./errors";
 import { AccessType, Reference } from "./protocol";
 import { Identifier } from "./utils";
-import { __initializer, JebVM } from "./vm";
-import { ErrnoCode } from "./errno";
+import { __initializer, JebVM, pushCommand, pushData } from "./vm";
 
 export class ObjectPropertyReference extends Reference {
-    constructor(type: AccessType, public obj: any, public name: PropertyKey) { super(type); }
+    constructor(type: AccessType, readonly obj: any, readonly name: PropertyKey) { super(type); }
     get(vm: JebVM, shouldBind: boolean) {
         vm.emit("jeb:ffi/object/get", [this.name, this.obj]);
         var value = this.obj[this.name];
@@ -24,14 +25,14 @@ export class ObjectPropertyReference extends Reference {
 }
 
 export class VariableReference extends Reference {
-    notFoundMessage: string;
-    constructor(type: AccessType, public env: Env, public name: Identifier) {
+    readonly notFoundMessage: string;
+    constructor(type: AccessType, readonly env: Env, readonly name: Identifier) {
         super(type);
         this.notFoundMessage = type === AccessType.PROPERTY ? `module has no property ${stringify(this.name)}` :
             `${type === AccessType.VARIABLE ? "variable" : "function"} ${stringify(this.name)} not found`;
     }
     get() {
-        return this.env.get(this.name).else(() => this.#referenceError());
+        return this.env.get(this.name).else(() => this.referenceError());
     }
     set(vm: JebVM, value: any, create: boolean, readonly: boolean) {
         if (create) {
@@ -40,14 +41,20 @@ export class VariableReference extends Reference {
         } else {
             const didSet = this.env.set(this.name, value);
             if (didSet === undefined) {
-                this.#referenceError();
+                this.referenceError();
             } else if (!didSet) {
                 throw new JEBError(ErrnoCode.EROFS, `${stringify(this.name)} is a constant`);
+            } else {
+                didSet.watchers[this.name]?.forEach(w => {
+                    pushCommand(vm, OP_shuffle, 1, []);
+                    pushCommand(vm, OP_apply, [], undefined, false);
+                    pushData(vm, w);
+                });
             }
         }
         vm.getProtocol(true, false, "name", [value])?.run(vm, [value], { name: this.name });
     }
-    #referenceError(): never {
+    referenceError(): never {
         throw new JEBError(ErrnoCode.ENAME, this.notFoundMessage);
     }
 }
@@ -55,7 +62,7 @@ export class VariableReference extends Reference {
 __initializer(vm => {
     vm.addProtocol("name", {
         type: [[Fun]],
-        run(vm, { 0: fun }, { name }) { fun.name ??= name; },
+        run(_, { 0: fun }, { name }) { fun.name ??= name; },
         doc: "",
     });
 });

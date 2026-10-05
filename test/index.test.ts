@@ -472,6 +472,301 @@ describe("references", () => {
     });
 });
 
+describe("reactivity", () => {
+    testTest(test, "runs when a watched variable is set", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["set", ["local", "x"], 1],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(1);
+    });
+    testTest(test, "does not run on registration", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(0);
+    });
+    testTest(test, "only runs after registration", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["set", ["local", "x"], 1],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["set", ["local", "x"], 2],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(1);
+    });
+    testTest(test, "watcher sees the new value", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "seen", 0],
+            ["always", false, ["set", ["local", "seen"], ["local", "x"]], ["local", "x"]],
+            ["set", ["local", "x"], 42],
+            ["local", "seen"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(42);
+    });
+    testTest(test, "runs once per set", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["set", ["local", "x"], 1],
+            ["set", ["local", "x"], 2],
+            ["set", ["local", "x"], 3],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(3);
+    });
+    testTest(test, "runs even when set to the same value", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 1],
+            ["letIn", "count", 0],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["set", ["local", "x"], 1],
+            ["set", ["local", "x"], 1],
+            ["set", ["local", "x"], 1],
+            ["set", ["local", "x"], 1],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(4);
+    });
+    testTest(test, "runs before the next statement", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["always", false, ["print", "watcher"], ["local", "x"]],
+            ["set", ["local", "x"], 1],
+            ["print", "after set"],
+        ])).toBeTrue();
+        expect(out).toEqual(["watcher", "after set"]);
+    });
+    testTest(test, "does not run when an unwatched variable is set", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "y", 0],
+            ["letIn", "count", 0],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["set", ["local", "y"], 5],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(0);
+    });
+    testTest(test, "any of multiple watched variables triggers it", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "y", 0],
+            ["letIn", "count", 0],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"], ["local", "y"]],
+            ["set", ["local", "x"], 1],
+            ["set", ["local", "y"], 1],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(2);
+    });
+    testTest(test, "watching the same variable twice only registers it once", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"], ["local", "x"]],
+            ["set", ["local", "x"], 1],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(1);
+    });
+    testTest(test, "all watchers on a variable run", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "a", 0],
+            ["letIn", "b", 0],
+            ["always", false, ["set", ["local", "a"], ["add", ["local", "a"], 1]], ["local", "x"]],
+            ["always", false, ["set", ["local", "b"], ["add", ["local", "b"], 10]], ["local", "x"]],
+            ["set", ["local", "x"], 1],
+            ["list", ["local", "a"], ["local", "b"]],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual([1, 10]);
+    });
+    testTest(test, "setting through a deref'd reference triggers it", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["letIn", "rx", ["ref", ["local", "x"]]],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["set", ["deref", ["local", "rx"]], 9],
+            ["list", ["local", "x"], ["local", "count"]],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual([9, 1]);
+    });
+    testTest(test, "sets inside a function trigger it", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["define", ["bump"], ["set", ["local", "x"], ["add", ["local", "x"], 1]]],
+            ["bump"],
+            ["bump"],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(2);
+    });
+    testTest(test, "watchers can trigger other watchers", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "y", 0],
+            ["letIn", "z", 0],
+            ["always", false, ["set", ["local", "y"], ["add", ["local", "x"], 10]], ["local", "x"]],
+            ["always", false, ["set", ["local", "z"], ["add", ["local", "y"], 100]], ["local", "y"]],
+            ["set", ["local", "x"], 1],
+            ["list", ["local", "y"], ["local", "z"]],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual([11, 111]);
+    });
+    testTest(test, "can watch a variable from a parent scope", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["let", [["f", ["fn", [], ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]]]]], ["f"]],
+            ["set", ["local", "x"], 7],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(1);
+    });
+    testTest(test, "setting a shadowed variable does not trigger it", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["let", [["g", ["fn", [], ["begin", ["letIn", "x", 50], ["set", ["local", "x"], 51]]]]], ["g"]],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(0);
+    });
+    testTest(test, "defining a constant does not trigger it", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "count", 0],
+            ["let", [["h", ["fn", [],
+                ["letIn", "q", 1],
+                ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "q"]],
+                ["define", "q", 2],
+            ]]], ["h"]],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(0);
+    });
+    testTest(test, "can watch through a deref'd stored reference", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["letIn", "rx", ["ref", ["local", "x"]]],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["deref", ["local", "rx"]]],
+            ["set", ["local", "x"], 1],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(1);
+    });
+    testTest(test, "property changes do not trigger it, but reassigning the variable does", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", { foo: 1 }],
+            ["letIn", "count", 0],
+            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["set", ["index", ["local", "x"], "foo"], 2],
+            ["set", ["local", "x"], { foo: 3 }],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(1);
+    });
+    testTest(test, "returned function cancels the watcher", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["letIn", "cancel", ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]]],
+            ["set", ["local", "x"], 1],
+            [["local", "cancel"]],
+            ["set", ["local", "x"], 2],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(1);
+    });
+    testTest(test, "cancelling one watcher leaves the others", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "a", 0],
+            ["letIn", "b", 0],
+            ["letIn", "cancelA", ["always", false, ["set", ["local", "a"], ["add", ["local", "a"], 1]], ["local", "x"]]],
+            ["always", false, ["set", ["local", "b"], ["add", ["local", "b"], 10]], ["local", "x"]],
+            [["local", "cancelA"]],
+            ["set", ["local", "x"], 1],
+            ["list", ["local", "a"], ["local", "b"]],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual([0, 10]);
+    });
+    testTest(test, "cancelling a multi-variable watcher removes all of its watches", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "y", 0],
+            ["letIn", "count", 0],
+            ["letIn", "cancel", ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"], ["local", "y"]]],
+            [["local", "cancel"]],
+            ["set", ["local", "x"], 1],
+            ["set", ["local", "y"], 1],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(0);
+    });
+    testTest(test, "cancelling twice does not error", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["letIn", "count", 0],
+            ["letIn", "cancel", ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]]],
+            [["local", "cancel"]],
+            [["local", "cancel"]],
+            ["set", ["local", "x"], 1],
+            ["local", "count"],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(0);
+    });
+    testTest(test, "need at least 1 variable", vm => {
+        expect(() => run(vm, ["begin",
+            ["always", false, ["blah"]],
+        ])).toThrow("need at least 1 variable to watch");
+    });
+    testTest(test, "watching an undefined variable errors", vm => {
+        expect(() => run(vm, ["begin",
+            ["always", false, ["print", "hi"], ["local", "nope"]],
+        ])).toThrow('variable "nope" not found');
+    });
+    testTest(test, "watching a property errors", vm => {
+        expect(() => run(vm, ["begin",
+            ["letIn", "x", { foo: 1 }],
+            ["always", false, ["print", "hi"], ["index", ["local", "x"], "foo"]],
+        ])).toThrow("can't watch this slot");
+    });
+    testTest(test, "watching a non-reference errors", vm => {
+        expect(() => run(vm, ["begin",
+            ["always", false, ["print", "hi"], 42],
+        ])).toThrow("not a reference");
+    });
+    testTest(test, "errors in the watcher propagate", vm => {
+        expect(() => run(vm, ["begin",
+            ["letIn", "x", 0],
+            ["always", false, ["throw", ["err", "EPANIC", "watcher blew up"]], ["local", "x"]],
+            ["set", ["local", "x"], 1],
+        ])).toThrow("watcher blew up");
+    });
+    testTest(test, "watching a constant errors", vm => {
+        expect(() => run(vm, ["begin",
+            ["define", "x", 0],
+            ["always", false, ["print", "hi"], ["local", "x"]],
+        ])).toThrow("can't watch a constant");
+    });
+});
+
 describe("keyword and splat arguments", () => {
     testTest(test, "kwargs ignore order", (vm, out) => {
         expect(run(vm, ["begin",

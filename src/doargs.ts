@@ -102,7 +102,7 @@ export class DoargsState {
                 }
             }
             const value = argv[curArgvIndex]!;
-            const param = paramsList[curParamIndex];
+            const param = paramsList[curParamIndex] ?? this.#params.rest;
             if (param && param.lazy !== Laziness.NONE) {
                 if (this.#noEvalMode) throw new JEBError(ErrnoCode.ESYNTAX, "lazy parameter not allowed here");
                 return wrapLazyValue(param.lazy, value, this.#callEnv, true);

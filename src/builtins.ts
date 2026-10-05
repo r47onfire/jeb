@@ -22,7 +22,7 @@ import { CallableSignature, createSignature, Laziness, LonghandArgument } from "
 import { OP_unwrap, OP_wrap } from "./unwrap";
 import { Identifier, isIdentifier } from "./utils";
 import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "./vm";
-import { KeywordArg, MacroWrapper, ReferenceWrapper, SplatArg } from "./wrapper";
+import { KeywordArg, MacroWrapper, ReferenceWrapper, SplatArg, Wrapper } from "./wrapper";
 
 export const OP_audit = makeOpcode("audit", <T extends keyof JEBAuditEvents>(vm: JebVM, args: [name: T, arg: JEBAuditEvents[T]]) => {
     vm.emit(...args);
@@ -318,6 +318,40 @@ export const B_deref = makeJSFun("deref", ["ref"], ({ ref }) => new ReferenceWra
 . Asserts that \`x\` is a valid reference value created by [[ref]], and then returns the value stored in the reference.
 This function works with [[set]] to be able to change the value of the reference as well.`);
 
+export const B_always = makeJSFun("always", ["derived", [false, "onchange"], [["ref"], "refs"], true], ({ derived, onchange, refs }, vm) => {
+    const watches: (() => void)[] = [];
+    if (refs!.length < 1) throw new JEBError(ErrnoCode.EINVAL, "need at least 1 variable to watch");
+    for (var i = 0; i < refs!.length; i++) {
+        const ref = refs![i]!;
+        // TODO: how to reference the bad parameter in traceback?
+        if (!(ref instanceof ReferenceWrapper)) {
+            throw new JEBError(ErrnoCode.EINVAL, "not a reference");
+        }
+        const slot = ref.obj;
+        if (!(slot instanceof VariableReference)) {
+            throw new JEBError(ErrnoCode.EINVAL, "can't watch this slot");
+        }
+        slot.env.scopeFor(slot.name).and(env => {
+            if (env.constants[slot.name]) throw new JEBError(ErrnoCode.EROFS, "can't watch a constant");
+            watches.push(env.watch(slot.name, onchange as any as Block));
+        }).else(() => slot.referenceError());
+    }
+    const shouldRunInitially = withType(derived, ["boolean"], "derived");
+    if (shouldRunInitially) {
+        pushCommand(vm, OP_shuffle, 1, []);
+        pushCommand(vm, OP_apply, [], undefined, false);
+    }
+    pushData(vm, () => watches.forEach(w => w()));
+    if (shouldRunInitially) pushData(vm, onchange);
+    return NOTHING;
+},
+    `.func (always block vars...)
+..param {Block} ^block
+..param {VariableReference} vars
+..returns {() => void} function that will cancel the watching of all referenced variables
+. Sets up \`block\` to be run whenever any of the \`vars\` are reassigned (even if the new value is the same as the old value).
+Note: don't watch any variable the handler block assigns, otherwise you'll get an infinite loop.`);
+
 // MARK: error handling
 export const OP_throw = makeOpcode("throw", (vm: JebVM, { 0: err }: [JEBError]) => {
     while (vm.curDynamicWind.parent) {
@@ -333,8 +367,8 @@ export const OP_throw = makeOpcode("throw", (vm: JebVM, { 0: err }: [JEBError]) 
             return;
         }
     }
-    // if there's nothing to catch the error, just throw it back to JavaScript
-    vm.fatalError(err);
+    // if there's nothing to catch the error, queue it to be thrown back to Javascript
+    vm.error = err;
 },
     `.imm err
 ..param {JEBError} err
@@ -731,7 +765,8 @@ export const B_pow = mathHelper("pow", "pow", undefined, numberOp((a, b) => a **
 export const B_bitAnd = mathHelper("bitAnd", "bitAnd", undefined, numberOp((a, b) => a & b), id, "Computes the bitwise AND of all numbers.");
 export const B_bitOr = mathHelper("bitOr", "bitOr", undefined, numberOp((a, b) => a | b), id, "Computes the bitwise OR of all numbers.");
 export const B_bitXor = mathHelper("bitXor", "bitXor", undefined, numberOp((a, b) => a ^ b), id, "Computes the bitwise XOR of all numbers.");
-export const B_bitInv = makeJSFun("bitInv", ["a"], ({ a }) => ~withType(a, ["number", "bigint"], "a"), `.func (bitInv number)
+export const B_bitInv = makeJSFun("bitInv", ["a"], ({ a }) => ~withType(a, ["number", "bigint"], "a"),
+    `.func (bitInv number)
 ..param {number} a
 . Computes the two's complement signed bitwise inverse of the number.`);
 
@@ -783,7 +818,8 @@ __initializer(vm => {
 });
 
 // MARK: booleans
-export const B_not = makeJSFun("not", ["value"], ({ value }) => !value, `.func (not value)
+export const B_not = makeJSFun("not", ["value"], ({ value }) => !value,
+    `.func (not value)
 ..param {any} value
 .returns {boolean} - True if \`value\` is falsy (false, zero, undefined, null, or empty string), false otherwise.
 . Boolean inverse.`);
@@ -830,7 +866,8 @@ If an argument is not a list, the value is coerced to a list using the Javascrip
 . Concatenates the lists, and returns a new list.`)
 
 // MARK: metaprogramming
-export const B_quote = makeJSFun("quote", [[true, "expr"]], ({ expr }) => expr, `.macro (quote expr) | (' expr) | 'expr
+export const B_quote = makeJSFun("quote", [[true, "expr"]], ({ expr }) => expr,
+    `.macro (quote expr) | (' expr) | 'expr
 ..param {code} expr
 .returns {code}
 . Prevents its argument from being evaluated.`);
@@ -962,6 +999,7 @@ export const loadBuiltins = (vm: JebVM) => {
     define(vm, "set", B_set);
     define(vm, "ref", B_ref);
     define(vm, "deref", B_deref);
+    define(vm, "always", B_always);
     define(vm, "throw", B_throw);
     define(vm, "err", B_err);
     define(vm, "with", B_with);

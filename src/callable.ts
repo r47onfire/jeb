@@ -50,8 +50,8 @@ export class JSFun<T extends JebVM, S extends CallableSignature = CallableSignat
         /**
          * The name of the function as it should appear in a traceback.
          */
-        public readonly name: Identifier,
-        public readonly signature: S,
+        readonly name: Identifier,
+        readonly signature: S,
         /**
          * The javascript function implementation.
          *
@@ -59,7 +59,7 @@ export class JSFun<T extends JebVM, S extends CallableSignature = CallableSignat
          * value will be pushed as the result of the function call. Otherwise, the
          * return value is pushed (even if it's `undefined`).
          */
-        public readonly impl: (
+        readonly impl: (
             args: Record<S["params"][number]["name"], unknown> & (S["rest"] extends { name: infer N extends PropertyKey } ? { [x in N]: unknown[] } : {}) & (S["kwRest"] extends { name: infer N extends PropertyKey } ? { [x in N]: Record<PropertyKey, unknown> } : {}),
             vm: T,
             location: Location | undefined,
@@ -68,7 +68,7 @@ export class JSFun<T extends JebVM, S extends CallableSignature = CallableSignat
          * The docstring given - should define the allowable syntax(es) of the function
          * or macro and give a description of its behavior.
          */
-        public readonly doc: string,
+        readonly doc: string,
     ) { }
 }
 
@@ -81,21 +81,21 @@ export class Fun<S extends CallableSignature<any, any, any>> extends CallableCla
         /**
          * Whether the function should be hidden from stack traces.
          */
-        public readonly isImplicit: boolean,
+        readonly isImplicit: boolean,
         /**
          * The name of the function as it should appear in a traceback. Ignored if isImplicit=true
          */
         public name: Identifier | undefined,
-        public readonly signature: S,
+        readonly signature: S,
         /**
          * The body code that will be evaluated in the new scope with the argument values bound.
          */
-        public readonly body: Block,
+        readonly body: Block,
         /**
          * The docstring given - should define the allowable syntax(es) of the function
          * or macro and give a description of its behavior.
          */
-        public readonly doc: string,
+        readonly doc: string,
     ) { super(); }
     get closureEnv() { return this.body.closureEnv; }
     /**

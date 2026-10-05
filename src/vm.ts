@@ -52,6 +52,7 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
     protocols: Partial<JEBProtocols<T>> = {};
+    error: JEBError | undefined;
     getState(): any { }
     restoreState(state: any): void { }
 
@@ -113,11 +114,11 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
      */
     step() {
         if (this.paused || this.done) return false;
+        if (this.error) throw this.error;
         const command = this.popCommand();
         try {
             command[0](this as any as T, command.slice(1));
         } catch (e) {
-            if (isArray(e) && e.length === 3 && e[1] instanceof JEBError) throw e[1];
             if (!(e instanceof JEBError)) throw e;
             e.traceback ??= this.tracebackArray();
             this.pushCommand(OP_throw, e);
@@ -145,6 +146,7 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
         this.commandStack = this.dataStack = this.tracebackStack = null;
         this.currentEnv = this.createEnv(this.builtinsEnv);
         this.curDynamicWind = new DynamicWind(this as any as T);
+        this.error = undefined;
     }
     /**
      * Gets the length of the command stack.
@@ -243,9 +245,6 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
      */
     cc(...extraOps: Command<T>[]) {
         return new Continuation(this as any as T, extraOps);
-    }
-    fatalError(error: JEBError): never {
-        throw [, error, ,];
     }
 }
 

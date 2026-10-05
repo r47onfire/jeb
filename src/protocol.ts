@@ -124,7 +124,7 @@ export const enum AccessType {
  * Represents a slot that can be assigned to
  */
 export abstract class Reference {
-    constructor(public type: AccessType) { }
+    constructor(readonly type: AccessType) { }
     /**
      * Returns the current value, or returns `NOTHING` and throws an error (in the VM, not Javascript) if it's not readable.
      */
