@@ -5,6 +5,10 @@ import { DropFirst } from "./utils";
 import { peekData, popData, pushCommand, pushData } from "./vm";
 import { MacroWrapper, ReferenceWrapper, Wrapper } from "./wrapper";
 
+/**
+ * Argument tuple for {@link OP_wrap}: a {@link Wrapper} subclass constructor
+ * plus the extra arguments to pass to it after the value being wrapped.
+ */
 type WrapArg<T extends new (obj: any, ...args: any[]) => Wrapper> = [cls: T, ...extraArgs: DropFirst<ConstructorParameters<T>>];
 
 export const OP_wrap = makeOpcode("wrap", (vm, args: WrapArg<any>) => {

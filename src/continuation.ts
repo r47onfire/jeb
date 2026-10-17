@@ -55,9 +55,11 @@ export interface Windable {
  * Node in a dynamic wind tree
  */
 export class DynamicWind<T extends JebVM> {
+    /** The enter/exit handler pair for this node; null until {@link setHandler} is called */
     handler: Windable | null = null;
     /** current env at the point of the dynamic wind start */
     envHere: Env;
+    /** The enclosing dynamic-wind node, forming the tree that jumps are resolved against */
     parent: DynamicWind<T> | null = null;
     /** closed-over command stack */
     commandsHere: LinkedList<Command<T>> = null;

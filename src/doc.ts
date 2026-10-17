@@ -141,6 +141,10 @@ export const ThrowsTag: DocMetadataParser = firstLineRegex(/^\s*(\S+)\s*(-\s*)?/
     }
 });
 
+/**
+ * Splits a parameter list fragment into documentation nodes: bare words become
+ * inline code, while parenthesised groups become italics.
+ */
 const parameterChunks = (s: string): DocNode[] => [...s.matchAll(/\w+|(\(.+?\))/g).map(part => ["i", part[1] ? part[0] : ["c", part[0]]] as DocNode)];
 
 /**
@@ -355,6 +359,12 @@ export const parseHeaderAndSummary = (lines: string[], parsers: Record<string, D
     return [tags, summaryLines];
 }
 
+/**
+ * Parses the inline markup of a single line into {@link DocNode}s.
+ * Supports `**bold**`, `*italic*`, `` `code` ``, and `[[reference]]`s
+ * (optionally `[[display#path]]` or `[[display#group:path]]`); a backslash
+ * escapes the following character so it is treated as literal text.
+ */
 export const parseInline = (s: string): DocNode[] => {
     const root = [0] as any as DocNode[];
     const stack: DocNode[][] = [root];

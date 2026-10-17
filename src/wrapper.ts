@@ -4,7 +4,14 @@ import { Reference } from "./protocol";
  * Represents a wrapped value that only appears as a directly-usable value under certain circumstances
  */
 export abstract class Wrapper {
+    /**
+     * Tag identifying the kind of wrapper. `OP_unwrap` refuses to unwrap a
+     * wrapper whose flag appears in its `dontUnwrap` list.
+     */
     abstract flag: string;
+    /**
+     * @param obj The wrapped value
+     */
     constructor(readonly obj: any) { };
 }
 

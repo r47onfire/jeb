@@ -6,6 +6,11 @@ import { Identifier } from "./utils";
 import { JebVM, OpcodeFunction } from "./vm";
 import { Wrapper } from "./wrapper";
 
+/**
+ * Registry of all named opcodes created with {@link makeOpcode}, mapping the
+ * opcode's id to its implementation and documentation string. Opcodes created
+ * with a `null` id are internal helpers and are not registered here.
+ */
 export const ALL_OPCODES: Record<string, [fn: OpcodeFunction<any, any>, doc: string | null]> = {};
 
 /**
