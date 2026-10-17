@@ -6,7 +6,7 @@ import { isString } from "lib0/function";
  */
 export type Tuple<T, N extends number> = N extends N ? number extends N ? T[] : _TupleOf<T, N, []> : never;
 /** Recursive builder for {@link Tuple}: prepends `T` until `R` has `N` elements. */
-type _TupleOf<T, N extends number, R extends unknown[]> = R["length"] extends N ? R : _TupleOf<T, N, [T, ...R]>;
+export type _TupleOf<T, N extends number, R extends unknown[]> = R["length"] extends N ? R : _TupleOf<T, N, [T, ...R]>;
 
 /**
  * `T` with all `readonly` modifiers removed.

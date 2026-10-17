@@ -19,7 +19,7 @@ export type Type = (abstract new (...args: any[]) => any) | keyof TypeMap | true
 /**
  * Maps the string type specifiers of {@link Type} to the Typescript types they match.
  */
-type TypeMap = {
+export type TypeMap = {
     string: string;
     number: number;
     boolean: boolean;
