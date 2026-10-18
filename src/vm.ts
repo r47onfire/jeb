@@ -17,10 +17,18 @@ export { __initializer };
  * Data for the command
  */
 export type Command<T extends JebVM> = [opcode: OpcodeFunction<any, T>, ...immediateArgs: any[]];
+/**
+ * One compressed run of call-stack frames: `count` consecutive calls of the
+ * same function at the same call site, collapsed into a single traceback entry.
+ */
 export interface StackCount {
+    /** Name of the function called, if known */
     readonly name: Identifier | undefined;
+    /** Location of the call site */
     readonly location: Location | undefined;
+    /** Number of frames collapsed into this entry */
     readonly count: number;
+    /** Whether these frames were entered by tail calls */
     readonly tail: boolean;
 }
 
@@ -29,6 +37,10 @@ export interface StackCount {
  */
 export type OpcodeFunction<T extends any[], U extends JebVM> = ((vm: U, ...args: T) => void);
 
+/**
+ * Extracts the type of an opcode function's immediate arguments (everything
+ * after the VM parameter), for typing calls to {@link JebVM.pushCommand}.
+ */
 export type GetArgParams<T extends OpcodeFunction<any, any>> = Parameters<T>[1] extends infer T extends any[] ? T : [void];
 
 /**
@@ -51,9 +63,19 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
     tracebackStack!: LinkedList<StackCount>;
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
+    /** Protocol implementations registered on this VM, by protocol name */
     protocols: Partial<JEBProtocols<T>> = {};
+    /** The error that stopped the VM, if any; {@link step} rethrows it while set */
     error: JEBError | undefined;
+    /**
+     * Hook for VM subclasses with extra state beyond the base stacks: returns a
+     * snapshot of that state, so continuations and dynamic-wind can save and
+     * restore it. The base VM has no extra state.
+     */
     getState(): any { }
+    /**
+     * Counterpart to {@link getState}: restores a snapshot it returned earlier.
+     */
     restoreState(state: any): void { }
 
     constructor() {
@@ -62,45 +84,84 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
         loadBuiltins(this as any as T);
         __initializers.forEach(f => f(this as any as T));
     }
+    /**
+     * Registers an implementation of the named protocol. Several
+     * implementations may be registered for one protocol; {@link getProtocol}
+     * dispatches between them based on the argument types.
+     */
     addProtocol<N extends keyof JEBProtocols<T>>(name: N, impl: JEBProtocols<T>[N][number]) {
         (this.protocols[name] ??= [] as any[]).push(impl);
     }
+    /**
+     * Finds the implementation of the named protocol to run for the given
+     * arguments: the registered overload whose declared types best match the
+     * arguments' types. With `fast`, the first matching overload (searching
+     * from the most recently registered) wins instead of the best-scoring one.
+     * If `assert` is true, throws when no overload matches.
+     */
     getProtocol<N extends keyof JEBProtocols<T>, A extends boolean>(fast: boolean, assert: A, name: N, args: Tuple<any, ArgcForName<T, N>>): JEBProtocols<T>[N][number] | (A extends true ? never : undefined) {
         const res = getProtocolHandler(this.protocols, fast, name, args);
         if (assert && !res) throw new JEBError(ErrnoCode.ERANGE, `No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${args.map(x => theTypeName(typeOf(x))).join(", ")}`);
         return res!;
     }
+    /**
+     * Pushes a value onto the data stack.
+     */
     pushData(value: any) {
         this.dataStack = LinkedList_push(this.dataStack, value);
     }
+    /**
+     * Throws if the data stack holds fewer than `n` values.
+     */
     #checkStack(n: number) {
         if (LinkedList_length(this.dataStack) < n) throw new JEBError(ErrnoCode.EPANIC, "data stack underflow");
     }
+    /**
+     * Pops the top `n` values off the data stack, returned in the order they
+     * were pushed (deepest first).
+     */
     popNData(n: number) {
         this.#checkStack(n);
         const { 0: values, 1: rest } = LinkedList_popN(this.dataStack!, n);
         this.dataStack = rest;
         return values.reverse();
     }
+    /**
+     * Pops and returns the top value of the data stack.
+     */
     popData() {
         this.#checkStack(1);
         const { 0: value, 1: rest } = LinkedList_pop(this.dataStack!);
         this.dataStack = rest;
         return value;
     }
+    /**
+     * Returns the top value of the data stack without removing it.
+     */
     peekData() {
         this.#checkStack(1);
         return this.dataStack!.value;
     }
+    /**
+     * Pushes a command (an opcode function plus its immediate arguments) onto
+     * the command stack, to be run by a later {@link step}.
+     */
     pushCommand<TOpcode extends OpcodeFunction<any, T>>(f: TOpcode, ...args: GetArgParams<TOpcode>) {
         this.commandStack = LinkedList_push(this.commandStack, [f, ...args]);
     }
+    /**
+     * Pops and returns the next command to run. Throws if the command stack
+     * is empty.
+     */
     popCommand() {
         if (LinkedList_length(this.commandStack) === 0) throw new JEBError(ErrnoCode.EPANIC, "opcode stack underflow");
         const { 0: value, 1: rest } = LinkedList_pop(this.commandStack!);
         this.commandStack = rest;
         return value;
     }
+    /**
+     * Whether the VM has run out of commands to execute.
+     */
     get done() {
         return LinkedList_length(this.commandStack) === 0;
     }
@@ -233,9 +294,15 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
             this.tracebackStack = cur.next;
         }
     }
+    /**
+     * Creates a fresh dynamic-wind node whose parent is the VM's current node.
+     */
     newDynamicWind() {
         return new DynamicWind(this as any as T);
     }
+    /**
+     * Creates a new environment inheriting from the given parent environments.
+     */
     createEnv(...parents: Env[]) {
         return new Env({}, parents);
     }
@@ -248,8 +315,24 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
     }
 }
 
+/**
+ * Standalone form of {@link JebVM.pushData}, for opcodes (which receive the
+ * VM and their arguments separately rather than as a method receiver).
+ */
 export const pushData = <T extends JebVM>(vm: T, data: any) => vm.pushData(data);
+/**
+ * Standalone form of {@link JebVM.pushCommand}; see {@link pushData}.
+ */
 export const pushCommand = <T extends OpcodeFunction<any, U>, U extends JebVM>(vm: U, cmd: T, ...args: GetArgParams<T>) => vm.pushCommand(cmd, ...args);
+/**
+ * Standalone form of {@link JebVM.popData}; see {@link pushData}.
+ */
 export const popData = <T extends JebVM>(vm: T) => vm.popData();
+/**
+ * Standalone form of {@link JebVM.popNData}; see {@link pushData}.
+ */
 export const popNData = <T extends JebVM>(vm: T, n: number) => vm.popNData(n);
+/**
+ * Standalone form of {@link JebVM.peekData}; see {@link pushData}.
+ */
 export const peekData = <T extends JebVM>(vm: T) => vm.peekData();

@@ -1,3 +1,10 @@
+/**
+ * Map of the audit events a {@link JebVM} can emit through its event
+ * dispatcher, from event name to payload type. These events mark operations
+ * that are potentially unsafe or reach outside the sandbox (host-language
+ * interop), so an embedding application can hook, log, or veto them.
+ * Additional events may be registered by index signature.
+ */
 export interface JEBAuditEvents {
     [x: string]: unknown;
     // potentially unsafe things

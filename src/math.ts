@@ -19,6 +19,10 @@ export const enum Relation {
  */
 export type BinaryFun = (a: any, b: any) => any;
 
+/**
+ * Aliases for the numeric conversions used throughout the VM: `int` converts
+ * a value to a `bigint`, `float` converts it to a `number`.
+ */
 const int = BigInt, float = Number, isInt = float.isInteger, isSafeInt = float.isSafeInteger, isGoodInt = (x: number) => isInt(x) && isSafeInt(x);
 export { float, int };
 /**

@@ -506,6 +506,11 @@ const OP_block_invoke = makeOpcode(null, (vm: JebVM, { 0: b, 1: tail }: [Block, 
     for (var i = names.length; i >= 0; i--) env.add(names[i]!, injected[names[i]!]);
     implicitBegin(vm, b.body);
 }, null);
+/**
+ * Opcode `set_env`: makes the given environment the VM's current environment.
+ * Block invocation queues this (with the caller's environment) to run when
+ * the block's body finishes, restoring the caller's environment.
+ */
 export const OP_set_env = makeOpcode("set_env", (vm: JebVM, { 0: env }: [Env]) => vm.currentEnv = env, null);
 const OP_fun_invoke = makeOpcode(null, (vm: JebVM, { 0: fn, 1: tail }: [Fun<any>, boolean | undefined]) => {
     const argvObject = popData(vm);

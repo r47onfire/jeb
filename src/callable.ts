@@ -51,6 +51,10 @@ export class JSFun<T extends JebVM, S extends CallableSignature = CallableSignat
          * The name of the function as it should appear in a traceback.
          */
         readonly name: Identifier,
+        /**
+         * The declared parameter signature the runtime binds call arguments
+         * against (see `doargs`).
+         */
         readonly signature: S,
         /**
          * The javascript function implementation.
@@ -86,6 +90,10 @@ export class Fun<S extends CallableSignature<any, any, any>> extends CallableCla
          * The name of the function as it should appear in a traceback. Ignored if isImplicit=true
          */
         public name: Identifier | undefined,
+        /**
+         * The declared parameter signature the runtime binds call arguments
+         * against (see `doargs`).
+         */
         readonly signature: S,
         /**
          * The body code that will be evaluated in the new scope with the argument values bound.
@@ -97,6 +105,9 @@ export class Fun<S extends CallableSignature<any, any, any>> extends CallableCla
          */
         readonly doc: string,
     ) { super(); }
+    /**
+     * The environment the function body closes over (delegates to the body's).
+     */
     get closureEnv() { return this.body.closureEnv; }
     /**
      * JEB lambdas are currently not callable via javascript.

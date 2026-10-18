@@ -5,10 +5,19 @@ import { Identifier } from "./utils";
 import { JebVM, pushCommand, pushData } from "./vm";
 import { Continuation } from "./continuation";
 
+/**
+ * Extra options accepted when constructing a {@link JEBError}.
+ */
 export interface JEBErrorOptions {
+    /** Sub-errors bundled into this error, e.g. several failures reported together. */
     children?: JEBError[];
 }
 
+/**
+ * Arbitrary extra data attached to a {@link JEBError}. The `return` key is
+ * special: it holds the restart continuation that error handlers (see `with`)
+ * can invoke to resume execution at the expression that caused the error.
+ */
 export interface JEBErrorContext {
     [x: string]: unknown;
     return?: Continuation<any>;
@@ -32,6 +41,10 @@ export class JEBError extends Error {
 
 const STACKFRAME_JOINER = "<-";
 
+/**
+ * A source location, as an `[id, file]` pair; either entry may be
+ * `undefined` if it is not known.
+ */
 export type Location = [id: number | undefined, file: number | undefined];
 
 /**
@@ -49,6 +62,11 @@ export type StackTreeNode = Readonly<{
     hash: number;
 }>;
 
+/**
+ * Creates a leaf stack tree node for a single call frame. The node's hash is
+ * precomputed from the frame name and location so that equal frames can be
+ * recognized (and folded together) by {@link compressStackTree}.
+ */
 export const createStackLeafNode = (name: Identifier | undefined, location: Location | undefined): StackTreeNode => {
     return {
         leaf: true,
@@ -63,6 +81,10 @@ export const createStackLeafNode = (name: Identifier | undefined, location: Loca
     };
 };
 
+/**
+ * Creates an inner stack tree node representing `count` repetitions of the
+ * given child frames, with its hash precomputed from the children's hashes.
+ */
 export const createStackInnerNode = (count: number, children: StackTreeNode[]): StackTreeNode => {
     return {
         leaf: false,
@@ -73,6 +95,11 @@ export const createStackInnerNode = (count: number, children: StackTreeNode[]): 
     };
 };
 
+/**
+ * Compresses a list of stack frames by folding each run of consecutively
+ * repeating frame patterns into a single inner node (see {@link StackTreeNode}),
+ * recursively, so that tracebacks of deeply recursive programs stay readable.
+ */
 export const compressStackTree = (nodes: StackTreeNode[]): StackTreeNode[] => {
     const len = nodes.length;
     if (len === 0) return [];
@@ -150,6 +177,9 @@ const childrenEqual = (children1: StackTreeNode[], children2: StackTreeNode[]): 
         && children1.every((child1, i) => nodesEqual(child1, children2[i]!));
 }
 
+/**
+ * Whether two (possibly undefined) {@link Location}s denote the same place.
+ */
 export const locationsEqual = (location1: Location | undefined, location2: Location | undefined) => {
     if (!location1 || !location2) return location1 === location2;
     return location1.every((x, i) => location2[i] === x);

@@ -1,5 +1,11 @@
 import { ErrnoCode } from "./errno";
 
+/**
+ * Parent links for the errno class hierarchy: each code maps to the codes it
+ * directly inherits from, or `undefined` if it is a root (`EFAIL` for normal
+ * errors, `EPANIC` for non-recoverable ones). Codes may have several parents;
+ * e.g. the HTTP errors also inherit from the analogous local error classes.
+ */
 export const ErrnoParent: Record<ErrnoCode, ErrnoCode[] | undefined> = {
     [ErrnoCode.EFAIL]: undefined, // Root of all normal exceptions
     [ErrnoCode.EPANIC]: undefined, // Root of all nonrecoverable exceptions
@@ -155,6 +161,10 @@ export const ErrnoParent: Record<ErrnoCode, ErrnoCode[] | undefined> = {
     [ErrnoCode.ELOGIN]: [ErrnoCode.EHTTP, ErrnoCode.ENEEDAUTH],
 };
 
+/**
+ * Whether `sub` is the same code as `super_` or inherits from it, directly or
+ * transitively, following the {@link ErrnoParent} links.
+ */
 export const errnoIsSubclass = (sub: ErrnoCode, super_: ErrnoCode): boolean => {
     if (sub === super_) return true;
     const parents = ErrnoParent[sub];

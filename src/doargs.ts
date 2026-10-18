@@ -11,14 +11,39 @@ import { KeywordArg, SplatArg } from "./wrapper";
 import { OP_unwrap } from "./unwrap";
 import { ErrnoCode } from "./errno";
 
+/**
+ * Records how a parameter's value was supplied, so that giving the same
+ * parameter twice (in either form) can be reported as an error.
+ */
 const enum DoargsWhere {
     _BLANK,
     POSITIONAL,
     KEYWORD,
 }
 
+/**
+ * Sentinel for "a required argument was not supplied", kept distinct from a
+ * legitimately supplied `undefined` value.
+ */
 const MISSING = Symbol("MISSING");
 
+/**
+ * Immutable state of one in-progress argument-binding operation (see
+ * {@link OP_doargs}). Binding happens one argument at a time and may suspend
+ * to evaluate an argument or a default expression, so the whole process is
+ * captured in this object: each step produces the next state (via `#update`)
+ * instead of mutating in place.
+ *
+ * The state tracks the signature being bound (`#params`), the raw given
+ * arguments (`#givenArgs`), the index of the next raw argument
+ * (`#rawArgsIndex`) and of the next parameter to fill (`#paramsIndex`), the
+ * arguments object accumulated so far (`#argsObj`), and which parameters have
+ * already been supplied by name (`#seenByName`). `#callEnv` is the
+ * environment arguments are evaluated in; `#closureEnv` is the callee's
+ * closure environment, additionally visible to default expressions.
+ * In `#noEvalMode`, argument values are taken as-is and lazy parameters are
+ * an error.
+ */
 export class DoargsState {
     readonly #name: Identifier | undefined;
     readonly #params: CallableSignature;
@@ -52,10 +77,20 @@ export class DoargsState {
         }
     }
 
+    /**
+     * Returns the successor state with the given fields replaced; all other
+     * fields carry over from this state.
+     */
     #update(argsObj = this.#argsObj, seenByName = this.#seenByName, rawArgsIndex = this.#rawArgsIndex, paramsIndex = this.#paramsIndex, seenKeyword = this.#seenKeyword) {
         return new DoargsState(this.#name, this.#params, this.#callEnv, this.#closureEnv, this.#noEvalMode, this.#givenArgs, argsObj, rawArgsIndex, paramsIndex, seenKeyword, seenByName);
     }
 
+    /**
+     * Drives the binding loop until it either finishes -- leaving the completed
+     * arguments object on the data stack -- or suspends by pushing opcodes to
+     * evaluate the next argument, in which case `OP_doargs_loop` re-enters
+     * here with `first` false and the evaluated value on the data stack.
+     */
     run(vm: JebVM, first: boolean) {
         var state: DoargsState = this;
         for (; ; first = true) {
@@ -119,6 +154,11 @@ export class DoargsState {
         return param.required ? MISSING : evalHelper(this.#closureEnv ? vm.createEnv(this.#callEnv, this.#closureEnv) : vm.createEnv(this.#callEnv), param.defaultExpr, param);
     }
 
+    /**
+     * Stores one argument value into the arguments object and returns the
+     * successor state. Keyword and splat wrappers are unpacked here; everything
+     * else fills the next positional parameter (or the rest parameter).
+     */
     #storeArgumentAndAdvance(argValue: any) {
         const param = this.#params.params[this.#paramsIndex]!;
         if (param?.required && argValue === MISSING) {
@@ -156,6 +196,10 @@ export class DoargsState {
         }
         return this.#storePositional(argValue, false, 1, 1);
     }
+    /**
+     * Throws if a splat being unpacked contains a nested keyword/splat wrapper,
+     * which cannot be unpacked further.
+     */
     #assertNotSpecial(value: any) {
         if (value instanceof KeywordArg || value instanceof SplatArg) {
             throw new JEBError(ErrnoCode.ENOSYS, "TODO: what happens when a keyword/splat wrapper is inside another argument wrapper?");
@@ -204,6 +248,11 @@ export class DoargsState {
     }
 }
 
+/**
+ * Applies a parameter's laziness to its unevaluated form(s): `QUOTED` passes
+ * the raw form through untouched, while `LAZY` wraps it in a {@link Block}
+ * (closed over the call environment) for later evaluation.
+ */
 const wrapLazyValue = (laziness: Laziness.LAZY | Laziness.QUOTED, given: any[], env: Env, isSingle: boolean) => {
     return laziness === Laziness.QUOTED ? given : new Block(env, isSingle ? [given] : given);
 }
@@ -226,4 +275,9 @@ export const OP_doargs = makeOpcode("doargs", (vm, { 0: params, 1: env, 2: noEva
 .sed argslist -- argsobj
 . Processes the given arguments list into the named arguments object as determined by the signature.`);
 
+/**
+ * Companion to `OP_doargs`: resumes a suspended {@link DoargsState} after the
+ * argument it was waiting on has been evaluated. Errors raised while storing
+ * an argument are reported as ERANGE.
+ */
 const OP_doargs_loop = makeOpcode(null, (vm, { 0: state, 1: first }) => wrapThrowToError(ErrnoCode.ERANGE, () => state.run(vm, first)), null);

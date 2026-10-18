@@ -10,10 +10,18 @@ const hasOwn = Object.hasOwn;
  */
 
 export class Env {
+    /** Names defined as constants in this scope; {@link set} refuses to change them */
     readonly constants: Record<Identifier, true> = {};
+    /**
+     * Handler blocks registered with {@link watch}, by variable name. The
+     * handlers run (in the environment where the variable lives) whenever the
+     * variable is assigned.
+     */
     readonly watchers: Record<Identifier, RemovableSet<Block>> = {};
     constructor(
+        /** The bindings defined directly in this scope */
         readonly bindings: Record<Identifier, any> = {},
+        /** Parent environments searched after this one, in order */
         readonly parents: readonly Env[] = []
     ) { }
     /**
@@ -30,6 +38,11 @@ export class Env {
         }
         return Err();
     }
+    /**
+     * Registers a handler block to be run whenever the named variable is
+     * assigned in this environment (reactive `always`-style watchers).
+     * Returns a handle that removes the watcher when called.
+     */
     watch(name: Identifier, handler: Block) {
         return (this.watchers[name] ??= new RemovableSet()).push(handler);
     }
