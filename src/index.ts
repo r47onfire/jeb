@@ -4,7 +4,6 @@ export * from "./builtins";
 export * from "./callable";
 export * from "./continuation";
 export * from "./define";
-export type { HasDocstring } from "./doc";
 export * from "./env";
 export * from "./errno";
 export * from "./errnoInheritance";
@@ -19,3 +18,5 @@ export * from "./utils";
 export * from "./vm";
 export * from "./wrapper";
 
+// purely for jsdoc purposes
+export type { HasDocstring } from "./doc";
