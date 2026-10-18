@@ -86,8 +86,8 @@ export class DoargsState {
     }
 
     /**
-     * Drives the binding loop until it either finishes — leaving the completed
-     * arguments object on the data stack — or suspends by pushing opcodes to
+     * Drives the binding loop until it either finishes -- leaving the completed
+     * arguments object on the data stack -- or suspends by pushing opcodes to
      * evaluate the next argument, in which case `OP_doargs_loop` re-enters
      * here with `first` false and the evaluated value on the data stack.
      */
