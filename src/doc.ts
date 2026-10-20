@@ -208,6 +208,8 @@ export const FunctionOrMacroParsers: Record<string, DocMetadataParser> = {
     // Returns value
     return: deprecatedReturn,
     returns: ReturnsTag,
+    // present if the function is marked as pure
+    pure: EmptyTag,
 }
 
 /**

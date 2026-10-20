@@ -90,6 +90,7 @@ export const B_eval = makeJSFun("eval", ["arg"], ({ arg }, vm, location) => { pu
 export const B_macro_wrap = makeJSFun("macro", ["code"], ({ code }) => new MacroWrapper(code),
     `.func (macro code)
 ..param {code} code
+.pure
 . Wraps the code in a special object that causes it to be evaluated using [[eval]] in the scope of where it was used and the result of the evaluation used in place of the actual code object.
 This can be used to create an unhygienic syntactic macro by returning the wrapper immediately.`)
 
@@ -182,11 +183,13 @@ export const B_splat = makeJSFun("splat", ["value", ["kw", false]], ({ value, kw
     `.func (splat arg kw)
 ..param {any[] | object} arg - iterable or object to unpack
 ..param {boolean?} [kw=false] - whether to unpack into positional or keyword arguments
+.pure
 . Causes the value to unpack into keyword or positional arguments instead of being passed as a single value.`);
 export const B_keyword = makeJSFun("kw", ["name", "value"], ({ name, value }) => new KeywordArg(value, withType(name, ["string"], "name")),
     `.func (kw name value)
 ..param {string} name - name of keyword arg to unpack into
 ..param {any} value
+.pure
 . Redirects the argument into a particular named argument slot.`);
 
 // MARK: string applier
@@ -266,6 +269,7 @@ export const B_local = makeJSFun("local", ["name"], ({ name }, vm) => {
 },
     `.func (local name)
 ..param {string} name
+.pure
 .throws ENAME - if the name is not defined anywhere
 .returns {any}
 . Look up the variable with this name in the current environment.`);
@@ -278,6 +282,7 @@ export const B_index = makeJSFun("index", ["obj", "name"], ({ obj, name }, vm) =
     `.func (index obj name)
 ..param {any} obj
 ..param {PropertyKey} name
+.pure
 . Returns a reference to \`obj[name]\`.`);
 const OP_set_internal_nested = makeOpcode(null, vm => pushData(vm, { _: { _: popData(vm) } }), null);
 const OP_set_internal = makeOpcode(null, (vm: JebVM, { 0: b, 1: old }: [Block, boolean]) => {
@@ -310,11 +315,13 @@ export const B_set = makeJSFun("set", [[["ref"], "ref"], [false, "value"], ["old
 export const B_ref = makeJSFun("ref", [[["ref"], "ref"]], ({ ref }) => withType(ref, [ReferenceWrapper]).obj,
     `.macro (ref x)
 ..param {[assignable location]} x
+.pure
 . Asserts that \`x\` is a valid assignable, and then returns a reference to it, which can be assigned to or read with [[deref]].`);
 
 export const B_deref = makeJSFun("deref", ["ref"], ({ ref }) => new ReferenceWrapper(withType(ref, [Reference])),
     `.func (deref x)
 ..param {Reference} x
+.pure
 . Asserts that \`x\` is a valid reference value created by [[ref]], and then returns the value stored in the reference.
 This function works with [[set]] to be able to change the value of the reference as well.`);
 
@@ -474,6 +481,7 @@ const OP_ffi_invoke = makeOpcode(null, (vm: JebVM, { 0: f }: [Function]) => {
 export const B_is_nil = makeJSFun("nil?", ["value"], ({ value }) => undefinedToNull(value) === null,
     `.func (isNil value)
 ..param {any} value
+.pure
 .returns {boolean}
 . \`true\` if the object is Javascript \`undefined\` or \`null\`. Any other value (including \`false\`, \`""\`, or \`[]\`) is considered not-null, even though it might still be falsy.`);
 
@@ -547,6 +555,7 @@ There are many forms that the paremeter can take to control is behavior at call 
 ..param {string} docstring - Defines the documentation string for this function. The first element of the body will only be interpreted as a docstring if there is at least one statement after it (rendering the string otherwise pointless).
 ..param {code} body... - Statements to be executed in sequence (as with [[begin]]) to calculate the return value of the function.
 ...injected {Continuation} return - if the first element after \`fn\` is not \`true\`, a continuation jumping back to where the function was called from is injected into the \`return\` variable.
+.pure
 .returns {Fun}
 . Returns a new anonymous function with the specified parameters, documentation string, and body.`);
 
@@ -741,6 +750,7 @@ const mathHelper = (operator: string, op2: "add" | "sub" | "mul" | "matMul" | "d
 ..param {any} a
 ..param {any?} b
 .throws EPROTONOSUPPORT - if no overload was found for the given argument types
+.pure
 . ${doc}`);
     __initializer(vm => vm.addProtocol(op2, { type: [["number", "bigint"], ["number", "bigint"]], run: (_, { 0: a, 1: b }) => Ok(f2(a, b)), doc }));
     if (op1) {
@@ -772,6 +782,7 @@ export const B_bitXor = mathHelper("bitXor", "bitXor", undefined, numberOp((a, b
 export const B_bitInv = makeJSFun("bitInv", ["a"], ({ a }) => ~withType(a, ["number", "bigint"], "a"),
     `.func (bitInv number)
 ..param {number} a
+.pure
 . Computes the two's complement signed bitwise inverse of the number.`);
 
 // comparisons
@@ -791,6 +802,7 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
     },
         `.func (${op} items...)
 ..param {number | string} items...
+.pure
 . ${doc}`);
 }
 const compDocHelper = (phrase: string) => `True if the sequence of items is strictly ${phrase} when read from left to right.`;
@@ -825,8 +837,9 @@ __initializer(vm => {
 export const B_not = makeJSFun("not", ["value"], ({ value }) => !value,
     `.func (not value)
 ..param {any} value
-.returns {boolean} - True if \`value\` is falsy (false, zero, undefined, null, or empty string), false otherwise.
-. Boolean inverse.`);
+.pure
+.returns {boolean}
+. True if \`value\` is falsy (false, zero, undefined, null, or empty string), false otherwise.`);
 const booleanHelper = (name: string, shortCircuitOn: boolean) => {
     return makeJSFun(name, ["a", [true, "b"]], ({ a, b }, vm, location) => {
         if ((!!a) === shortCircuitOn) return a;
@@ -836,6 +849,7 @@ const booleanHelper = (name: string, shortCircuitOn: boolean) => {
     },
         `.macro (fn a b)
 ..param {any} values...
+.pure
 . Boolean ${name.toUpperCase()} (short-circuits).
 Evaluates \`a\`, if the result is ${shortCircuitOn ? "truthy" : "falsy"}, returns it, otherwise evaluates \`b\` and returns that.`);
 }
@@ -846,15 +860,18 @@ export const B_or_shortcircuit = booleanHelper("or", true);
 export const B_list = makeJSFun("list", ["values", true], ({ values }) => values,
     `.func (list values...)
 ..param {T} values...
+.pure
 .returns {T[]}
 . Returns the arguments in a list.`);
 export const B_head = makeJSFun("head", ["list"], ({ list }) => withType(list, [Array], "list")[0],
     `.func (head list)
 ..param {T[]} list
+.pure
 .returns {T} - The first element in the list`);
 export const B_tail = makeJSFun("tail", ["list"], ({ list }) => withType(list, [Array], "list").slice(1),
     `.func (tail list)
 ..param {T[]} list
+.pure
 ..returns {T[]} - A copy of the list without the first element`);
 export const B_concat = makeJSFun("concat", ["lists", true], ({ lists }) => {
     const out: any[] = [];
@@ -873,6 +890,7 @@ If an argument is not a list, the value is coerced to a list using the Javascrip
 export const B_quote = makeJSFun("quote", [[true, "expr"]], ({ expr }) => expr,
     `.macro (quote expr) | (' expr) | 'expr
 ..param {code} expr
+.pure
 .returns {code}
 . Prevents its argument from being evaluated.`);
 
@@ -956,6 +974,7 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
 export const B_quasiquote = makeJSFun("quasiquote", [[true, "value"]], ({ value }, vm) => new MacroWrapper(processQuasiquote(vm, value, 1)),
     `.macro (quasiquote value) | (~ value) | ~value
 ..param {any} value
+.pure
 .returns {any}
 . Prevents \`value\` from being evaluated, but walks the elements and replaces [[unquote]] and [[unquoteSplicing]] with the results of evaluating their arguments. The argument to [[unquoteSplicing]] must be a list.`);
 
@@ -973,6 +992,7 @@ export const B_unquoteSplicing = makeJSFun("unquoteSplicing", [[true, "value"]],
 export const B_jsonparse = makeJSFun("jsonParse", ["json"], ({ json }) => wrapThrowToError(ErrnoCode.ESYNTAX, () => parse(withType(json, ["string"], "json"))),
     `.func (jsonParse json)
 ..param {string} json
+.pure
 .throws ESYNTAX - if the string is not valid JSON
 .returns {any}
 . Parses the string using \`JSON.parse()\` and returns the object.`);

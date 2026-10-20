@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { isString } from "lib0/function";
 import { ALL_OPCODES, JebVM, theTypeName, Type } from "../src";
 import { AccessorParsers, ApplierParsers, DocMetadata, DocMetadataParser, DocNode, EmptyTag, EvaluatorParsers, FunctionOrMacroParsers, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs, UnwrapperParsers } from "../src/doc";
+import { extRefs } from "./pure";
 
 describe("inline parsing", () => {
     test.each<[string, string, DocNode[]]>([
@@ -88,11 +89,14 @@ describe("parse builtins docstrings", () => {
         });
     })
     describe("functions/macros", () => {
-        test.each<[string, string]>(Object.entries(new JebVM().builtinsEnv.bindings).flatMap(([name, item]) => isString(item?.doc) ? [[name, item.doc as string]] : []))("%s", (_, doc) => {
+        test.each<[string, string, Function]>(Object.entries(new JebVM().builtinsEnv.bindings).flatMap(([name, item]) => isString(item?.doc) ? [[name, item.doc as string, item?.impl]] : []))("%s", (_, doc, f) => {
             const parsed = parseDoc(doc, FunctionOrMacroParsers);
             expect(parsed).toBeDefined();
             expect(parsed!.meta.length).toBeGreaterThan(0);
-            // console.log(JSON.stringify(parsed!.meta, null, 2));
+            if (parsed!.meta.some(t => t.tag === "pure")) {
+                expect(extRefs(f)).toBeEmpty();
+            }
+            console.log(JSON.stringify(parsed!.meta, null, 2));
         });
     });
     const t2p = ({ type, doc }: { type: Type[][], doc: string }): [string, string] => [type.map(ts => ts.map(theTypeName).join("|")).join(","), doc];

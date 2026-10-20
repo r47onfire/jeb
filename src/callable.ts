@@ -7,8 +7,6 @@ import { CallableSignature } from "./signature";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";
 
-const setPrototypeOf = Object.setPrototypeOf;
-
 /**
  * Callable hack from https://stackoverflow.com/a/78553691. Subclasses of this
  * are actually instances of `Function`, so `typeof this === "function"`.
@@ -16,7 +14,7 @@ const setPrototypeOf = Object.setPrototypeOf;
 export abstract class CallableClass extends class { constructor(self: object) { return self; } } {
 
     constructor() {
-        const self = setPrototypeOf(
+        const self = Object.setPrototypeOf(
             function (this: any, ...args: any[]) {
                 if (new.target) return self.__new__(...args);
                 return self.__call__(...args);
