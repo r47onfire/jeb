@@ -96,7 +96,7 @@ describe("parse builtins docstrings", () => {
             if (parsed!.meta.some(t => t.tag === "pure")) {
                 expect(extRefs(f)).toBeEmpty();
             }
-            console.log(JSON.stringify(parsed!.meta, null, 2));
+            // console.log(JSON.stringify(parsed!.meta, null, 2));
         });
     });
     const t2p = ({ type, doc }: { type: Type[][], doc: string }): [string, string] => [type.map(ts => ts.map(theTypeName).join("|")).join(","), doc];
