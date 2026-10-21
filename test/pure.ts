@@ -3,11 +3,10 @@ import traverse, { NodePath } from "@babel/traverse";
 import * as t from "@babel/types";
 
 export function extRefs(fn: Function) {
-    const ast = babel.parse(fn.toString());
 
     const externalReferences = new Set();
 
-    traverse(ast, {
+    traverse(babel.parse(fn.toString()), {
         Identifier(path) {
             const name = path.node.name;
             if (!path.scope.hasBinding(name) && !(name in globalThis) && isWriteTarget(path)) {
