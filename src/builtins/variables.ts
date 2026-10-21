@@ -1,15 +1,15 @@
-import { implicitBegin } from "../implicitBegin";
 import { Block } from "../block";
 import { define, defineAccessor, makeJSFun, makeOpcode, NOTHING } from "../define";
 import { Env } from "../env";
 import { ErrnoCode } from "../errno";
-import { checkNothingOrPush, JEBError } from "../errors";
+import { JEBError } from "../errors";
+import { implicitBegin } from "../implicitBegin";
 import { __initializer } from "../initializers";
 import { AccessType, Reference, theTypeName, typeOf, withType } from "../protocol";
 import { ObjectPropertyReference, VariableReference } from "../reference";
 import { OP_wrap } from "../unwrap";
 import { Identifier } from "../utils";
-import { JebVM, peekData, popData, pushCommand, pushData } from "../vm";
+import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { ReferenceWrapper } from "../wrapper";
 import { OP_apply, OP_get, OP_index, OP_set, OP_shuffle } from "./eval";
 

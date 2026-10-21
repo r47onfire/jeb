@@ -1,6 +1,5 @@
 import { isArray } from "lib0/array";
-import { Block } from "../block";
-import { define, makeJSFun, makeOpcode, NOTHING } from "../define";
+import { define, makeJSFun, NOTHING } from "../define";
 import { gensym } from "../env";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
@@ -8,11 +7,11 @@ import { implicitBegin } from "../implicitBegin";
 import { AccessType, withType } from "../protocol";
 import { VariableReference } from "../reference";
 import { Identifier, isIdentifier } from "../utils";
-import { Command, JebVM, popData, pushCommand, pushData } from "../vm";
-import { B_audit, OP_eval, OP_if, OP_set, OP_shuffle } from "./eval";
-import { B_local, B_set } from "./variables";
+import { JebVM, pushCommand, pushData } from "../vm";
 import { B_fn } from "./callables";
+import { B_audit, OP_eval, OP_if, OP_set, OP_shuffle } from "./eval";
 import { B_plus } from "./operators";
+import { B_local, B_set } from "./variables";
 
 // MARK: Scheme analogs
 export const B_if = makeJSFun("if", ["condition", [true, "then"], [true, "else", null]], ({ condition, then, else: else_ }, vm) => {

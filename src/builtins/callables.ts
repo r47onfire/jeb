@@ -1,12 +1,9 @@
 import { isArray } from "lib0/array";
 import { isString } from "lib0/function";
-import { add } from "lib0/math";
 import { Block } from "../block";
 import { Fun } from "../callable";
 import { Continuation } from "../continuation";
 import { define, defineApplier, makeJSFun, makeOpcode } from "../define";
-import { Env } from "../env";
-import { implicitBegin } from "../implicitBegin";
 import { __initializer } from "../initializers";
 import { withType } from "../protocol";
 import { createSignature, Laziness } from "../signature";

@@ -1,4 +1,3 @@
-import { id } from "lib0/function";
 import { JEBAuditEvents } from "../auditHookTypes";
 import { Block } from "../block";
 import { Fun, JSFun } from "../callable";
@@ -9,11 +8,11 @@ import { checkNothingOrPush, JEBError, Location } from "../errors";
 import { __initializer } from "../initializers";
 import { AccessType, Reference, theTypeName, typecheck, typeOf, withType } from "../protocol";
 import { ObjectPropertyReference, VariableReference } from "../reference";
+import { CallableSignature, Laziness, LonghandArgument } from "../signature";
 import { OP_unwrap } from "../unwrap";
 import { Identifier } from "../utils";
 import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "../vm";
-import { KeywordArg, MacroWrapper, SplatArg, Wrapper } from "../wrapper";
-import { CallableSignature, Laziness, LonghandArgument } from "../signature";
+import { KeywordArg, MacroWrapper, SplatArg } from "../wrapper";
 
 export const OP_audit = makeOpcode("audit", <T extends keyof JEBAuditEvents>(vm: JebVM, args: [name: T, arg: JEBAuditEvents[T]]) => {
     vm.emit(...args);

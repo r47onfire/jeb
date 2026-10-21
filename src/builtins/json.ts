@@ -1,7 +1,7 @@
 import { parse, stringify } from "lib0/json";
-import { wrapThrowToError } from "../errors";
 import { define, makeJSFun } from "../define";
 import { ErrnoCode } from "../errno";
+import { wrapThrowToError } from "../errors";
 import { withType } from "../protocol";
 import { JebVM } from "../vm";
 

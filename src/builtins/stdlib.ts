@@ -1,4 +1,5 @@
-// MARK: JSON based standard library!
+/* what */
+
 // const STANDARD_LIBRARY = ["begin",
 //     ["define", true, ["comment", "items", true],
 //         `.macro (comment items...) | (#; items...) | #;(items...)

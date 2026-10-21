@@ -5,7 +5,7 @@ import { JEBError } from "../errors";
 import { isIdentifier } from "../utils";
 import { JebVM } from "../vm";
 import { MacroWrapper } from "../wrapper";
-import { B_concat, B_list } from "./data";
+import { B_concat, B_list } from "./lists";
 
 // MARK: metaprogramming
 export const B_quote = makeJSFun("quote", [[true, "expr"]], ({ expr }) => expr,

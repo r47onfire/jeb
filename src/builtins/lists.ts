@@ -4,7 +4,6 @@ import { wrapThrowToError } from "../errors";
 import { withType } from "../protocol";
 import { JebVM } from "../vm";
 
-// MARK: lists
 export const B_list = makeJSFun("list", ["values", true], ({ values }) => values,
     `.func (list values...)
 ..param {T} values...
