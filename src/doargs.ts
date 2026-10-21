@@ -210,7 +210,7 @@ export class DoargsState {
         if (!this.#params.params.some(({ name: name2 }) => name === name2)) {
             const p = this.#params.kwRest;
             if (p) {
-                return this.#update({ ...this.#argsObj, [p.name]: { ...(this.#argsObj[p.name] ?? {}), [name]: obj } }, undefined, this.#rawArgsIndex + 1);
+                return this.#update({ ...this.#argsObj, [p.name]: { ...this.#argsObj[p.name], [name]: obj } }, undefined, this.#rawArgsIndex + 1);
             }
             throw new JEBError(ErrnoCode.ERANGE, `unexpected ${isFromSplat ? "splat " : ""}keyword argument ${stringify(name)} to function ${stringify(this.#name)}`);
         }
