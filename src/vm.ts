@@ -1,17 +1,14 @@
 import { EventDispatcher, LinkedList, LinkedList_length, LinkedList_pop, LinkedList_popN, LinkedList_push } from "@r47onfire/game-math";
-import { isArray } from "lib0/array";
 import { min } from "lib0/math";
 import { JEBAuditEvents } from "./auditHookTypes";
 import { loadBuiltins, OP_eval, OP_throw } from "./builtins";
+import { OP_unwrap } from "./builtins/unwrap";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
 import { ErrnoCode } from "./errno";
 import { createStackInnerNode, createStackLeafNode, JEBError, Location, locationsEqual, StackTreeNode } from "./errors";
-import { __initializer, __initializers } from "./initializers";
 import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
-import { OP_unwrap } from "./unwrap";
 import { Identifier, Tuple } from "./utils";
-export { __initializer };
 
 /**
  * Data for the command
@@ -82,7 +79,6 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
         super();
         this.reset();
         loadBuiltins(this as any as T);
-        __initializers.forEach(f => f(this as any as T));
     }
     /**
      * Registers an implementation of the named protocol. Several

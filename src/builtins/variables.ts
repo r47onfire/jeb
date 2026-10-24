@@ -4,20 +4,19 @@ import { Env } from "../env";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { implicitBegin } from "../implicitBegin";
-import { __initializer } from "../initializers";
 import { AccessType, Reference, theTypeName, typeOf, withType } from "../protocol";
-import { ObjectPropertyReference, VariableReference } from "../reference";
-import { OP_wrap } from "../unwrap";
+import { ObjectPropertyReference, VariableReference } from "./reference";
+import { OP_wrap } from "./unwrap";
 import { Identifier } from "../utils";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { ReferenceWrapper } from "../wrapper";
 import { OP_apply, OP_get, OP_index, OP_set, OP_shuffle } from "./eval";
 
 // MARK: variables
-__initializer(vm => {
+const accessorInit = (vm: JebVM) => {
     defineAccessor(vm, ["object", "function"], (_, { 0: object }, { field, type }) => new ObjectPropertyReference(type, object, field), "Default object property accessor.");
     defineAccessor(vm, [Env], (_, { 0: env }, { field, type }) => new VariableReference(type, env, field as Identifier), "Accessor for variables from an environment.");
-});
+};
 export const B_local = makeJSFun("local", ["name"], ({ name }, vm) => {
     pushCommand(vm, OP_wrap, ReferenceWrapper);
     pushCommand(vm, OP_index, AccessType.VARIABLE);
@@ -137,4 +136,5 @@ export const loadVariablesBuiltins = (vm: JebVM) => {
     define(vm, "ref", B_ref);
     define(vm, "deref", B_deref);
     define(vm, "always", B_always);
+    accessorInit(vm);
 };

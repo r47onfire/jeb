@@ -5,11 +5,10 @@ import { define, defineApplier, defineEvaluator, makeJSFun, makeOpcode, NOTHING 
 import { OP_doargs } from "../doargs";
 import { ErrnoCode } from "../errno";
 import { checkNothingOrPush, JEBError, Location } from "../errors";
-import { __initializer } from "../initializers";
 import { AccessType, Reference, theTypeName, typecheck, typeOf, withType } from "../protocol";
-import { ObjectPropertyReference, VariableReference } from "../reference";
+import { ObjectPropertyReference, VariableReference } from "./reference";
 import { CallableSignature, Laziness, LonghandArgument } from "../signature";
-import { OP_unwrap } from "../unwrap";
+import { OP_unwrap } from "./unwrap";
 import { Identifier } from "../utils";
 import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "../vm";
 import { KeywordArg, MacroWrapper, SplatArg } from "../wrapper";
@@ -84,7 +83,7 @@ export const B_macro_wrap = makeJSFun("macro", ["code"], ({ code }) => new Macro
 . Wraps the code in a special object that causes it to be evaluated using [[eval]] in the scope of where it was used and the result of the evaluation used in place of the actual code object.
 This can be used to create an unhygienic syntactic macro by returning the wrapper immediately.`)
 
-__initializer(vm => defineEvaluator(vm, ["object"], (vm, { 0: code }, { location }) => {
+const loadObjectEvaluator = (vm: JebVM) => defineEvaluator(vm, ["object"], (vm, { 0: code }, { location }) => {
     if (code === null) {
         pushData(vm, null);
         return;
@@ -102,14 +101,14 @@ __initializer(vm => defineEvaluator(vm, ["object"], (vm, { 0: code }, { location
         pushCommand(vm, OP_eval, location);
     }
 },
-    "Evaluates all of the property values, and then reassembles the object with the same set of keys with the evaluated values."));
+    "Evaluates all of the property values, and then reassembles the object with the same set of keys with the evaluated values.");
 const arrayEval = (vm: JebVM, code: any[], tail: boolean, location: Location | undefined) => {
     pushCommand(vm, OP_apply, code.slice(1), location, tail);
     pushCommand(vm, OP_unwrap, []);
     pushCommand(vm, OP_eval, location);
     pushData(vm, code[0]);
 };
-__initializer(vm => {
+const loadOtherEvaluators = (vm: JebVM) => {
     defineEvaluator(vm, [Array], (vm, { 0: code }, { tail, location }) => {
         if (code.length > 0) {
             arrayEval(vm, code, tail, location);
@@ -130,7 +129,7 @@ __initializer(vm => {
 
     defineEvaluator(vm, [Block], (vm, { 0: f }) => pushData(vm, f),
         "Implicit blocks evaluate to themselves.")
-});
+};
 
 // MARK: apply
 export const OP_apply = makeOpcode("apply", (vm: JebVM, { 0: argv, 1: location, 2: tail, 3: noEval }: [any[], location?: Location, tail?: boolean, noEval?: boolean]) => {
@@ -189,7 +188,7 @@ const OP_apply_id_trampoline = makeOpcode(null, (vm: JebVM, { 0: tail, 1: locati
     pushData(vm, realFunc);
     pushCommand(vm, OP_apply, argsObj._, location, tail);
 }, null);
-__initializer(vm => {
+const loadStringApplier = (vm: JebVM) => {
     defineApplier(vm, ["string", "symbol"], (vm, { 0: func }, { tail, location }) => {
         // String is a special case because normally strings evaluate to themselves
         // (not to a callable function), but if it's in head position, we implicitly look it up.
@@ -212,7 +211,7 @@ As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the for
         (vm, { 0: func }, { location }) => pushCommand(vm, OP_JSFun_invoke, func, location),
         (_, func) => func,
         "Wrapper for a Javascript function that gives it a few properties to make it easier for JEB to call it.");
-});
+};
 const OP_JSFun_invoke = makeOpcode(null, <T extends JebVM>(vm: T, { 0: func, 1: location }: [JSFun<T>, loc?: Location | undefined]) => checkNothingOrPush(vm, func.impl(popData(vm), vm, location)), null);
 
 export const OP_index = makeOpcode("index", (vm: JebVM, { 0: type }: [AccessType]) => {
@@ -298,4 +297,7 @@ export const loadEvalBuiltins = (vm: JebVM) => {
     define(vm, "at", B_atLocation);
     define(vm, "splat", B_splat);
     define(vm, "kw", B_keyword);
+    loadObjectEvaluator(vm);
+    loadOtherEvaluators(vm);
+    loadStringApplier(vm);
 };

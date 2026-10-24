@@ -4,14 +4,13 @@ import { Block } from "../block";
 import { Fun } from "../callable";
 import { Continuation } from "../continuation";
 import { define, defineApplier, makeJSFun, makeOpcode } from "../define";
-import { __initializer } from "../initializers";
 import { withType } from "../protocol";
 import { createSignature, Laziness } from "../signature";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { OP_block_invoke } from "./variables";
 
 // MARK: fn/block applier
-__initializer(vm => {
+const loadFunBlockAppliers = (vm: JebVM) => {
     defineApplier(vm, [Fun], (vm, { 0: fn }, { tail }) => pushCommand(vm, OP_fun_invoke, fn, tail),
         (_, fn) => ({
             name: fn.isImplicit ? undefined : fn.name ?? "[anonymous]",
@@ -31,7 +30,7 @@ __initializer(vm => {
             closureEnv: b.closureEnv,
         }),
         "Deferred block evaluation");
-});
+};
 const OP_fun_invoke = makeOpcode(null, (vm: JebVM, { 0: fn, 1: tail }: [Fun<any>, boolean | undefined]) => {
     const argvObject = popData(vm);
     if (!fn.isImplicit) argvObject.return = vm.cc();
@@ -73,7 +72,7 @@ There are many forms that the paremeter can take to control is behavior at call 
 . Returns a new anonymous function with the specified parameters, documentation string, and body.`);
 
 // MARK: continuation applier
-__initializer(vm => defineApplier(vm, [Continuation], (vm, { 0: k }) => {
+const loadContinuationApplier = (vm: JebVM) => defineApplier(vm, [Continuation], (vm, { 0: k }) => {
     pushCommand(vm, OP_continuation_invoke, k);
 }, () => ({
     name: "<continuation>",
@@ -90,10 +89,12 @@ __initializer(vm => defineApplier(vm, [Continuation], (vm, { 0: k }) => {
         kwRest: undefined,
     }
 }),
-    "Reified GOTO which will jump back to the place it was captured from and return from there instead of returning from where it was called from like usual."));
+    "Reified GOTO which will jump back to the place it was captured from and return from there instead of returning from where it was called from like usual.");
 const OP_continuation_invoke = makeOpcode(null, <T extends JebVM>(vm: T, { 0: k }: [Continuation<T>]) => k.invoke(vm, popData(vm).value), null);
 
 /** Registers this file's builtins in the VM's builtins scope, in the order listed. Called by {@link loadBuiltins}. */
 export const loadCallablesBuiltins = (vm: JebVM) => {
     define(vm, "fn", B_fn);
+    loadFunBlockAppliers(vm);
+    loadContinuationApplier(vm);
 };

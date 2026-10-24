@@ -1,9 +1,8 @@
-import { OP_eval, OP_get } from "./builtins";
-import { defineUnwrapper, makeOpcode } from "./define";
-import { __initializer } from "./initializers";
-import { DropFirst } from "./utils";
-import { peekData, popData, pushCommand, pushData } from "./vm";
-import { MacroWrapper, ReferenceWrapper, Wrapper } from "./wrapper";
+import { OP_eval, OP_get } from ".";
+import { defineUnwrapper, makeOpcode } from "../define";
+import { DropFirst } from "../utils";
+import { JebVM, peekData, popData, pushCommand, pushData } from "../vm";
+import { MacroWrapper, ReferenceWrapper, Wrapper } from "../wrapper";
 
 /**
  * Argument tuple for {@link OP_wrap}: a {@link Wrapper} subclass constructor
@@ -34,7 +33,7 @@ export const OP_unwrap = makeOpcode("unwrap", (vm, { 0: dontUnwrap }: [string[]]
 .sed value -- unwrapped
 . Unwraps all wrappers from the value, unless the value's wrapper has a tag in the given list of \`dontUnwrap\`.`);
 
-__initializer(vm => {
+export const loadUnwrappingBuiltins = (vm: JebVM) => {
     defineUnwrapper(vm, [ReferenceWrapper], (vm, { 0: { obj } }) => {
         pushCommand(vm, OP_get, true);
         pushData(vm, obj);
@@ -43,5 +42,4 @@ __initializer(vm => {
         pushCommand(vm, OP_eval, undefined);
         pushData(vm, obj);
     }, "Unwraps a macro expansion thing");
-});
-
+};

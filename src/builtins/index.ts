@@ -2,12 +2,14 @@ import { JebVM } from "../vm";
 import { loadCallablesBuiltins } from "./callables";
 import { loadControlBuiltins } from "./control";
 import { loadEvalBuiltins } from "./eval";
-import { loadFfiBuiltins } from "./ffi";
+import { loadFFIBuiltins } from "./ffi";
 import { loadJsonBuiltins } from "./json";
 import { loadDataBuiltins } from "./lists";
 import { loadOperatorsBuiltins } from "./operators";
 import { loadQuoteBuiltins } from "./quote";
+import { loadVarNamingBuiltins } from "./reference";
 import { loadSchemeBuiltins } from "./scheme";
+import { loadUnwrappingBuiltins } from "./unwrap";
 import { loadVariablesBuiltins } from "./variables";
 
 export { B_err, B_throw, B_with, OP_throw } from "./control";
@@ -29,9 +31,11 @@ export { B_always, B_deref, B_index, B_local, B_ref, B_set, OP_set_env } from ".
  */
 export const loadBuiltins = (vm: JebVM) => {
     loadEvalBuiltins(vm);
+    loadUnwrappingBuiltins(vm);
     loadVariablesBuiltins(vm);
+    loadVarNamingBuiltins(vm);
     loadControlBuiltins(vm);
-    loadFfiBuiltins(vm);
+    loadFFIBuiltins(vm);
     loadCallablesBuiltins(vm);
     loadSchemeBuiltins(vm);
     loadOperatorsBuiltins(vm);

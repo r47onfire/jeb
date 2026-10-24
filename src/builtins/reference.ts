@@ -1,12 +1,12 @@
 import { stringify } from "lib0/json";
-import { OP_apply, OP_shuffle } from "./builtins";
-import { Fun } from "./callable";
-import { Env } from "./env";
-import { ErrnoCode } from "./errno";
-import { JEBError, wrapThrowToError } from "./errors";
-import { AccessType, Reference } from "./protocol";
-import { Identifier } from "./utils";
-import { __initializer, JebVM, pushCommand, pushData } from "./vm";
+import { OP_apply, OP_shuffle } from ".";
+import { Fun } from "../callable";
+import { Env } from "../env";
+import { ErrnoCode } from "../errno";
+import { JEBError, wrapThrowToError } from "../errors";
+import { AccessType, Reference } from "../protocol";
+import { Identifier } from "../utils";
+import { JebVM, pushCommand, pushData } from "../vm";
 
 /**
  * A reference to a property of a plain JavaScript object (host-language
@@ -96,10 +96,10 @@ export class VariableReference extends Reference {
 
 // Registers the default `name` protocol: when an unnamed function value is
 // assigned to a variable, it adopts the variable's name (used for tracebacks).
-__initializer(vm => {
+export const loadVarNamingBuiltins = (vm: JebVM) => {
     vm.addProtocol("name", {
         type: [[Fun]],
         run(_, { 0: fun }, { name }) { fun.name ??= name; },
         doc: "",
     });
-});
+};

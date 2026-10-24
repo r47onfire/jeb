@@ -5,13 +5,13 @@ import { Err, Ok, Result } from "ts-res";
 import { define, makeJSFun, NOTHING } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError, wrapThrowToError } from "../errors";
-import { __initializer } from "../initializers";
 import { float, numberOp, Relation } from "../math";
 import { theTypeName, typeOf, withType } from "../protocol";
 import { JebVM, pushCommand, pushData } from "../vm";
 import { OP_eval } from "./eval";
 
 // MARK: Operators
+const mathLoaders: ((vm: JebVM) => void)[] = [];
 const mathHelper = (operator: string, op2: "add" | "sub" | "mul" | "matMul" | "div" | "mod" | "pow" | "bitAnd" | "bitOr" | "bitXor", op1: "abs" | "neg" | "inv" | undefined,
     f2: (a: number | bigint, b: number | bigint) => number | bigint,
     f1: (x: bigint) => any,
@@ -35,16 +35,16 @@ const mathHelper = (operator: string, op2: "add" | "sub" | "mul" | "matMul" | "d
 .throws EPROTONOSUPPORT - if no overload was found for the given argument types
 .pure
 . ${doc}`);
-    __initializer(vm => vm.addProtocol(op2, { type: [["number", "bigint"], ["number", "bigint"]], run: (_, { 0: a, 1: b }) => Ok(f2(a, b)), doc }));
+    mathLoaders.push(vm => vm.addProtocol(op2, { type: [["number", "bigint"], ["number", "bigint"]], run: (_, { 0: a, 1: b }) => Ok(f2(a, b)), doc }));
     if (op1) {
-        __initializer(vm => {
+        mathLoaders.push(vm => {
             vm.addProtocol(op1, { type: [["number", "bigint"]], run: (_, { 0: a }) => Ok(f1(a)), doc });
         });
     }
     return b;
 }
 export const B_plus = mathHelper("add", "add", "abs", numberOp(add), a => a > 0 ? a : -a, "Adds numbers or concatenates strings.");
-__initializer(vm => vm.addProtocol("add", { type: [["string"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(a + b), doc: "Concatenates strings" }));
+const loadConcatProtocol = (vm: JebVM) => vm.addProtocol("add", { type: [["string"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(a + b), doc: "Concatenates strings" });
 export const B_minus = mathHelper("sub", "sub", "neg", numberOp((a, b) => a - b), a => -a, "Subtracts numbers.\nIn the case of one number, returns the additive inverse (i.e. the negative).");
 export const B_mul = mathHelper("mul", "mul", undefined, numberOp((a, b) => a * b), id, "Multiplies numbers.\nThe special case of `string * number` or `number * string` results in repeating the string N times.");
 const repeat = (a: string, b: number): Result<string, string> => {
@@ -52,10 +52,10 @@ const repeat = (a: string, b: number): Result<string, string> => {
     if ((b | 0) !== b) return Err("Cannot repeat a non-integer number of times");
     return Ok(a.repeat(b));
 }
-__initializer(vm => {
+const loadRepeatProtocols = (vm: JebVM) => {
     vm.addProtocol("mul", { type: [["string"], ["number"]], run: (_, { 0: a, 1: b }) => Ok(repeat(a, b)), doc: "Repeats strings" });
     vm.addProtocol("mul", { type: [["number"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(repeat(b, a)), doc: "Repeats strings" });
-});
+};
 export const B_div = mathHelper("div", "div", "inv", (a, b) => float(a) / float(b), a => 1 / float(a), "Divides numbers.\nIn the case of one number, returns the multiplicative inverse (i.e. the reciprocal).");
 export const B_mod = mathHelper("mod", "mod", undefined, numberOp((a, b) => a % b), id, "Computes the modulo of two numbers.");
 export const B_pow = mathHelper("pow", "pow", undefined, numberOp((a, b) => a ** b), id, "Computes the power of numbers.\nHowever, this function still folds from the right like the other math functions, so unlike how power is notated mathematically (where `a^b^c^d^e` means `a^(b^(c^(d^e)))`), `[\"pow\", a, b, c, d, e]` is interpreted as `(((a^b)^c)^d)^e`.");
@@ -102,7 +102,7 @@ const compareFn = (_: JebVM, { 0: a, 1: b, 2: c }: [any, any, Relation]) => {
     if (a > b) return Ok(!!(c & Relation.GREATER));
     throw "unreachable";
 };
-__initializer(vm => {
+const loadCompareProtocol = (vm: JebVM) => {
     vm.addProtocol("cmp", { type: [["number", "bigint"], ["number", "bigint"], ["number"]], run: compareFn, doc: "Compares numbers" });
     vm.addProtocol("cmp", { type: [["string"], ["string"], ["number"]], run: compareFn, doc: "Compares strings" });
     vm.addProtocol("cmp", {
@@ -114,7 +114,7 @@ __initializer(vm => {
         },
         doc: "Compares any items"
     });
-});
+};
 
 // MARK: booleans
 export const B_not = makeJSFun("not", ["value"], ({ value }) => !value,
@@ -160,4 +160,8 @@ export const loadOperatorsBuiltins = (vm: JebVM) => {
     define(vm, "not", B_not);
     define(vm, "and", B_and_shortcircuit);
     define(vm, "or", B_or_shortcircuit);
+    mathLoaders.forEach(f => f(vm));
+    loadConcatProtocol(vm);
+    loadRepeatProtocols(vm);
+    loadCompareProtocol(vm);
 };

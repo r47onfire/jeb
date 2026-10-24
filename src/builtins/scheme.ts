@@ -5,12 +5,12 @@ import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { implicitBegin } from "../implicitBegin";
 import { AccessType, withType } from "../protocol";
-import { VariableReference } from "../reference";
 import { Identifier, isIdentifier } from "../utils";
 import { JebVM, pushCommand, pushData } from "../vm";
 import { B_fn } from "./callables";
 import { B_audit, OP_eval, OP_if, OP_set, OP_shuffle } from "./eval";
 import { B_plus } from "./operators";
+import { VariableReference } from "./reference";
 import { B_local, B_set } from "./variables";
 
 // MARK: Scheme analogs

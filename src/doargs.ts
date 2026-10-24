@@ -8,7 +8,7 @@ import { CallableSignature, Laziness, LonghandArgument } from "./signature";
 import { Identifier } from "./utils";
 import { JebVM, popData, pushCommand, pushData } from "./vm";
 import { KeywordArg, SplatArg } from "./wrapper";
-import { OP_unwrap } from "./unwrap";
+import { OP_unwrap } from "./builtins/unwrap";
 import { ErrnoCode } from "./errno";
 
 /**
