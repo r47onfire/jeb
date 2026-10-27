@@ -211,6 +211,7 @@ export const wrapThrowToError = <T>(kind: ErrnoCode, f: () => T) => {
         return f();
     } catch (e) {
         if (e instanceof JEBError) throw e;
+        console.error(e);
         throw new JEBError(kind, String(e), { cause: e });
     }
 }

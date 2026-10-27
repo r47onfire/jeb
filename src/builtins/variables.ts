@@ -81,7 +81,7 @@ export const B_deref = makeJSFun("deref", ["ref"], ({ ref }) => new ReferenceWra
 . Asserts that \`x\` is a valid reference value created by [[ref]], and then returns the value stored in the reference.
 This function works with [[set]] to be able to change the value of the reference as well.`);
 
-export const B_always = makeJSFun("always", ["derived", [false, "onchange"], [["ref"], "refs"], true], ({ derived, onchange, refs }, vm) => {
+export const B_always = makeJSFun("always", ["derived", [false, "onchange"], [["ref"], 0, "refs"]], ({ derived, onchange, refs }, vm) => {
     const watches: (() => void)[] = [];
     if (refs!.length < 1) throw new JEBError(ErrnoCode.EINVAL, "need at least 1 variable to watch");
     for (var i = 0; i < refs!.length; i++) {

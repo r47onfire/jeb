@@ -850,7 +850,7 @@ describe("fns", () => {
     });
     testTest(test, "spread arguments", (vm, out) => {
         expect(run(vm, ["begin",
-            ["define", ["foo", "x", true], ["print", ["jsonStringify", ["local", "x"]]]],
+            ["define", ["foo", [0, "x"]], ["print", ["jsonStringify", ["local", "x"]]]],
             ["foo", 1, 2, 3],
             ["foo"]
         ])).toBeTrue();

@@ -32,6 +32,14 @@ export class SplatArg extends Wrapper {
 }
 
 /**
+ * Sentinel to force the parameter to use its default expression
+ */
+export class EmptyWrapper extends Wrapper {
+    flag = "empty" as const;
+    declare obj: never;
+}
+
+/**
  * Wrapper for a variable reference
  */
 export class ReferenceWrapper extends Wrapper {

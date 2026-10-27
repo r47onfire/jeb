@@ -13,6 +13,11 @@ export type _TupleOf<T, N extends number, R extends unknown[]> = R["length"] ext
  */
 export type Writable<T> = { -readonly [P in keyof T]: T[P] };
 
+export type WrapUnionMembers<T> = T extends unknown ? [T] : never;
+export type CombinationTupleMembers<T> = T extends [] ? T : T extends [infer F, ...infer R] ? [...WrapUnionMembers<F>, ...CombinationTupleMembers<R>] : never;
+export type NoDuplicateElements<T> = T extends [] ? [] : T extends [infer F, ...infer R] ? F extends R[number] ? never : [F, ...NoDuplicateElements<R>] : never;
+export type UnionPermutations<U, L extends number> = NoDuplicateElements<CombinationTupleMembers<Tuple<U, L>>>;
+
 /**
  * A tuple/array type with its first element removed.
  */

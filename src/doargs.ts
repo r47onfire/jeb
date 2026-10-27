@@ -1,15 +1,15 @@
 import { stringify } from "lib0/json";
 import { Block } from "./block";
 import { OP_eval } from "./builtins";
+import { OP_unwrap } from "./builtins/unwrap";
 import { makeOpcode, NOTHING } from "./define";
 import { Env } from "./env";
+import { ErrnoCode } from "./errno";
 import { JEBError, wrapThrowToError } from "./errors";
-import { CallableSignature, Laziness, LonghandArgument } from "./signature";
+import { CallableSignature, Laziness, LonghandArgument, Rest } from "./signature";
 import { Identifier } from "./utils";
 import { JebVM, popData, pushCommand, pushData } from "./vm";
-import { KeywordArg, SplatArg } from "./wrapper";
-import { OP_unwrap } from "./builtins/unwrap";
-import { ErrnoCode } from "./errno";
+import { EmptyWrapper, KeywordArg, SplatArg } from "./wrapper";
 
 /**
  * Records how a parameter's value was supplied, so that giving the same
@@ -26,6 +26,21 @@ const enum DoargsWhere {
  * legitimately supplied `undefined` value.
  */
 const MISSING = Symbol("MISSING");
+
+const evalHelper = (vm: JebVM, state: DoargsState, env: Env, data: any, param: LonghandArgument<any, any>): typeof NOTHING => {
+    pushCommand(vm, OP_doargs_loop, state, false);
+    pushCommand(vm, OP_unwrap, ["splat", "keyword", "empty"].concat(param.flags));
+    pushCommand(vm, OP_eval, undefined);
+    pushData(vm, data);
+    vm.currentEnv = env;
+    return NOTHING;
+};
+
+const doneHelper = (vm: JebVM, ao: Record<string, any>, env: Env): typeof NOTHING => {
+    vm.currentEnv = env;
+    pushData(vm, ao);
+    return NOTHING;
+};
 
 /**
  * Immutable state of one in-progress argument-binding operation (see
@@ -54,10 +69,9 @@ export class DoargsState {
     readonly #givenArgs: any[];
     readonly #rawArgsIndex: number;
     readonly #paramsIndex: number;
-    readonly #seenKeyword: boolean;
     readonly #seenByName: Readonly<Record<string, DoargsWhere>>;
 
-    constructor(name: Identifier | undefined, params: CallableSignature, call: Env, closure: Env | undefined, noEval: boolean, given: any[], argsObj: Record<string, any> = {}, rawArgsIndex = 0, paramsIndex = 0, seenKeyword = false, seenByName: Record<string, DoargsWhere> = {}) {
+    constructor(name: Identifier | undefined, params: CallableSignature, call: Env, closure: Env | undefined, noEval: boolean, given: any[], argsObj: Record<string, any> = {}, rawArgsIndex = 0, paramsIndex = 0, seenByName: Record<string, DoargsWhere> = {}) {
         this.#name = name;
         this.#params = params;
         this.#callEnv = call;
@@ -67,22 +81,15 @@ export class DoargsState {
         this.#argsObj = argsObj;
         this.#rawArgsIndex = rawArgsIndex;
         this.#paramsIndex = paramsIndex;
-        this.#seenKeyword = seenKeyword;
         this.#seenByName = seenByName;
-        if (params.rest) {
-            this.#argsObj[params.rest.name] ??= [];
-        }
-        if (params.kwRest) {
-            this.#argsObj[params.kwRest.name] ??= {};
-        }
     }
 
     /**
      * Returns the successor state with the given fields replaced; all other
      * fields carry over from this state.
      */
-    #update(argsObj = this.#argsObj, seenByName = this.#seenByName, rawArgsIndex = this.#rawArgsIndex, paramsIndex = this.#paramsIndex, seenKeyword = this.#seenKeyword) {
-        return new DoargsState(this.#name, this.#params, this.#callEnv, this.#closureEnv, this.#noEvalMode, this.#givenArgs, argsObj, rawArgsIndex, paramsIndex, seenKeyword, seenByName);
+    #update(argsObj = this.#argsObj, seenByName = this.#seenByName, rawArgsIndex = this.#rawArgsIndex, paramsIndex = this.#paramsIndex) {
+        return new DoargsState(this.#name, this.#params, this.#callEnv, this.#closureEnv, this.#noEvalMode, this.#givenArgs, argsObj, rawArgsIndex, paramsIndex, seenByName);
     }
 
     /**
@@ -102,56 +109,45 @@ export class DoargsState {
             // prepareValue returns NOTHING if it pushed opcodes to do something,
             // otherwise it returns the value as-is
             if (argValue === NOTHING) return;
-            state = state.#storeArgumentAndAdvance(argValue);
+            const newState = state.#storeArgumentAndAdvance(vm, argValue);
+            if (newState === NOTHING) return;
+            state = newState;
         }
     }
     // Also prepares evaluation or handles end-of-arguments
     #prepareNextValue(vm: JebVM) {
-        const paramsList = this.#params.params, argv = this.#givenArgs;
+        const paramsList = this.#params, argv = this.#givenArgs;
         const curParamIndex = this.#paramsIndex, curArgvIndex = this.#rawArgsIndex;
-
-        const evalHelper = (env: Env, data: any, param?: LonghandArgument<any, any>) => {
-            pushCommand(vm, OP_doargs_loop, this, false);
-            pushCommand(vm, OP_unwrap, ["splat", "keyword"].concat(param?.flags));
-            pushCommand(vm, OP_eval, undefined);
-            pushData(vm, data);
-            vm.currentEnv = env;
-            return NOTHING;
-        };
-
-        const doneHelper = (ao = this.#argsObj) => {
-            vm.currentEnv = this.#callEnv;
-            pushData(vm, ao);
-            return NOTHING;
-        };
 
         if (curArgvIndex < argv.length) {
             if (curParamIndex >= paramsList.length) {
-                // If rest argument is lazy, slice off everything at once and wrap it
-                if (this.#params.rest) {
-                    const { lazy, name } = this.#params.rest;
-                    if (lazy !== Laziness.NONE) {
-                        if (this.#noEvalMode) throw new JEBError(ErrnoCode.ESYNTAX, "lazy parameter not allowed here");
-                        return doneHelper({ ...this.#argsObj, [name!]: wrapLazyValue(lazy, argv.slice(curArgvIndex), this.#callEnv, false) });
-                    }
-                }
+                throw new JEBError(ErrnoCode.ERANGE, `too many arguments to function ${stringify(this.#name)}`);
             }
             const value = argv[curArgvIndex]!;
-            const param = paramsList[curParamIndex] ?? this.#params.rest;
+            const param = paramsList[curParamIndex]!;
             if (param && param.lazy !== Laziness.NONE) {
+                // If current arg is rest lazy, slice off everything at once and wrap it
+                if (param.rest === Rest.POSITIONAL) {
+                    if (this.#noEvalMode) throw new JEBError(ErrnoCode.ESYNTAX, "lazy parameter not allowed here");
+                    return doneHelper(vm, { ...this.#argsObj, [param.name!]: wrapLazyValue(param.lazy, argv.slice(curArgvIndex), this.#callEnv, false) }, this.#callEnv);
+                }
                 if (this.#noEvalMode) throw new JEBError(ErrnoCode.ESYNTAX, "lazy parameter not allowed here");
                 return wrapLazyValue(param.lazy, value, this.#callEnv, true);
             }
-            return this.#noEvalMode ? value : evalHelper(this.#callEnv, value, param);
+            return this.#noEvalMode ? value : evalHelper(vm, this, this.#callEnv, value, param);
         }
 
         if (curParamIndex >= paramsList.length) {
             // Done!
-            return doneHelper();
+            return doneHelper(vm, this.#argsObj, this.#callEnv);
         }
 
         const param = paramsList[curParamIndex]!;
-        return param.required ? MISSING : evalHelper(this.#closureEnv ? vm.createEnv(this.#callEnv, this.#closureEnv) : vm.createEnv(this.#callEnv), param.defaultExpr, param);
+        return param.required ? MISSING : evalHelper(vm, this, this.#defaultEnv(vm), param.defaultExpr, param);
+    }
+
+    #defaultEnv(vm: JebVM) {
+        return this.#closureEnv ? vm.createEnv(this.#callEnv, this.#closureEnv) : vm.createEnv(this.#callEnv);
     }
 
     /**
@@ -159,14 +155,15 @@ export class DoargsState {
      * successor state. Keyword and splat wrappers are unpacked here; everything
      * else fills the next positional parameter (or the rest parameter).
      */
-    #storeArgumentAndAdvance(argValue: any) {
-        const param = this.#params.params[this.#paramsIndex]!;
-        if (param?.required && argValue === MISSING) {
-            if (this.#seenKeyword && this.#seenByName[param.name]) {
-                // Skip keyword-given indices
-                return this.#update(undefined, undefined, undefined, this.#paramsIndex + 1);
-            }
-            else throw new JEBError(ErrnoCode.ERANGE, `missing required parameter ${stringify(param.name)} of function ${stringify(this.#name)}`);
+    #storeArgumentAndAdvance(vm: JebVM, argValue: any): DoargsState | typeof NOTHING {
+        const param = this.#params[this.#paramsIndex]!;
+        if (param.required && (argValue === MISSING || argValue instanceof EmptyWrapper)) {
+            // if (this.#seenByName[param.name]) {
+            //     // Skip keyword-given indices
+            //     return this.#update(undefined, undefined, undefined, this.#paramsIndex + 1);
+            // }
+            // else
+            throw new JEBError(ErrnoCode.ERANGE, `missing required parameter ${stringify(param.name)} of function ${stringify(this.#name)}`);
         }
         if (argValue instanceof KeywordArg) {
             return this.#storeKeyword(argValue.name, argValue.obj, false, 1);
@@ -194,6 +191,9 @@ export class DoargsState {
                 return state.#update(undefined, undefined, state.#rawArgsIndex + 1);
             }
         }
+        if (argValue instanceof EmptyWrapper) {
+            return evalHelper(vm, this, this.#defaultEnv(vm), param.defaultExpr, param);
+        }
         return this.#storePositional(argValue, false, 1, 1);
     }
     /**
@@ -207,23 +207,20 @@ export class DoargsState {
     }
 
     #storeKeyword(name: Identifier, obj: any, isFromSplat: boolean, rawDelta: number) {
-        if (!this.#params.params.some(({ name: name2 }) => name === name2)) {
-            const p = this.#params.kwRest;
+        if (!this.#params.some(x => name === x.name)) {
+            const p = this.#params.find(x => x.rest === Rest.KEYWORD);
             if (p) {
                 return this.#update({ ...this.#argsObj, [p.name]: { ...this.#argsObj[p.name], [name]: obj } }, undefined, this.#rawArgsIndex + 1);
             }
             throw new JEBError(ErrnoCode.ERANGE, `unexpected ${isFromSplat ? "splat " : ""}keyword argument ${stringify(name)} to function ${stringify(this.#name)}`);
         }
-        return this.#update({ ...this.#argsObj, [name]: obj }, { ...this.#seenByName, [name]: DoargsWhere.KEYWORD }, this.#rawArgsIndex + rawDelta, undefined, true);
+        return this.#update({ ...this.#argsObj, [name]: obj }, { ...this.#seenByName, [name]: DoargsWhere.KEYWORD }, this.#rawArgsIndex + rawDelta);
     }
     #storePositional(value: any, isFromSplat: boolean, paramsDelta: number, rawDelta: number): DoargsState {
-        if (this.#seenKeyword) {
-            throw new JEBError(ErrnoCode.ESYNTAX, "positional argument can't follow keyword argument");
-        }
         this.#assertNotSpecial(value);
-        const pList = this.#params.params, index = this.#paramsIndex;
+        const pList = this.#params, index = this.#paramsIndex;
         if (index >= pList.length) {
-            const p = this.#params.rest;
+            const p = this.#params.find(x => x.rest === Rest.POSITIONAL);
             if (p) {
                 if (p.lazy !== Laziness.NONE && isFromSplat) {
                     throw new JEBError(ErrnoCode.ERANGE, "cannot unpack splat argument into lazy rest parameter");
@@ -260,10 +257,10 @@ const wrapLazyValue = (laziness: Laziness.LAZY | Laziness.QUOTED, given: any[], 
 export const OP_doargs = makeOpcode("doargs", (vm, { 0: params, 1: env, 2: noEval, 3: name }: [CallableSignature, Env | undefined, boolean | undefined, Identifier | undefined]) => {
     const given = popData(vm);
     // Optimization: test if it's all one rest lazy parameter, just special-case that
-    const { params: { length }, rest } = params;
-    if (!length && rest) {
-        if (rest.lazy !== Laziness.NONE) {
-            pushData(vm, { [rest.name]: wrapLazyValue(rest.lazy, given, vm.currentEnv, false) });
+    const first = params[0]!;
+    if (params.length === 1 && first.rest !== Rest.NONE) {
+        if (first.lazy !== Laziness.NONE) {
+            pushData(vm, { [first.name]: wrapLazyValue(first.lazy, given, vm.currentEnv, false) });
             return;
         }
     }

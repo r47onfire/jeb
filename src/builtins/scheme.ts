@@ -24,13 +24,13 @@ export const B_if = makeJSFun("if", ["condition", [true, "then"], [true, "else",
 ..param {code} [else=null] - case to be evaluated if \`cond\` is falsy
 .returns {any}`);
 
-export const B_begin = makeJSFun("begin", [[true, "body"], true], ({ body }, vm) => implicitBegin(vm, body!),
+export const B_begin = makeJSFun("begin", [[true, 0, "body"]], ({ body }, vm) => implicitBegin(vm, body!),
     `.macro (begin body...)
 ..param {code} body...
 .returns {any | null} - null if \`body\` is empty, otherwise returns the result of the last body statement
 . Runs each of the body statements in order.`);
 
-export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, location) => {
+export const B_let = makeJSFun("let", [[true, 0, "__args"]], (ao, vm, location) => {
     const args = ao.__args!;
     const extractParts = (bindings: any[]) => {
         bindings.forEach(b => {
@@ -69,7 +69,7 @@ export const B_let = makeJSFun("let", [[true, "__args"], true], (ao, vm, locatio
 .param {code} body...
 . Each of the pairs' *expression*s will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.`);
 
-export const B_let_in = makeJSFun("letIn", [[true, "pairs"], true], ({ pairs: ao }, vm) => {
+export const B_let_in = makeJSFun("letIn", [[true, 0, "pairs"]], ({ pairs: ao }, vm) => {
     const args = ao! as any[];
     const len = args.length;
     if ((len & 1) > 0) {
@@ -102,7 +102,7 @@ export const B_let_in = makeJSFun("letIn", [[true, "pairs"], true], ({ pairs: ao
 Functions much like [[let]] but with an implicit block after it that continues to the end of the outer block instead of explicit.
 The \`value\`s are in a "letrec" group and will be able to close over each other if they're functions.`);
 
-export const B_define = makeJSFun("define", [[true, "definition"], true], (ao, vm, location) => {
+export const B_define = makeJSFun("define", [[true, 0, "definition"]], (ao, vm, location) => {
     const args = ao.definition!;
     const name = args[0] as Identifier | Identifier[];
     const setHelper = (name: Identifier, thing: any) => {

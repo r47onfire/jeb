@@ -70,7 +70,7 @@ export const B_bitInv = makeJSFun("bitInv", ["a"], ({ a }) => ~withType(a, ["num
 
 // comparisons
 const comparisonHelper = (op: string, bits: Relation, doc: string) => {
-    return makeJSFun(op, ["items", true], ({ items: a }, vm) => {
+    return makeJSFun(op, [[0, "items"]], ({ items: a }, vm) => {
         const len = a.length;
         if (len < 2) return true;
         for (var i = 1; i < len; i++) {

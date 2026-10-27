@@ -6,7 +6,7 @@ export const makeTestRun = <T extends JebVM>(f: new () => T) => <U>(testfun: (na
     const vm = new f();
     const out: string[] = [];
     // simple print hook for the tests
-    define(vm, "print", makeJSFun("print", ["args", true], ({ args }) => void out.push(args.map(String).join(" ")), "test print"));
+    define(vm, "print", makeJSFun("print", [[0, "args"]], ({ args }) => void out.push(args.map(String).join(" ")), "test print"));
     testfun(name, () => testBody(vm, out));
 }
 

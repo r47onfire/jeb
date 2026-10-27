@@ -105,6 +105,7 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
      */
     pushData(value: any) {
         this.dataStack = LinkedList_push(this.dataStack, value);
+        // console.log("push data", value);
     }
     /**
      * Throws if the data stack holds fewer than `n` values.
@@ -120,6 +121,7 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
         this.#checkStack(n);
         const { 0: values, 1: rest } = LinkedList_popN(this.dataStack!, n);
         this.dataStack = rest;
+        // console.log("pop N data", values);
         return values.reverse();
     }
     /**
@@ -129,6 +131,7 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
         this.#checkStack(1);
         const { 0: value, 1: rest } = LinkedList_pop(this.dataStack!);
         this.dataStack = rest;
+        // console.log("pop data", value);
         return value;
     }
     /**

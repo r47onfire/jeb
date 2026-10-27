@@ -5,7 +5,7 @@ import { Fun } from "../callable";
 import { Continuation } from "../continuation";
 import { define, defineApplier, makeJSFun, makeOpcode } from "../define";
 import { withType } from "../protocol";
-import { createSignature, Laziness } from "../signature";
+import { createSignature, Laziness, Rest } from "../signature";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { OP_block_invoke } from "./variables";
 
@@ -22,11 +22,7 @@ const loadFunBlockAppliers = (vm: JebVM) => {
     defineApplier(vm, [Block], (vm, { 0: b }, { tail }) => pushCommand(vm, OP_block_invoke, b, tail),
         (_, b) => ({
             name: undefined,
-            signature: {
-                params: [{ name: "_", required: false, defaultExpr: {}, lazy: Laziness.NONE, flags: [] }],
-                rest: undefined,
-                kwRest: undefined,
-            },
+            signature: [{ name: "_", required: false, defaultExpr: {}, lazy: Laziness.NONE, flags: [], rest: Rest.NONE, options: {} }],
             closureEnv: b.closureEnv,
         }),
         "Deferred block evaluation");
@@ -38,7 +34,7 @@ const OP_fun_invoke = makeOpcode(null, (vm: JebVM, { 0: fn, 1: tail }: [Fun<any>
     pushData(vm, { _: argvObject });
 }, null);
 
-export const B_fn = makeJSFun("fn", [[true, "params"], [true, "body"], true], ({ params, body }, vm) => {
+export const B_fn = makeJSFun("fn", [[true, "params"], [true, 0, "body"]], ({ params, body }, vm) => {
     var isImplicit = false;
     if (!isArray(params)) {
         isImplicit = params as any;
@@ -77,17 +73,7 @@ const loadContinuationApplier = (vm: JebVM) => defineApplier(vm, [Continuation],
 }, () => ({
     name: "<continuation>",
     macro: false,
-    signature: {
-        params: [{
-            name: "value",
-            required: true,
-            defaultExpr: undefined,
-            lazy: Laziness.NONE,
-            flags: [],
-        }],
-        rest: undefined,
-        kwRest: undefined,
-    }
+    signature: createSignature(["value"]),
 }),
     "Reified GOTO which will jump back to the place it was captured from and return from there instead of returning from where it was called from like usual.");
 const OP_continuation_invoke = makeOpcode(null, <T extends JebVM>(vm: T, { 0: k }: [Continuation<T>]) => k.invoke(vm, popData(vm).value), null);

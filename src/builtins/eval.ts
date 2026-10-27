@@ -6,12 +6,12 @@ import { OP_doargs } from "../doargs";
 import { ErrnoCode } from "../errno";
 import { checkNothingOrPush, JEBError, Location } from "../errors";
 import { AccessType, Reference, theTypeName, typecheck, typeOf, withType } from "../protocol";
-import { ObjectPropertyReference, VariableReference } from "./reference";
-import { CallableSignature, Laziness, LonghandArgument } from "../signature";
-import { OP_unwrap } from "./unwrap";
+import { CallableSignature, createSignature, Laziness, LonghandArgument, Rest } from "../signature";
 import { Identifier } from "../utils";
 import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "../vm";
 import { KeywordArg, MacroWrapper, SplatArg } from "../wrapper";
+import { ObjectPropertyReference, VariableReference } from "./reference";
+import { OP_unwrap } from "./unwrap";
 
 export const OP_audit = makeOpcode("audit", <T extends keyof JEBAuditEvents>(vm: JebVM, args: [name: T, arg: JEBAuditEvents[T]]) => {
     vm.emit(...args);
@@ -269,25 +269,9 @@ Pops the top stack value, and if it's truthy, queues \`then\` to be executed as 
 ..param {Command | null} else
 ..sed condition -- ???`);
 
-const underscorename = (lazy: Laziness): LonghandArgument<any, any> => ({
-    name: "_",
-    required: true,
-    flags: [],
-    defaultExpr: undefined,
-    lazy
-});
+const ALL_UNDERSCORE_QUOTED: CallableSignature = createSignature([[0, true, "_"]]);
 
-const ALL_UNDERSCORE_QUOTED: CallableSignature = {
-    params: [],
-    rest: underscorename(Laziness.QUOTED),
-    kwRest: undefined,
-};
-
-export const ALL_UNDERSCORE_NORMAL: CallableSignature = {
-    params: [],
-    rest: underscorename(Laziness.NONE),
-    kwRest: undefined,
-};
+export const ALL_UNDERSCORE_NORMAL: CallableSignature = createSignature([[0, "_"]]);
 
 /** Registers this file's builtins in the VM's builtins scope, in the order listed. Called by {@link loadBuiltins}. */
 export const loadEvalBuiltins = (vm: JebVM) => {

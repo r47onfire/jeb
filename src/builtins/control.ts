@@ -47,7 +47,7 @@ export const B_err = makeJSFun("err", [["type", "EPANIC"], ["message", "no messa
 ..param {number?} [up=0] - number of stack frames to drop (in order to e.g. attribute the error to the caller)
 . Creates a new error object, but does not actually throw it (use [[throw]] for that).`);
 // MARK: with
-export const B_with = makeJSFun("with", [[true, "binding"], "context", [false, "body"], true], ({ binding, context, body }, vm) => {
+export const B_with = makeJSFun("with", [[true, "binding"], "context", [false, 0, "body"]], ({ binding, context, body }, vm) => {
     if (!isIdentifier(binding) && binding !== null) {
         throw new JEBError(ErrnoCode.EINVAL, "expected variable name or null as first argument to \"with\"")
     }
