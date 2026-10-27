@@ -1,8 +1,10 @@
 import { OP_eval, OP_get } from ".";
 import { defineUnwrapper, makeOpcode } from "../define";
+import { ErrnoCode } from "../errno";
+import { JEBError } from "../errors";
 import { DropFirst } from "../utils";
 import { JebVM, peekData, popData, pushCommand, pushData } from "../vm";
-import { MacroWrapper, ReferenceWrapper, Wrapper } from "../wrapper";
+import { EmptyArg, MacroWrapper, OptionArg, ReferenceWrapper, Wrapper } from "../wrapper";
 
 /**
  * Argument tuple for {@link OP_wrap}: a {@link Wrapper} subclass constructor
@@ -42,4 +44,10 @@ export const loadUnwrappingBuiltins = (vm: JebVM) => {
         pushCommand(vm, OP_eval, undefined);
         pushData(vm, obj);
     }, "Unwraps a macro expansion thing");
+    defineUnwrapper(vm, [EmptyArg], () => {
+        throw new JEBError(ErrnoCode.EINVAL, "there is no parameter to which a default can be forced here");
+    }, "Unwraps an empty arg placeholder (by throwing an error)");
+    defineUnwrapper(vm, [OptionArg], () => {
+        throw new JEBError(ErrnoCode.EINVAL, "there is no parameter with which an option can be used here");
+    }, "Unwraps an option arg placeholder (by throwing an error)");
 };

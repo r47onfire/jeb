@@ -34,7 +34,16 @@ export class SplatArg extends Wrapper {
 /**
  * Sentinel to force the parameter to use its default expression
  */
-export class EmptyWrapper extends Wrapper {
+export class OptionArg extends Wrapper {
+    flag = "option" as const;
+    declare obj: string;
+    constructor(obj: string) { super(obj); }
+}
+
+/**
+ * Sentinel to force the parameter to use its default expression
+ */
+export class EmptyArg extends Wrapper {
     flag = "empty" as const;
     declare obj: void;
     constructor() { super(0); }
@@ -46,6 +55,7 @@ export class EmptyWrapper extends Wrapper {
 export class ReferenceWrapper extends Wrapper {
     flag = "ref" as const;
     declare obj: Reference;
+    constructor(obj: Reference) { super(obj); }
 }
 
 /**

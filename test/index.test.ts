@@ -878,6 +878,30 @@ describe("fns", () => {
         ])).toBeTrue();
         expect(out).toEqual(["1 6"]);
     });
+    testTest(test, "blank can't be used outside of normal args", vm => {
+        expect(() => run(vm, ["begin",
+            ["blank"]
+        ])).toThrow("there is no parameter to which a default can be forced here");
+    });
+    testTest(test, "options", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", ["f", [{ a: "the option", b: ["local", "y"] }, "x"]], ["print", ["local", "x"]]],
+            ["f", 12345],
+            ["f", ["option", "a"]]
+        ])).toBeTrue();
+        expect(out).toEqual(["12345", "the option"]);
+        expect(() => run(vm, ["begin",
+            ["f", ["option", "b"]],
+        ])).toThrow('variable "y" not found');
+    });
+    testTest(test, "options dynamic", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", ["f", [{ a: "the option", b: ["local", "y"] }, "x"]], ["print", ["local", "x"]]],
+            ["letIn", "y", "the y value"],
+            ["f", ["option", "b"]],
+        ])).toBeTrue();
+        expect(out).toEqual(["the y value"]);
+    });
     testTest(test, "bad params", vm => {
         expect(() => run(vm, ["define", ["foo", 1], false])).toThrow("arg name not found at position 0");
     });

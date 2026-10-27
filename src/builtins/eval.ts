@@ -9,7 +9,7 @@ import { AccessType, Reference, theTypeName, typecheck, typeOf, withType } from 
 import { CallableSignature, createSignature } from "../signature";
 import { Identifier } from "../utils";
 import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "../vm";
-import { EmptyWrapper, KeywordArg, MacroWrapper, SplatArg } from "../wrapper";
+import { EmptyArg, KeywordArg, MacroWrapper, OptionArg, SplatArg } from "../wrapper";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap } from "./unwrap";
 
@@ -181,10 +181,16 @@ export const B_keyword = makeJSFun("kw", ["name", "value"], ({ name, value }) =>
 .pure
 . Redirects the argument into a particular named argument slot.`);
 
-export const B_blank = makeJSFun("blank", [], () => new EmptyWrapper(),
+export const B_blank = makeJSFun("blank", [], () => new EmptyArg(),
     `.func (blank)
 .pure
 . Forces the argument slot in which it is placed to use the default value.`);
+
+export const B_option = makeJSFun("blank", ["name"], ({ name }) => new OptionArg(withType(name, ["string"], "name")),
+    `.func (option name)
+..param {string} name - The name of the named option
+.pure
+. Uses the parameter's named value.`);
 
 // MARK: string applier
 const OP_apply_id_trampoline = makeOpcode(null, (vm: JebVM, { 0: tail, 1: location }: [boolean | undefined, Location | undefined]) => {
@@ -287,6 +293,7 @@ export const loadEvalBuiltins = (vm: JebVM) => {
     define(vm, "splat", B_splat);
     define(vm, "kw", B_keyword);
     define(vm, "blank", B_blank);
+    define(vm, "option", B_option);
     loadObjectEvaluator(vm);
     loadOtherEvaluators(vm);
     loadStringApplier(vm);

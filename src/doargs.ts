@@ -9,7 +9,7 @@ import { JEBError, wrapThrowToError } from "./errors";
 import { CallableSignature, Laziness, LonghandArgument, Rest } from "./signature";
 import { Identifier } from "./utils";
 import { JebVM, popData, pushCommand, pushData } from "./vm";
-import { EmptyWrapper, KeywordArg, SplatArg } from "./wrapper";
+import { EmptyArg, KeywordArg, OptionArg, SplatArg } from "./wrapper";
 
 /**
  * Records how a parameter's value was supplied, so that giving the same
@@ -29,7 +29,7 @@ const MISSING = Symbol("MISSING");
 
 const evalHelper = (vm: JebVM, state: DoargsState, env: Env, data: any, param?: LonghandArgument<any, any>): typeof NOTHING => {
     pushCommand(vm, OP_doargs_loop, state, false);
-    pushCommand(vm, OP_unwrap, ["splat", "keyword", "empty"].concat(param?.flags ?? []));
+    pushCommand(vm, OP_unwrap, ["splat", "keyword", "empty", "option"].concat(param?.flags ?? []));
     pushCommand(vm, OP_eval, undefined);
     pushData(vm, data);
     vm.currentEnv = env;
@@ -171,7 +171,7 @@ export class DoargsState {
             // parameters already have their value. Just step over it.
             return this.#update(undefined, undefined, undefined, I + 1);
         }
-        if (param?.required && (argValue === MISSING || argValue instanceof EmptyWrapper)) {
+        if (param?.required && (argValue === MISSING || argValue instanceof EmptyArg)) {
             throw new JEBError(ErrnoCode.ERANGE, `missing required ${I > ((p.findIndex(x => x.rest === Rest.POSITIONAL) + p.length) % p.length) ? "keyword-only " : ""}parameter ${stringify(param.name)} of function ${stringify(this.#name)}`);
         }
         if (argValue instanceof KeywordArg) {
@@ -200,11 +200,18 @@ export class DoargsState {
                 return state.#update(undefined, undefined, state.#rawArgsIndex + 1);
             }
         }
-        if (argValue instanceof EmptyWrapper) {
+        if (argValue instanceof EmptyArg) {
             if (param.rest !== Rest.NONE) {
                 return this.#update(undefined, undefined, this.#rawArgsIndex + 1, I + 1);
             }
             return evalHelper(vm, this, this.#defaultEnv(vm), param.defaultExpr, param);
+        }
+        if (argValue instanceof OptionArg) {
+            const valueExpr = param.options[argValue.obj];
+            if (!Reflect.has(param.options, argValue.obj)) {
+                throw new JEBError(ErrnoCode.ENAME, `no such option ${stringify(argValue.obj)}`);
+            }
+            return evalHelper(vm, this, this.#defaultEnv(vm), valueExpr, param);
         }
         if (this.#rawArgsIndex >= this.#givenArgs.length && this.#seenByName[param.name]) {
             // The given arguments are exhausted, so this value is the
