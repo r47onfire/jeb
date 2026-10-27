@@ -206,27 +206,27 @@ Obtaining a reference MUST always go through the `access` protocol.
 
 ### 6.1 Variable references
 
-The `$` builtin creates a reference to a variable by name:
+The `local` builtin creates a reference to a variable by name:
 
 ```json
-["$", "name"]
+["local", "name"]
 ```
 
 Reading an undefined variable MUST throw a reference error. Assigning to a constant MUST throw a type error. Assigning to an undefined variable MUST throw a reference error unless declaration was requested.
 
 ### 6.2 Property references
 
-The `.` builtin creates a reference to an object property:
+The `index` builtin creates a reference to an object property:
 
 ```json
-[".", objectExpression, propertyNameExpression]
+["index", objectExpression, propertyNameExpression]
 ```
 
 The object expression and property name expression MUST be evaluated according to normal argument semantics before the property reference is created.
 
 The default object accessor MUST support property reads and writes for objects.
 
-A host accessor MAY bind a retrieved host function to its owning object when the access operation requests binding.
+A host accessor MAY bind a retrieved host function to its owning object when the access operation requests binding. <!-- TODO: define "requests binding" somewhere else -->
 
 Property access and mutation MUST emit the appropriate audit events when the host runtime exposes audit hooks.
 
