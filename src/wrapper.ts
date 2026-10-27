@@ -36,7 +36,8 @@ export class SplatArg extends Wrapper {
  */
 export class EmptyWrapper extends Wrapper {
     flag = "empty" as const;
-    declare obj: never;
+    declare obj: void;
+    constructor() { super(0); }
 }
 
 /**

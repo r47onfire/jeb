@@ -27,9 +27,9 @@ const enum DoargsWhere {
  */
 const MISSING = Symbol("MISSING");
 
-const evalHelper = (vm: JebVM, state: DoargsState, env: Env, data: any, param: LonghandArgument<any, any>): typeof NOTHING => {
+const evalHelper = (vm: JebVM, state: DoargsState, env: Env, data: any, param?: LonghandArgument<any, any>): typeof NOTHING => {
     pushCommand(vm, OP_doargs_loop, state, false);
-    pushCommand(vm, OP_unwrap, ["splat", "keyword", "empty"].concat(param.flags));
+    pushCommand(vm, OP_unwrap, ["splat", "keyword", "empty"].concat(param?.flags ?? []));
     pushCommand(vm, OP_eval, undefined);
     pushData(vm, data);
     vm.currentEnv = env;
@@ -69,9 +69,10 @@ export class DoargsState {
     readonly #givenArgs: any[];
     readonly #rawArgsIndex: number;
     readonly #paramsIndex: number;
+    readonly #seenKeyword: boolean;
     readonly #seenByName: Readonly<Record<string, DoargsWhere>>;
 
-    constructor(name: Identifier | undefined, params: CallableSignature, call: Env, closure: Env | undefined, noEval: boolean, given: any[], argsObj: Record<string, any> = {}, rawArgsIndex = 0, paramsIndex = 0, seenByName: Record<string, DoargsWhere> = {}) {
+    constructor(name: Identifier | undefined, params: CallableSignature, call: Env, closure: Env | undefined, noEval: boolean, given: any[], argsObj: Record<string, any> = {}, rawArgsIndex = 0, paramsIndex = 0, seenKeyword = false, seenByName: Record<string, DoargsWhere> = {}) {
         this.#name = name;
         this.#params = params;
         this.#callEnv = call;
@@ -81,15 +82,20 @@ export class DoargsState {
         this.#argsObj = argsObj;
         this.#rawArgsIndex = rawArgsIndex;
         this.#paramsIndex = paramsIndex;
+        this.#seenKeyword = seenKeyword;
         this.#seenByName = seenByName;
+        for (const p of params) {
+            if (p.rest === Rest.POSITIONAL) this.#argsObj[p.name] ??= [];
+            else if (p.rest === Rest.KEYWORD) this.#argsObj[p.name] ??= {};
+        }
     }
 
     /**
      * Returns the successor state with the given fields replaced; all other
      * fields carry over from this state.
      */
-    #update(argsObj = this.#argsObj, seenByName = this.#seenByName, rawArgsIndex = this.#rawArgsIndex, paramsIndex = this.#paramsIndex) {
-        return new DoargsState(this.#name, this.#params, this.#callEnv, this.#closureEnv, this.#noEvalMode, this.#givenArgs, argsObj, rawArgsIndex, paramsIndex, seenByName);
+    #update(argsObj = this.#argsObj, seenByName = this.#seenByName, rawArgsIndex = this.#rawArgsIndex, paramsIndex = this.#paramsIndex, seenKeyword = this.#seenKeyword) {
+        return new DoargsState(this.#name, this.#params, this.#callEnv, this.#closureEnv, this.#noEvalMode, this.#givenArgs, argsObj, rawArgsIndex, paramsIndex, seenKeyword, seenByName);
     }
 
     /**
@@ -120,11 +126,8 @@ export class DoargsState {
         const curParamIndex = this.#paramsIndex, curArgvIndex = this.#rawArgsIndex;
 
         if (curArgvIndex < argv.length) {
-            if (curParamIndex >= paramsList.length) {
-                throw new JEBError(ErrnoCode.ERANGE, `too many arguments to function ${stringify(this.#name)}`);
-            }
             const value = argv[curArgvIndex]!;
-            const param = paramsList[curParamIndex]!;
+            const param = paramsList[curParamIndex];
             if (param && param.lazy !== Laziness.NONE) {
                 // If current arg is rest lazy, slice off everything at once and wrap it
                 if (param.rest === Rest.POSITIONAL) {
@@ -143,6 +146,10 @@ export class DoargsState {
         }
 
         const param = paramsList[curParamIndex]!;
+        // Rest parameters were initialized in the constructor and collect
+        // values as they arrive; there is no default to evaluate for them,
+        // so report MISSING to make the store step just step over them.
+        if (param.rest !== Rest.NONE) return MISSING;
         return param.required ? MISSING : evalHelper(vm, this, this.#defaultEnv(vm), param.defaultExpr, param);
     }
 
@@ -156,14 +163,16 @@ export class DoargsState {
      * else fills the next positional parameter (or the rest parameter).
      */
     #storeArgumentAndAdvance(vm: JebVM, argValue: any): DoargsState | typeof NOTHING {
-        const param = this.#params[this.#paramsIndex]!;
-        if (param.required && (argValue === MISSING || argValue instanceof EmptyWrapper)) {
-            // if (this.#seenByName[param.name]) {
-            //     // Skip keyword-given indices
-            //     return this.#update(undefined, undefined, undefined, this.#paramsIndex + 1);
-            // }
-            // else
-            throw new JEBError(ErrnoCode.ERANGE, `missing required parameter ${stringify(param.name)} of function ${stringify(this.#name)}`);
+        const p = this.#params, I = this.#paramsIndex;
+        const param = p[I]!;
+        if (argValue === MISSING && (param.rest !== Rest.NONE || (this.#seenKeyword && this.#seenByName[param.name]))) {
+            // Nothing to fill here: rest parameters were already
+            // initialized (and possibly collected into), and keyword-given
+            // parameters already have their value. Just step over it.
+            return this.#update(undefined, undefined, undefined, I + 1);
+        }
+        if (param?.required && (argValue === MISSING || argValue instanceof EmptyWrapper)) {
+            throw new JEBError(ErrnoCode.ERANGE, `missing required ${I > ((p.findIndex(x => x.rest === Rest.POSITIONAL) + p.length) % p.length) ? "keyword-only " : ""}parameter ${stringify(param.name)} of function ${stringify(this.#name)}`);
         }
         if (argValue instanceof KeywordArg) {
             return this.#storeKeyword(argValue.name, argValue.obj, false, 1);
@@ -192,7 +201,16 @@ export class DoargsState {
             }
         }
         if (argValue instanceof EmptyWrapper) {
+            if (param.rest !== Rest.NONE) {
+                return this.#update(undefined, undefined, this.#rawArgsIndex + 1, I + 1);
+            }
             return evalHelper(vm, this, this.#defaultEnv(vm), param.defaultExpr, param);
+        }
+        if (this.#rawArgsIndex >= this.#givenArgs.length && this.#seenByName[param.name]) {
+            // The given arguments are exhausted, so this value is the
+            // parameter's evaluated default -- but the parameter was
+            // already supplied by keyword, so discard it and move on.
+            return this.#update(undefined, undefined, undefined, I + 1);
         }
         return this.#storePositional(argValue, false, 1, 1);
     }
@@ -207,16 +225,19 @@ export class DoargsState {
     }
 
     #storeKeyword(name: Identifier, obj: any, isFromSplat: boolean, rawDelta: number) {
-        if (!this.#params.some(x => name === x.name)) {
+        if (!this.#params.some(x => x.rest === Rest.NONE && name === x.name)) {
             const p = this.#params.find(x => x.rest === Rest.KEYWORD);
             if (p) {
                 return this.#update({ ...this.#argsObj, [p.name]: { ...this.#argsObj[p.name], [name]: obj } }, undefined, this.#rawArgsIndex + 1);
             }
             throw new JEBError(ErrnoCode.ERANGE, `unexpected ${isFromSplat ? "splat " : ""}keyword argument ${stringify(name)} to function ${stringify(this.#name)}`);
         }
-        return this.#update({ ...this.#argsObj, [name]: obj }, { ...this.#seenByName, [name]: DoargsWhere.KEYWORD }, this.#rawArgsIndex + rawDelta);
+        return this.#update({ ...this.#argsObj, [name]: obj }, { ...this.#seenByName, [name]: DoargsWhere.KEYWORD }, this.#rawArgsIndex + rawDelta, undefined, true);
     }
     #storePositional(value: any, isFromSplat: boolean, paramsDelta: number, rawDelta: number): DoargsState {
+        if (this.#seenKeyword) {
+            throw new JEBError(ErrnoCode.ESYNTAX, "positional argument can't follow keyword argument");
+        }
         this.#assertNotSpecial(value);
         const pList = this.#params, index = this.#paramsIndex;
         if (index >= pList.length) {
@@ -233,7 +254,17 @@ export class DoargsState {
                 throw new JEBError(ErrnoCode.ERANGE, `too many arguments to function ${stringify(this.#name)} (expected at most ${pList.length})`);
             }
         }
-        const { name, lazy } = pList[index]!;
+        const param = pList[index]!;
+        if (param.rest === Rest.POSITIONAL) {
+            // The rest parameter absorbs every remaining positional value
+            // without advancing the parameter index; the walk steps over
+            // it once the given arguments run out.
+            if (param.lazy !== Laziness.NONE && isFromSplat) {
+                throw new JEBError(ErrnoCode.ERANGE, "cannot unpack splat argument into lazy rest parameter");
+            }
+            return this.#update({ ...this.#argsObj, [param.name]: [...(this.#argsObj[param.name] ?? []), value] }, { ...this.#seenByName, [param.name]: DoargsWhere.POSITIONAL }, this.#rawArgsIndex + rawDelta, index);
+        }
+        const { name, lazy } = param;
         if (lazy !== Laziness.NONE && isFromSplat) {
             throw new JEBError(ErrnoCode.ERANGE, `cannot unpack splat argument into lazy parameter ${stringify(name)} of function ${stringify(this.#name)}`);
         }

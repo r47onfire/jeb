@@ -813,6 +813,18 @@ describe("keyword and splat arguments", () => {
         ])).toThrow('too many arguments to function "foo" (expected at most 3)');
     });
 
+    testTest(test, "keyword-only arguments", vm => {
+        expect(() => run(vm, ["begin",
+            ["define", ["foo", [0, "x"], "y"]],
+            ["foo", 1, 2, 3, 4],
+        ])).toThrow('missing required keyword-only parameter "y" of function "foo"');
+        vm.reset();
+        expect(run(vm, ["begin",
+            ["define", ["foo", [0, "x"], "y"]],
+            ["foo", 1, 2, 3, 4, ["kw", "y", 5]],
+        ])).toBeTrue();
+    });
+
     testTest(test, "unpacking too many arguments errors", vm => {
         expect(() => run(vm, ["begin",
             ["define", ["foo", "x", "y", "z"]],
@@ -843,11 +855,6 @@ describe("fns", () => {
         ])).toBeTrue();
         expect(out).toEqual(["hello", "goodbye"]);
     });
-    testTest(test, "fn validation", vm => {
-        expect(() => run(vm, ["begin",
-            ["define", ["foo", ["a", 1, 2, 3]], ["print", ["local", "a"]]],
-        ])).toThrow("unexpected junk after default expression");
-    });
     testTest(test, "spread arguments", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", ["foo", [0, "x"]], ["print", ["jsonStringify", ["local", "x"]]]],
@@ -856,8 +863,20 @@ describe("fns", () => {
         ])).toBeTrue();
         expect(out).toEqual(["[1,2,3]", "[]"]);
     });
-    testTest(test, "required must follow optional", vm => {
-        expect(() => run(vm, ["define", ["foo", ["x", 1], "y"], false])).toThrow('required parameter "y" cannot follow optional parameter');
+    testTest(test, "required may follow optional", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", ["foo", ["x", 1], "y"], ["print", ["local", "x"], ["local", "y"]]],
+            ["foo", 5, 6],
+        ])).toBeTrue();
+        expect(out).toEqual(["5 6"]);
+        expect(() => run(vm, ["foo", 5])).toThrow('missing required parameter "y" of function "foo"');
+    });
+    testTest(test, "blank uses the default", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", ["foo", ["x", 1], "y"], ["print", ["local", "x"], ["local", "y"]]],
+            ["foo", ["blank"], 6],
+        ])).toBeTrue();
+        expect(out).toEqual(["1 6"]);
     });
     testTest(test, "bad params", vm => {
         expect(() => run(vm, ["define", ["foo", 1], false])).toThrow("arg name not found at position 0");

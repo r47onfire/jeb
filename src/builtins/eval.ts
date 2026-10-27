@@ -6,10 +6,10 @@ import { OP_doargs } from "../doargs";
 import { ErrnoCode } from "../errno";
 import { checkNothingOrPush, JEBError, Location } from "../errors";
 import { AccessType, Reference, theTypeName, typecheck, typeOf, withType } from "../protocol";
-import { CallableSignature, createSignature, Laziness, LonghandArgument, Rest } from "../signature";
+import { CallableSignature, createSignature } from "../signature";
 import { Identifier } from "../utils";
 import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "../vm";
-import { KeywordArg, MacroWrapper, SplatArg } from "../wrapper";
+import { EmptyWrapper, KeywordArg, MacroWrapper, SplatArg } from "../wrapper";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap } from "./unwrap";
 
@@ -181,6 +181,11 @@ export const B_keyword = makeJSFun("kw", ["name", "value"], ({ name, value }) =>
 .pure
 . Redirects the argument into a particular named argument slot.`);
 
+export const B_blank = makeJSFun("blank", [], () => new EmptyWrapper(),
+    `.func (blank)
+.pure
+. Forces the argument slot in which it is placed to use the default value.`);
+
 // MARK: string applier
 const OP_apply_id_trampoline = makeOpcode(null, (vm: JebVM, { 0: tail, 1: location }: [boolean | undefined, Location | undefined]) => {
     const realFunc = popData(vm);
@@ -281,6 +286,7 @@ export const loadEvalBuiltins = (vm: JebVM) => {
     define(vm, "at", B_atLocation);
     define(vm, "splat", B_splat);
     define(vm, "kw", B_keyword);
+    define(vm, "blank", B_blank);
     loadObjectEvaluator(vm);
     loadOtherEvaluators(vm);
     loadStringApplier(vm);

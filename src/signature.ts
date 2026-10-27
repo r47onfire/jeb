@@ -10,8 +10,11 @@ import { isNumber } from "lib0/function";
  * Compact form of one parameter in a callable signature. Each union member is
  * a different parameter flavour (the members are documented individually);
  * {@link createSignature} converts an array of these into the
- * {@link LonghandArgument} form used at runtime. A bare `true`/`false` is not
- * a parameter itself: it marks the preceding parameter as a rest parameter.
+ * {@link LonghandArgument} form used at runtime. In a parameter tuple the
+ * option slots may appear in any order before the name; the slot's type
+ * says what it is (array: flags, boolean: laziness, number: rest kind,
+ * plain object: named options), and at most one slot -- the default --
+ * may follow the name.
  */
 export type ShorthandArgument<N extends Identifier = Identifier, R extends 0 | 1 | undefined = undefined> =
     /**
@@ -68,15 +71,34 @@ export interface LonghandArgument<N extends Identifier, R extends 0 | 1 | undefi
     /** Names of wrappers that are *not* unwrapped from this parameter's value, so the body can operate on the wrapper itself. */
     readonly flags: string[];
     /** Whether the parameter is a rest parameter. */
-    readonly rest: Rest;
+    readonly rest: R extends undefined ? Rest.NONE : R extends 0 ? Rest.POSITIONAL : R extends 1 ? Rest.KEYWORD : Rest;
     /** Named enum options. */
     readonly options: Record<string, any>;
 }
+
+/**
+ * Type-level conversion of one shorthand parameter into its
+ * {@link LonghandArgument}, since Typescript is too stupid to be able to
+ * infer directly from {@link ShorthandArgument}. The tuple is walked one slot
+ * at a time, the same way {@link createSignature} walks it at runtime: option
+ * slots are recognized by their type (array: flags, boolean: laziness, number:
+ * rest kind, plain object: named options) and skipped, the identifier slot is
+ * the parameter's name, and anything after the name is the default and is
+ * ignored.
+ */
+type ShorthandParamToLonghand<T, R extends 0 | 1 | undefined = undefined> =
+    T extends Identifier ? LonghandArgument<T, R>
+    : T extends readonly [infer H, ...infer Rest]
+    ? H extends Identifier ? LonghandArgument<H, R>
+    : H extends 0 | 1 ? ShorthandParamToLonghand<Rest, H>
+    : ShorthandParamToLonghand<Rest, R>
+    : LonghandArgument<Identifier, R>;
+
 /**
  * Type-level expansion of a shorthand signature's parameters into
  * {@link LonghandArgument}s.
  */
-export type ShorthandToLonghand<S extends readonly ShorthandArgument<any, any>[]> = S extends readonly [ShorthandArgument<infer N, infer R>, ...infer T extends readonly any[]] ? [LonghandArgument<N, R>, ...ShorthandToLonghand<T>] : readonly [];
+export type ShorthandToLonghand<S extends readonly ShorthandArgument<any, any>[]> = S extends readonly [infer P, ...infer T extends readonly any[]] ? [ShorthandParamToLonghand<P>, ...ShorthandToLonghand<T>] : readonly [];
 
 export type CallableSignature<P extends readonly LonghandArgument<any, any>[] = readonly LonghandArgument<any, any>[]> = P;
 
@@ -86,15 +108,14 @@ export type CallableSignature<P extends readonly LonghandArgument<any, any>[] = 
  */
 export type CallableSignatureFromShorthand<S extends readonly ShorthandArgument<any, any>[]> = CallableSignature<ShorthandToLonghand<S>>;
 
-declare const x: CallableSignatureFromShorthand<[[false, "onchange"], [["ref"], "refs"], true]>;
+declare const x: CallableSignatureFromShorthand<[[false, "onchange"], [["ref"], 0, "refs"]]>;
 
 /**
  * Converts a shorthand signature into its {@link CallableSignature} longhand
  * form, validating it in the process.
  *
  * @throws A {@link JEBError} (`ESYNTAX` or `EEXIST`) if the signature is malformed, e.g.
- * a required parameter follows an optional one, a rest parameter has a
- * default, is duplicated, or is followed by further parameters.
+ * a rest parameter has a default or a parameter name is duplicated.
  */
 export const createSignature = <const S extends readonly ShorthandArgument<any, any>[]>(signature: S): CallableSignatureFromShorthand<S> => {
     const processed: Writable<CallableSignature> = [];
@@ -110,7 +131,10 @@ export const createSignature = <const S extends readonly ShorthandArgument<any, 
             for (var j = 0; j < arg.length; j++) {
                 const x = arg[j]!;
                 // console.log("arg part", x);
-                if (name !== undefined && required) {
+                // if (name !== undefined && !required) {
+                //     throw new JEBError(ErrnoCode.ESYNTAX, "unexpected junk after default expression");
+                // } else
+                if (name !== undefined) {
                     defaultExpr = x;
                     required = false;
                     // console.log("-> default");
@@ -134,7 +158,7 @@ export const createSignature = <const S extends readonly ShorthandArgument<any, 
                 }
             }
             if (name === undefined) {
-                throw new JEBError(ErrnoCode.ESYNTAX, "missing arg name for argument " + i);
+                throw new JEBError(ErrnoCode.ESYNTAX, "arg name not found at position " + i);
             }
         }
         const assembledArg: Writable<LonghandArgument<Identifier, 0 | 1 | undefined>> = { name, required, defaultExpr, lazy, flags, rest, options };
@@ -147,6 +171,7 @@ export const createSignature = <const S extends readonly ShorthandArgument<any, 
         if (lazy !== Laziness.NONE && rest === Rest.KEYWORD) {
             throw new JEBError(ErrnoCode.ESYNTAX, `keyword rest param cannot be lazy`);
         }
+        if (rest !== Rest.NONE) assembledArg.required = false;
         processed.push(assembledArg);
         // console.log(assembledArg);
     }

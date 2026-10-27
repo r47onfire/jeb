@@ -3,7 +3,7 @@ import { type HasDocstring } from "./doc";
 import { ErrnoCode } from "./errno";
 import { JEBError, Location } from "./errors";
 import { ApplyMetadata } from "./protocol";
-import { CallableSignature } from "./signature";
+import { CallableSignature, LonghandArgument } from "./signature";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";
 
@@ -62,7 +62,7 @@ export class JSFun<T extends JebVM, S extends CallableSignature = CallableSignat
          * return value is pushed (even if it's `undefined`).
          */
         readonly impl: (
-            args: Record<S["params"][number]["name"], unknown> & (S["rest"] extends { name: infer N extends PropertyKey } ? { [x in N]: unknown[] } : {}) & (S["kwRest"] extends { name: infer N extends PropertyKey } ? { [x in N]: Record<PropertyKey, unknown> } : {}),
+            args: { [P in S[number] as P["name"]]: P extends LonghandArgument<any, 0> ? unknown[] : P extends LonghandArgument<any, 1> ? Record<PropertyKey, unknown> : unknown },
             vm: T,
             location: Location | undefined,
         ) => any,
@@ -78,7 +78,7 @@ export class JSFun<T extends JebVM, S extends CallableSignature = CallableSignat
  * A Fun is a callable function or macro implemented as JEB code instead of
  * a Javascript function.
  */
-export class Fun<S extends CallableSignature<any, any, any>> extends CallableClass implements HasDocstring, ApplyMetadata {
+export class Fun<S extends CallableSignature = CallableSignature> extends CallableClass implements HasDocstring, ApplyMetadata {
     constructor(
         /**
          * Whether the function should be hidden from stack traces.

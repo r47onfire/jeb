@@ -5,7 +5,7 @@ import { Fun } from "../callable";
 import { Continuation } from "../continuation";
 import { define, defineApplier, makeJSFun, makeOpcode } from "../define";
 import { withType } from "../protocol";
-import { createSignature, Laziness, Rest } from "../signature";
+import { createSignature, Laziness, Rest, ShorthandArgument } from "../signature";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { OP_block_invoke } from "./variables";
 
@@ -46,7 +46,7 @@ export const B_fn = makeJSFun("fn", [[true, "params"], [true, 0, "body"]], ({ pa
         docstring = body![0];
         body = body!.slice(1);
     }
-    return new Fun(isImplicit, undefined, createSignature(params), new Block(vm.currentEnv, body!), docstring);
+    return new Fun(isImplicit, undefined, createSignature(params as readonly ShorthandArgument<any, any>[]), new Block(vm.currentEnv, body!), docstring);
 },
     `.macro (fn (parameters...) body...) (fn true (parameters...) docstring body...)
 The form with \`true\` right after the \`fn\` defines it as an implicit function, where the special \`return\` continuation is not injected and the call will not show up in the traceback of an error (it would normally show as \`[anonymous]\` unless assigned to a name).

@@ -4,7 +4,7 @@ import { wrapThrowToError } from "../errors";
 import { withType } from "../protocol";
 import { JebVM } from "../vm";
 
-export const B_list = makeJSFun("list", [[1, "values"]], ({ values }) => values,
+export const B_list = makeJSFun("list", [[0, "values"]], ({ values }) => values,
     `.func (list values...)
 ..param {T} values...
 .pure
@@ -20,7 +20,7 @@ export const B_tail = makeJSFun("tail", ["list"], ({ list }) => withType(list, [
 ..param {T[]} list
 .pure
 ..returns {T[]} - A copy of the list without the first element`);
-export const B_concat = makeJSFun("concat", [[1, "lists"]], ({ lists }) => {
+export const B_concat = makeJSFun("concat", [[0, "lists"]], ({ lists }) => {
     const out: any[] = [];
     for (var arg of lists) {
         wrapThrowToError(ErrnoCode.EINVAL, () => out.push(...arg as any));

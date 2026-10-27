@@ -13,7 +13,7 @@ import { loadUnwrappingBuiltins } from "./unwrap";
 import { loadVariablesBuiltins } from "./variables";
 
 export { B_err, B_throw, B_with, OP_throw } from "./control";
-export { B_atLocation, B_audit, B_eval, B_keyword, B_macro_wrap, B_splat, OP_apply, OP_audit, OP_eval, OP_get, OP_if, OP_index, OP_set, OP_shuffle, OP_tbPop, OP_tbPush } from "./eval";
+export { B_atLocation, B_audit, B_blank, B_eval, B_keyword, B_macro_wrap, B_splat, OP_apply, OP_audit, OP_eval, OP_get, OP_if, OP_index, OP_set, OP_shuffle, OP_tbPop, OP_tbPush } from "./eval";
 export { B_is_nil } from "./ffi";
 export { B_jsonparse, B_jsonstringify } from "./json";
 export { B_concat, B_head, B_list, B_tail } from "./lists";
