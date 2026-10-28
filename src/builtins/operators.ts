@@ -153,6 +153,8 @@ export const loadOperatorsBuiltins = (vm: JebVM) => {
     define(vm, "bitOr", B_bitOr);
     define(vm, "bitXor", B_bitXor);
     define(vm, "bitInv", B_bitInv);
+    define(vm, "shl", B_shiftLeft);
+    define(vm, "shr", B_shiftRight);
     define(vm, "eq", B_eq);
     define(vm, "notEq", B_not_eq);
     define(vm, "less", B_less);
