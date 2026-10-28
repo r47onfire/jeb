@@ -242,6 +242,8 @@ export interface JEBProtocols<V extends JebVM> {
     bitAnd: BinaryProtocolToResult<V>;
     bitOr: BinaryProtocolToResult<V>;
     bitXor: BinaryProtocolToResult<V>;
+    shl: BinaryProtocolToResult<V>;
+    shr: BinaryProtocolToResult<V>;
     bitNot: ProtocolsList<V, Result<any, string>>;
 }
 

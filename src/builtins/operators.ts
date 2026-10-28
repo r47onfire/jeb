@@ -12,7 +12,7 @@ import { OP_eval } from "./eval";
 
 // MARK: Operators
 const mathLoaders: ((vm: JebVM) => void)[] = [];
-const mathHelper = (operator: string, op2: "add" | "sub" | "mul" | "matMul" | "div" | "mod" | "pow" | "bitAnd" | "bitOr" | "bitXor", op1: "abs" | "neg" | "inv" | undefined,
+const mathHelper = (operator: string, op2: "add" | "sub" | "mul" | "matMul" | "div" | "mod" | "pow" | "bitAnd" | "bitOr" | "bitXor" | "shl" | "shr", op1: "abs" | "neg" | "inv" | undefined,
     f2: (a: number | bigint, b: number | bigint) => number | bigint,
     f1: (x: bigint) => any,
     doc: string,
@@ -62,6 +62,8 @@ export const B_pow = mathHelper("pow", "pow", undefined, numberOp((a, b) => a **
 export const B_bitAnd = mathHelper("bitAnd", "bitAnd", undefined, numberOp((a, b) => a & b), id, "Computes the bitwise AND of all numbers.");
 export const B_bitOr = mathHelper("bitOr", "bitOr", undefined, numberOp((a, b) => a | b), id, "Computes the bitwise OR of all numbers.");
 export const B_bitXor = mathHelper("bitXor", "bitXor", undefined, numberOp((a, b) => a ^ b), id, "Computes the bitwise XOR of all numbers.");
+export const B_shiftLeft = mathHelper("shl", "shl", undefined, numberOp((a, b) => a << b), id, "Shifts `a` left by `b` bits.\nAlternatively, equivalent to `a * 2**b`.");
+export const B_shiftRight = mathHelper("shr", "shr", undefined, numberOp((a, b) => a >> b), id, "Shifts `a` right by `b` bits.\nAlternatively, equivalent to `floor(a / 2**b)`.");
 export const B_bitInv = makeJSFun("bitInv", ["a"], ({ a }) => ~withType(a, ["number", "bigint"], "a"),
     `.func (bitInv number)
 ..param {number} a
