@@ -1,4 +1,19 @@
+import type { Location } from "./errors";
 import { Reference } from "./protocol";
+import type { Identifier } from "./utils";
+
+/**
+ * Where a macro expansion came from: the name and call-site location of the
+ * macro invocation that constructed it, captured when the {@link MacroWrapper}
+ * was created so that errors thrown by the expanded code can mention the
+ * macro in their traceback (see the `MacroWrapper` unwrapper).
+ */
+export interface MacroExpansionSource {
+    /** Name of the function that constructed the expansion, if known */
+    name: Identifier | undefined;
+    /** Location of the call that constructed the expansion, if known */
+    location: Location | undefined;
+}
 
 /**
  * Represents a wrapped value that only appears as a directly-usable value under certain circumstances
@@ -63,4 +78,5 @@ export class ReferenceWrapper extends Wrapper {
  */
 export class MacroWrapper extends Wrapper {
     flag = "macro" as const;
+    constructor(obj: any, readonly expandedFrom?: MacroExpansionSource) { super(obj); }
 }

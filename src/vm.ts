@@ -9,6 +9,7 @@ import { ErrnoCode } from "./errno";
 import { createStackInnerNode, createStackLeafNode, JEBError, Location, locationsEqual, StackTreeNode } from "./errors";
 import { ArgcForName, getProtocolHandler, JEBProtocols, theTypeName, typeOf } from "./protocol";
 import { Identifier, Tuple } from "./utils";
+import type { MacroExpansionSource } from "./wrapper";
 
 /**
  * Data for the command
@@ -313,6 +314,24 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
         return new Continuation(this as any as T, extraOps);
     }
 }
+
+/**
+ * Captures the provenance of a macro expansion being constructed: the
+ * innermost traceback frame that requested it, skipping the frames of the
+ * wrapper-constructing builtins themselves (`macro` and `quasiquote`), whose
+ * frames only say where in the constructing body the wrapper was made. The
+ * frame found is normally the macro invocation that is dynamically
+ * constructing the expansion. Returns `undefined` if there is no such frame.
+ */
+export const captureMacroSource = (vm: JebVM): MacroExpansionSource | undefined => {
+    var stack = vm.tracebackStack;
+    while (stack) {
+        const { name, location } = stack.value;
+        if (name !== "macro" && name !== "quasiquote") return { name, location };
+        stack = stack.next;
+    }
+    return undefined;
+};
 
 /**
  * Standalone form of {@link JebVM.pushData}, for opcodes (which receive the

@@ -8,7 +8,7 @@ import { checkNothingOrPush, JEBError, Location } from "../errors";
 import { AccessType, Reference, theTypeName, typecheck, typeOf, withType } from "../protocol";
 import { CallableSignature, createSignature } from "../signature";
 import { Identifier } from "../utils";
-import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "../vm";
+import { captureMacroSource, Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "../vm";
 import { EmptyArg, KeywordArg, MacroWrapper, OptionArg, SplatArg } from "../wrapper";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap } from "./unwrap";
@@ -76,12 +76,13 @@ export const B_eval = makeJSFun("eval", ["arg"], ({ arg }, vm, location) => { pu
 .returns {any}
 . Evaluates \`arg\` in the current environment.`);
 
-export const B_macro_wrap = makeJSFun("macro", ["code"], ({ code }) => new MacroWrapper(code),
+export const B_macro_wrap = makeJSFun("macro", ["code"], ({ code }, vm) => new MacroWrapper(code, captureMacroSource(vm)),
     `.func (macro code)
 ..param {code} code
 .pure
 . Wraps the code in a special object that causes it to be evaluated using [[eval]] in the scope of where it was used and the result of the evaluation used in place of the actual code object.
-This can be used to create an unhygienic syntactic macro by returning the wrapper immediately.`);
+This can be used to create an unhygienic syntactic macro by returning the wrapper immediately.
+If evaluating the wrapped code throws an error, the error's traceback contains a \`{<macro name>}\` frame, located at the call site of the macro invocation that constructed the expansion, so the expansion can be traced back to the macro that made it.`);
 
 export const B_object = makeJSFun("object", [[0, "pairs"]], ({ pairs }) => {
     const len = pairs.length;
