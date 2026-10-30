@@ -30,8 +30,7 @@ export const B_begin = makeJSFun("begin", [[true, 0, "body"]], ({ body }, vm) =>
 .returns {any | null} - null if \`body\` is empty, otherwise returns the result of the last body statement
 . Runs each of the body statements in order.`);
 
-export const B_let = makeJSFun("let", [[true, 0, "__args"]], (ao, vm, location) => {
-    const args = ao.__args!;
+export const B_let = makeJSFun("let", [[true, 0, "args"]], ({args}, vm, location) => {
     const extractParts = (bindings: any[]) => {
         bindings.forEach(b => {
             if (!isArray(b) || b.length !== 2) throw new JEBError(ErrnoCode.ESYNTAX, "invalid let binding");
@@ -69,9 +68,8 @@ export const B_let = makeJSFun("let", [[true, 0, "__args"]], (ao, vm, location) 
 .param {code} body...
 . Each of the pairs' *expression*s will be evaluated in order in the parent environment and the result bound to *name* in the new environment; after all values are bound, the body is evaluated in the new environment.`);
 
-export const B_let_in = makeJSFun("letIn", [[true, 0, "pairs"]], ({ pairs: ao }, vm) => {
-    const args = ao! as any[];
-    const len = args.length;
+export const B_let_in = makeJSFun("letIn", [[true, 0, "pairs"]], ({ pairs }, vm) => {
+    const len = pairs.length;
     if ((len & 1) > 0) {
         throw new JEBError(ErrnoCode.ESYNTAX, "letIn should have an even number of arguments");
     }
@@ -79,8 +77,8 @@ export const B_let_in = makeJSFun("letIn", [[true, 0, "pairs"]], ({ pairs: ao },
     var value;
     const newEnv = vm.createEnv(vm.currentEnv);
     for (var i = 0; i < len; i += 2) {
-        const name = args[i];
-        value = args[i + 1];
+        const name = pairs[i];
+        value = pairs[i + 1];
         if (!isIdentifier(name)) {
             throw new JEBError(ErrnoCode.ESYNTAX, "letIn name must be a valid identifier");
         }

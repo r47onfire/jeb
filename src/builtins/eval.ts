@@ -81,7 +81,25 @@ export const B_macro_wrap = makeJSFun("macro", ["code"], ({ code }) => new Macro
 ..param {code} code
 .pure
 . Wraps the code in a special object that causes it to be evaluated using [[eval]] in the scope of where it was used and the result of the evaluation used in place of the actual code object.
-This can be used to create an unhygienic syntactic macro by returning the wrapper immediately.`)
+This can be used to create an unhygienic syntactic macro by returning the wrapper immediately.`);
+
+export const B_object = makeJSFun("object", [[0, "pairs"]], ({ pairs }) => {
+    const len = pairs.length;
+    if ((len & 1) > 0) {
+        throw new JEBError(ErrnoCode.ESYNTAX, "object should have an even number of arguments");
+    }
+    const out = {} as Record<PropertyKey, any>;
+    for (var i = 0; i < len; i += 2) {
+        out[pairs[i] as PropertyKey] = pairs[i + 1];
+    }
+    return out;
+},
+    `.func (object key value [key2 value2]...)
+..param {PropertyKey} key - Key for the next value
+..param {any} value
+..returns {Record}
+..throws ESYNTAX - if there is an odd number of arguments
+. Returns a new object with dynamically-evaluated keys.`)
 
 const loadObjectEvaluator = (vm: JebVM) => defineEvaluator(vm, ["object"], (vm, { 0: code }, { location }) => {
     if (code === null) {
@@ -289,6 +307,7 @@ export const loadEvalBuiltins = (vm: JebVM) => {
     define(vm, "audit", B_audit);
     define(vm, "eval", B_eval);
     define(vm, "macro", B_macro_wrap);
+    define(vm, "object", B_object);
     define(vm, "at", B_atLocation);
     define(vm, "splat", B_splat);
     define(vm, "kw", B_keyword);
