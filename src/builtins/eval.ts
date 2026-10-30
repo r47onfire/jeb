@@ -160,7 +160,7 @@ export const OP_apply = makeOpcode("apply", (vm: JebVM, { 0: argv, 1: location, 
     if (name && !tail) pushCommand(vm, OP_tbPop);
     applier.run(vm, [func], { tail: tail ?? false, location });
     if (name) pushCommand(vm, OP_tbPush, name, location, tail);
-    pushCommand(vm, OP_doargs, signature, closureEnv, noEval ?? false, name);
+    pushCommand(vm, OP_doargs, signature, closureEnv, noEval ?? false, name, location);
     pushData(vm, argv);
 },
     `.imm expressions location tailcall noEval
