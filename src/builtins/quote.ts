@@ -3,7 +3,7 @@ import { define, makeJSFun } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { isIdentifier } from "../utils";
-import { JebVM } from "../vm";
+import { captureMacroSource, JebVM } from "../vm";
 import { MacroWrapper } from "../wrapper";
 import { B_concat, B_list } from "./lists";
 
@@ -92,7 +92,7 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
     return [B_concat].concat(parts);
 }
 
-export const B_quasiquote = makeJSFun("quasiquote", [[true, "value"]], ({ value }, vm) => new MacroWrapper(processQuasiquote(vm, value, 1)),
+export const B_quasiquote = makeJSFun("quasiquote", [[true, "value"]], ({ value }, vm) => new MacroWrapper(processQuasiquote(vm, value, 1), captureMacroSource(vm)),
     `.macro (quasiquote value) | (~ value) | ~value
 ..param {any} value
 .pure
