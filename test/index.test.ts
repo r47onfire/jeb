@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_shuffle, popData, promisifyVM, pushCommand, pushData, typeMatches, withType } from "../src";
+import { define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_shuffle, parameterError, popData, promisifyVM, pushCommand, pushData, typeMatches, withType } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -1095,6 +1095,49 @@ describe("location tracking", () => {
             expect(e.traceback!.some(e => e.leaf && e.location![0] === 2)).toBeTrue();
             expect(e.traceback!.some(e => e.leaf && e.location![0] === 3)).toBeTrue();
             expect(e.traceback!.some(e => e.leaf && e.location![0] === 4)).toBeTrue();
+        }
+    });
+    testTest(test, "arguments are evaluated at the call location", vm => {
+        expect.assertions(1);
+        try {
+            run(vm, ["begin",
+                ["define", ["id", "x"], ["local", "x"]],
+                ["define", ["boom"], ["throw", ["err", "boom"]]],
+                ["at", [5, 0], ["id", ["boom"]]],
+            ]);
+        } catch (e: any) {
+            // (boom) is only an argument expression, but its frame is
+            // located at the call site of (id ...)
+            expect(e.traceback.some((n: any) => n.leaf && n.name === "boom" && n.location?.[0] === 5)).toBeTrue();
+        }
+    });
+    testTest(test, "errors can blame a parameter's location", vm => {
+        define(vm, "needs-string", makeJSFun("needs-string", ["x"], (args) => {
+            if (typeof args.x !== "string") throw parameterError(args, "x", ErrnoCode.EINVAL, "x must be a string");
+            return args.x;
+        }, "test needs-string"));
+        expect.assertions(3);
+        try {
+            run(vm, ["at", [3, 0], ["needs-string", ["at", [7, 0], 42]]]);
+        } catch (e: any) {
+            expect(e.message).toBe("x must be a string");
+            expect(e.paramLocation).toEqual([7, 0]);
+            // the innermost frame (the needs-string call itself) points at
+            // the argument's location, not the call's
+            const first = e.traceback[0];
+            expect(first.leaf && first.name === "needs-string" && first.location).toEqual([7, 0]);
+        }
+    });
+    testTest(test, "binding errors blame the offending argument", vm => {
+        expect.assertions(2);
+        try {
+            run(vm, ["begin",
+                ["define", ["f", "x"], ["local", "x"]],
+                ["f", ["kw", "x", 1], ["at", [7, 0], 2]],
+            ]);
+        } catch (e: any) {
+            expect(e.message).toBe("positional argument can't follow keyword argument");
+            expect(e.paramLocation).toEqual([7, 0]);
         }
     });
 });
