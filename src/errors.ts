@@ -2,7 +2,7 @@ import { javaHash, rotate32 } from "@r47onfire/game-math";
 import { NOTHING } from "./define";
 import { ErrnoCode, ErrnoDesc } from "./errno";
 import { Identifier } from "./utils";
-import { JebVM, pushCommand, pushData } from "./vm";
+import { JebVM, pushCommand, pushData, StackEntryKind, StackEntry } from "./vm";
 import { Continuation } from "./continuation";
 
 /**
@@ -82,6 +82,7 @@ export type StackTreeNode = Readonly<{
     leaf: true,
     name: Identifier | undefined;
     location: Location | undefined;
+    kind: StackEntryKind;
     hash: number;
 }>;
 
@@ -90,17 +91,19 @@ export type StackTreeNode = Readonly<{
  * precomputed from the frame name and location so that equal frames can be
  * recognized (and folded together) by {@link compressStackTree}.
  */
-export const createStackLeafNode = (name: Identifier | undefined, location: Location | undefined): StackTreeNode => {
+export const createStackLeafNode = (name: Identifier | undefined, location: Location | undefined, kind: StackEntryKind): StackTreeNode => {
     return {
         leaf: true,
         name,
         location,
+        kind,
         hash:
             javaHash(String(name))
             ^ (location
                 ? rotate32(javaHash(String(location[1])), 11)
                 ^ rotate32(location[0] ?? 0x103E4E, 23)
-                : 0xDEADBEEF),
+                : 0xDEADBEEF)
+            ^ rotate32(kind, 21),
     };
 };
 
@@ -171,7 +174,7 @@ export const compressStackTree = (nodes: StackTreeNode[]): StackTreeNode[] => {
  * caused it as well as at the call itself (see {@link JEBError.paramLocation}).
  */
 export const blameParameter = (nodes: StackTreeNode[], location: Location, param?: Identifier): StackTreeNode[] => {
-    return [createStackLeafNode(param === undefined ? "parameter" : `parameter ${String(param)}`, location), ...nodes];
+    return [createStackLeafNode(param, location, StackEntryKind.PARAMETER), ...nodes];
 };
 
 const patternsEqual = (
@@ -195,6 +198,7 @@ const nodesEqual = (node1: StackTreeNode, node2: StackTreeNode) => {
     // either they're equal, or hash collision
     if (node1.leaf && node2.leaf) {
         if (node1.name !== node2.name) return false;
+        if (node1.kind !== node2.kind) return false;
         return locationsEqual(node1.location, node2.location);
     }
     if (!node1.leaf && !node2.leaf) {
@@ -224,7 +228,17 @@ export const locationsEqual = (location1: Location | undefined, location2: Locat
  * @returns A formatted string like "foo <- bar <- (baz * 3) <- qux"
  */
 export const formatStackTraceCompact = (nodes: StackTreeNode[]): string => {
-    return nodes.map(item => item.leaf ? item.name : `(${formatStackTraceCompact(item.children)} * ${item.count})`).join(STACKFRAME_JOINER);
+    return nodes.map((item): string => {
+        if (item.leaf) {
+            switch (item.kind) {
+                case StackEntryKind.FUNCTION: return String(item.name) || "<function ???>";
+                case StackEntryKind.MACRO_EXPANSION_RESULT: return `<macro ${String(item.name || "???")}>`;
+                case StackEntryKind.PARAMETER: return "parameter " + String(item.name);
+                case StackEntryKind.NONE: return String(item.name);
+            }
+        }
+        return `(${formatStackTraceCompact(item.children)} * ${item.count})`;
+    }).join(STACKFRAME_JOINER);
 };
 
 /**

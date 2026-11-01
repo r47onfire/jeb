@@ -33,6 +33,6 @@ export const runAsync = async <T extends JebVM>(vm: T, code: any, steps = Infini
 export const rawTraceback = (vm: JebVM) => {
     const res: (Identifier | undefined)[] = [];
     var t = vm.tracebackStack;
-    while (t) { res.push(t.value.name); t = t.next; }
+    while (t) { res.push(t.value.item.name); t = t.next; }
     return res;
 }

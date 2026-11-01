@@ -13,16 +13,29 @@ import { Identifier, Tuple } from "./utils";
 /**
  * Data for the command
  */
-export type Command<T extends JebVM> = [opcode: OpcodeFunction<any, T>, ...immediateArgs: any[]];
+export type Command<T extends JebVM, A extends any[] = any[]> = [opcode: OpcodeFunction<A, T>, ...immediateArgs: A];
+
+export enum StackEntryKind {
+    FUNCTION,
+    MACRO_EXPANSION_RESULT,
+    PARAMETER,
+    NONE,
+}
+
+export interface StackEntry {
+    /** Name of the function called, if known */
+    readonly name: Identifier | undefined;
+    /** Location of the call site, if known */
+    readonly location: Location | undefined;
+    readonly kind: StackEntryKind;
+}
+
 /**
  * One compressed run of call-stack frames: `count` consecutive calls of the
  * same function at the same call site, collapsed into a single traceback entry.
  */
 export interface StackCount {
-    /** Name of the function called, if known */
-    readonly name: Identifier | undefined;
-    /** Location of the call site */
-    readonly location: Location | undefined;
+    readonly item: StackEntry;
     /** Number of frames collapsed into this entry */
     readonly count: number;
     /** Whether these frames were entered by tail calls */
@@ -64,7 +77,7 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
      * that run immediately after a call returns (macro expansion, argument
      * binding) read this to learn which call produced the value at hand.
      */
-    lastCall: StackCount | undefined = undefined;
+    lastCall: StackEntry | undefined = undefined;
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
     /** Protocol implementations registered on this VM, by protocol name */
@@ -243,14 +256,14 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
         var prev: StackCount | undefined, prevCount = 0;
         const flush = () => {
             if (prevCount > 0) {
-                const leaf = createStackLeafNode(prev!.name, prev!.location);
+                const leaf = createStackLeafNode(prev!.item.name, prev!.item.location, prev!.item.kind);
                 parts.push(prevCount > 1 ? createStackInnerNode(prevCount, [leaf]) : leaf);
             }
             prevCount = 0;
         };
         while (stack) {
-            const { name, location, count } = stack.value;
-            if (prev && (prev.name !== name || prev.location !== location)) flush();
+            const { item: { name, location }, count } = stack.value;
+            if (prev && (prev.item.name !== name || !locationsEqual(prev.item.location, location))) flush();
             const off = min(count, numToDrop);
             prevCount += count - off;
             numToDrop -= off;
@@ -265,17 +278,17 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
      * @param func Name of the function that is now being called
      * @param tailcallHint True if the function was tail-called
      */
-    pushTraceback(func: Identifier | undefined, tailcallHint: boolean, callsiteLocation: Location | undefined) {
+    pushTraceback(func: Identifier | undefined, tailcallHint: boolean, callsiteLocation: Location | undefined, entryKind: StackEntryKind) {
         const top = this.tracebackStack;
         if (top) {
-            const { value: { name, tail, location, count }, next } = top;
-            if (name === func && tail === tailcallHint && locationsEqual(location, callsiteLocation)) {
+            const { value: { item: { name, location, kind }, tail, count }, next } = top;
+            if (name === func && tail === tailcallHint && kind === entryKind && locationsEqual(location, callsiteLocation)) {
                 // same name and type = just bump the counter
-                this.tracebackStack = LinkedList_push(next, { name: func, count: count + 1, tail: tailcallHint, location: callsiteLocation });
+                this.tracebackStack = LinkedList_push(next, { item: { name: func, location: callsiteLocation, kind: entryKind }, count: count + 1, tail: tailcallHint });
                 return;
             }
         }
-        this.tracebackStack = LinkedList_push(top, { name: func, count: 1, tail: tailcallHint, location: callsiteLocation });
+        this.tracebackStack = LinkedList_push(top, { item: { name: func, location: callsiteLocation, kind: entryKind }, count: 1, tail: tailcallHint });
     }
     /**
      * Drops all the tail-call entries off the stack, and then one more
@@ -286,7 +299,7 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
 
         // drop all TCO'ed frames
         if (dropTail) while (cur && cur.value.tail) {
-            this.lastCall = cur.value;
+            this.lastCall = cur.value.item;
             cur = cur.next;
         }
 
@@ -296,7 +309,7 @@ export class JebVM<T extends JebVM = any> extends EventDispatcher<JEBAuditEvents
             return;
         }
 
-        this.lastCall = cur.value;
+        this.lastCall = cur.value.item;
 
         // normal frame pop
         if (cur.value.count > 1) {

@@ -3,7 +3,7 @@ import { defineUnwrapper, makeOpcode } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { DropFirst } from "../utils";
-import { JebVM, peekData, popData, pushCommand, pushData } from "../vm";
+import { JebVM, peekData, popData, pushCommand, pushData, StackEntryKind } from "../vm";
 import { EmptyArg, MacroWrapper, OptionArg, ReferenceWrapper, Wrapper } from "../wrapper";
 
 /**
@@ -55,11 +55,10 @@ export const loadUnwrappingBuiltins = (vm: JebVM) => {
             // get their own frames instead of escaping to an outer
             // consumer; any other wrapper the expansion evaluates to is
             // left for that consumer to unwrap (or not) as it sees fit.
-            const frameName = from.name === undefined ? "<macro>" : `<macro ${String(from.name)}>`;
             pushCommand(vm, OP_tbPop);
             pushCommand(vm, OP_unwrap, ["macro"], true);
             pushCommand(vm, OP_eval, from.location);
-            pushCommand(vm, OP_tbPush, frameName, from.location, false);
+            pushCommand(vm, OP_tbPush, from.name, from.location, StackEntryKind.MACRO_EXPANSION_RESULT, false);
         } else {
             pushCommand(vm, OP_unwrap, ["macro"], true);
             pushCommand(vm, OP_eval, undefined);

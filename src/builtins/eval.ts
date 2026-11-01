@@ -8,7 +8,7 @@ import { checkNothingOrPush, JEBError, Location } from "../errors";
 import { AccessType, Reference, theTypeName, typecheck, typeOf, withType } from "../protocol";
 import { CallableSignature, createSignature } from "../signature";
 import { Identifier } from "../utils";
-import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData } from "../vm";
+import { Command, JebVM, peekData, popData, popNData, pushCommand, pushData, StackEntryKind } from "../vm";
 import { EmptyArg, KeywordArg, MacroWrapper, OptionArg, SplatArg } from "../wrapper";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap } from "./unwrap";
@@ -33,7 +33,7 @@ export const OP_tbPop = makeOpcode("tb_pop", vm => vm.popTraceback(),
     `.imm
 .sed --
 . Pops the top of the traceback stack, including all tailcall entries if there are some.`);
-export const OP_tbPush = makeOpcode("tb_push", (vm: JebVM, { 0: func, 1: location, 2: tail }: [f: Identifier | undefined, Location | undefined, tail?: boolean]) => vm.pushTraceback(func, tail ?? false, location),
+export const OP_tbPush = makeOpcode("tb_push", (vm: JebVM, { 0: func, 1: location, 2: kind, 3: tail }: [f: Identifier | undefined, Location | undefined, kind: StackEntryKind, tail?: boolean]) => vm.pushTraceback(func, tail ?? false, location, kind),
     `.imm function location tailcall
 ..param {string} function
 ..param {Location} location
@@ -159,7 +159,7 @@ export const OP_apply = makeOpcode("apply", (vm: JebVM, { 0: argv, 1: location, 
     const { name, signature, closureEnv } = applier.describe(vm, func);
     if (name && !tail) pushCommand(vm, OP_tbPop);
     applier.run(vm, [func], { tail: tail ?? false, location });
-    if (name) pushCommand(vm, OP_tbPush, name, location, tail);
+    if (name) pushCommand(vm, OP_tbPush, name, location, StackEntryKind.FUNCTION, tail);
     pushCommand(vm, OP_doargs, signature, closureEnv, noEval ?? false, name);
     pushData(vm, argv);
 },
@@ -183,7 +183,7 @@ export const B_atLocation = makeJSFun("at", [[true, "pos"], [true, "expr"]], ({ 
     // (such as argument binding) can still attribute the value to pos.
     // If expr does make a call, that call's frame overwrites this when
     // it pops, and it carries pos as its own location anyway.
-    vm.lastCall = { name: undefined, location: pos as Location, count: 1, tail: false };
+    vm.lastCall = { name: undefined, location: pos as Location, kind: StackEntryKind.NONE };
     vm.popCommand(); // This will be the tb_pop pushed by apply above
     pushCommand(vm, OP_eval, pos as Location);
     return expr;
@@ -232,7 +232,7 @@ const loadStringApplier = (vm: JebVM) => {
         pushCommand(vm, OP_unwrap, []);
         pushCommand(vm, OP_get, false);
         pushCommand(vm, OP_shuffle, 2, [1, 0]);
-        pushCommand(vm, OP_tbPush, undefined, location);
+        pushCommand(vm, OP_tbPush, undefined, location, StackEntryKind.NONE);
         pushData(vm, new VariableReference(AccessType.FUNCTION, vm.currentEnv, func));
     }, () => ({
         name: undefined,

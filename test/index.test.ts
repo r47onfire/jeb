@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_shuffle, parameterError, popData, promisifyVM, pushCommand, pushData, typeMatches, withType } from "../src";
+import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_shuffle, parameterError, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typeMatches, withType } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -397,11 +397,11 @@ describe("metaprogramming", () => {
             expect(err.toString()).toContain("<macro twice>");
             // the expansion frame sits between the expanded code and the caller,
             // located at the macro's call site
-            const expansion = leaves.findIndex(n => n.name === "<macro twice>");
+            const expansion = leaves.findIndex(n => n.name === "twice");
             expect(expansion).toBeGreaterThan(leaves.findIndex(n => n.name === "boom"));
             expect(leaves[expansion].location).toEqual([9, 0]);
             // the macro's own call frame was already popped; it is not duplicated
-            expect(leaves.some(n => n.name === "twice")).toBeFalse();
+            expect(leaves.some(n => n.name === "twice" && n.kind === StackEntryKind.FUNCTION)).toBeFalse();
         }
     });
     testTest(test, "macro expansions evaluating to references are not unwrapped", vm => {
@@ -429,8 +429,8 @@ describe("metaprogramming", () => {
         } catch (err: any) {
             const leaves = (err.traceback as any[]).filter(n => n.leaf);
             // each expansion gets its own frame, nested, at the call site
-            const inner = leaves.findIndex(n => n.name === "<macro inner>");
-            const outer = leaves.findIndex(n => n.name === "<macro outer>");
+            const inner = leaves.findIndex(n => n.name === "inner");
+            const outer = leaves.findIndex(n => n.name === "outer");
             expect(inner).toBeGreaterThan(leaves.findIndex(n => n.name === "boom"));
             expect(outer).toBeGreaterThan(inner);
             expect(leaves[inner].location).toEqual([9, 0]);
@@ -1188,7 +1188,8 @@ describe("location tracking", () => {
             // a frame for the parameter sits on top, at the argument's
             // location; the call's own frame below it keeps the call's
             const first = e.traceback[0];
-            expect(first.leaf && first.name === "parameter x" && first.location).toEqual([7, 0]);
+            console.log(e.traceback);
+            expect(first.leaf && first.name === "x" && first.type === StackEntryKind.PARAMETER && first.location).toEqual([7, 0]);
             const second = e.traceback[1];
             expect(second.leaf && second.name === "needs-string" && second.location).toEqual([3, 0]);
         }
@@ -1203,9 +1204,10 @@ describe("location tracking", () => {
             ]);
         } catch (e: any) {
             expect(e.message).toBe("positional argument can't follow keyword argument");
+            console.log(e.traceback);
             expect(e.paramLocation).toEqual([7, 0]);
             const first = e.traceback[0];
-            expect(first.leaf && first.name === "parameter" && first.location).toEqual([7, 0]);
+            expect(first.leaf && first.name === undefined && first.type === StackEntryKind.PARAMETER && first.location).toEqual([7, 0]);
         }
     });
     testTest(test, "error blame can go through the default", vm => {
@@ -1221,9 +1223,10 @@ describe("location tracking", () => {
             ]);
         } catch (e: any) {
             expect(e.message).toBe("x must be a string");
+            console.log(e.traceback);
             expect(e.paramLocation).toEqual([7, 0]);
             const first = e.traceback[0];
-            expect(first.leaf && first.name === "parameter x" && first.location).toEqual([7, 0]);
+            expect(first.leaf && first.name === "x" && first.type === StackEntryKind.PARAMETER && first.location).toEqual([7, 0]);
             const second = e.traceback[1];
             expect(second.leaf && second.name === "needs-string" && second.location).toEqual([3, 0]);
         }
