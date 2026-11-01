@@ -383,6 +383,67 @@ describe("metaprogramming", () => {
         ])).toBeTrue();
         expect(out).toEqual(["4", "hellohello", "arg evaluated", "arg evaluated", "8"]);
     });
+    testTest(test, "macro expansions are named in tracebacks", vm => {
+        expect.assertions(4);
+        try {
+            run(vm, ["begin",
+                ["define", ["boom"], ["throw", ["err", "boom"]]],
+                ["define", ["twice", [true, "x"]], ["macro", ["list", "add", ["local", "x"], ["local", "x"]]]],
+                ["at", [9, 0], ["twice", ["boom"]]],
+            ]);
+        } catch (err: any) {
+            const leaves = (err.traceback as any[]).filter(n => n.leaf);
+            // the error came from code the macro constructed, and says so
+            expect(err.toString()).toContain("<macro twice>");
+            // the expansion frame sits between the expanded code and the caller,
+            // located at the macro's call site
+            const expansion = leaves.findIndex(n => n.name === "<macro twice>");
+            expect(expansion).toBeGreaterThan(leaves.findIndex(n => n.name === "boom"));
+            expect(leaves[expansion].location).toEqual([9, 0]);
+            // the macro's own call frame was already popped; it is not duplicated
+            expect(leaves.some(n => n.name === "twice")).toBeFalse();
+        }
+    });
+    testTest(test, "macro expansions evaluating to references are not unwrapped", vm => {
+        // the expansion evaluates to a ReferenceWrapper, which set's
+        // ref-flagged parameter must receive intact; expanding the
+        // expansion's result may only expand further macro expansions,
+        // never dereference (or otherwise unwrap) the value
+        expect(run(vm, ["begin",
+            ["define", ["m"], ["macro", ["list", "local", "x"]]],
+            ["letIn", "x", 1],
+            ["set", ["m"], 42],
+            ["local", "x"],
+        ])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+    });
+    testTest(test, "macro expansions of macro calls nest their frames", vm => {
+        expect.assertions(3);
+        try {
+            run(vm, ["begin",
+                ["define", ["boom"], ["throw", ["err", "boom"]]],
+                ["define", ["inner"], ["macro", ["list", "boom"]]],
+                ["define", ["outer"], ["macro", ["list", "inner"]]],
+                ["at", [9, 0], ["outer"]],
+            ]);
+        } catch (err: any) {
+            const leaves = (err.traceback as any[]).filter(n => n.leaf);
+            // each expansion gets its own frame, nested, at the call site
+            const inner = leaves.findIndex(n => n.name === "<macro inner>");
+            const outer = leaves.findIndex(n => n.name === "<macro outer>");
+            expect(inner).toBeGreaterThan(leaves.findIndex(n => n.name === "boom"));
+            expect(outer).toBeGreaterThan(inner);
+            expect(leaves[inner].location).toEqual([9, 0]);
+        }
+    });
+    testTest(test, "macro expansion frames do not leak after a successful expansion", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["define", ["twice", [true, "x"]], ["macro", ["list", "add", ["local", "x"], ["local", "x"]]]],
+            ["print", ["twice", 3]],
+        ])).toBeTrue();
+        expect(out).toEqual(["6"]);
+        expect(rawTraceback(vm)).toEqual([]);
+    });
     testTest(test, "quote/quasiquote", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", "a", 1],

@@ -1,4 +1,4 @@
-import { OP_eval, OP_get } from ".";
+import { OP_eval, OP_get, OP_tbPop, OP_tbPush } from ".";
 import { defineUnwrapper, makeOpcode } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
@@ -22,18 +22,19 @@ export const OP_wrap = makeOpcode("wrap", (vm, args: WrapArg<any>) => {
 .param {any} args... - the parameters to pass into the constructor after the object
 .sed obj -- wrapped
 . Wraps the object in the given wrapper class.`);
-export const OP_unwrap = makeOpcode("unwrap", (vm, { 0: dontUnwrap }: [string[]]) => {
+export const OP_unwrap = makeOpcode("unwrap", (vm, { 0: flags, 1: only }: [string[], only?: boolean]) => {
     const top = peekData(vm);
-    if (top instanceof Wrapper && !dontUnwrap.includes(top.flag)) {
+    if (top instanceof Wrapper && !flags.includes(top.flag) === !only) {
         popData(vm);
-        pushCommand(vm, OP_unwrap, dontUnwrap);
+        pushCommand(vm, OP_unwrap, flags, only);
         vm.getProtocol(false, true, "unwrap", [top]).run(vm, [top]);
     }
 },
-    `.imm dontUnwrap
-.param {string[]} dontUnwrap
+    `.imm flags only
+.param {string[]} flags
+.param {boolean?} [only=false]
 .sed value -- unwrapped
-. Unwraps all wrappers from the value, unless the value's wrapper has a tag in the given list of \`dontUnwrap\`.`);
+. Unwraps all wrappers from the value, when the value's wrapper has a tag in the given list of \`flags\` (when \`only\` is true) or when the value's wrapper has a flag *not* in the list of \`flags\` (when \`only\` is false).`);
 
 export const loadUnwrappingBuiltins = (vm: JebVM) => {
     defineUnwrapper(vm, [ReferenceWrapper], (vm, { 0: { obj } }) => {
@@ -41,7 +42,28 @@ export const loadUnwrappingBuiltins = (vm: JebVM) => {
         pushData(vm, obj);
     }, "Unwraps a reference");
     defineUnwrapper(vm, [MacroWrapper], (vm, { 0: { obj } }) => {
-        pushCommand(vm, OP_eval, undefined);
+        const from = vm.lastCall;
+        if (from) {
+            // The call that just returned is the one that produced this
+            // expansion (normally the macro invocation itself). Evaluate
+            // the expansion under a frame naming it, at its call site, so
+            // that an error thrown by the expanded code mentions the macro
+            // even though the macro itself has already returned. The
+            // OP_unwrap_macro after the evaluation expands the expansion's
+            // own result if it is itself a macro expansion, while the call
+            // that produced it is still the last call, so nested expansions
+            // get their own frames instead of escaping to an outer
+            // consumer; any other wrapper the expansion evaluates to is
+            // left for that consumer to unwrap (or not) as it sees fit.
+            const frameName = from.name === undefined ? "<macro>" : `<macro ${String(from.name)}>`;
+            pushCommand(vm, OP_tbPop);
+            pushCommand(vm, OP_unwrap, ["macro"], true);
+            pushCommand(vm, OP_eval, from.location);
+            pushCommand(vm, OP_tbPush, frameName, from.location, false);
+        } else {
+            pushCommand(vm, OP_unwrap, ["macro"], true);
+            pushCommand(vm, OP_eval, undefined);
+        }
         pushData(vm, obj);
     }, "Unwraps a macro expansion thing");
     defineUnwrapper(vm, [EmptyArg], () => {
