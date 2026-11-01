@@ -1176,7 +1176,7 @@ describe("location tracking", () => {
             if (typeof args.x !== "string") throw parameterError(args, "x", ErrnoCode.EINVAL, "x must be a string");
             return args.x;
         }, "test needs-string"));
-        expect.assertions(4);
+        expect.assertions(10);
         try {
             run(vm, ["begin",
                 ["define", ["id", "x"], ["local", "x"]],
@@ -1188,14 +1188,19 @@ describe("location tracking", () => {
             // a frame for the parameter sits on top, at the argument's
             // location; the call's own frame below it keeps the call's
             const first = e.traceback[0];
-            console.log(e.traceback);
-            expect(first.leaf && first.name === "x" && first.type === StackEntryKind.PARAMETER && first.location).toEqual([7, 0]);
+            expect(first.leaf).toBeTrue();
+            expect(first.name).toEqual("x");
+            expect(first.kind).toEqual(StackEntryKind.PARAMETER);
+            expect(first.location).toEqual([7, 0]);
             const second = e.traceback[1];
-            expect(second.leaf && second.name === "needs-string" && second.location).toEqual([3, 0]);
+            expect(second.leaf).toBeTrue();
+            expect(second.name).toEqual("needs-string");
+            expect(second.kind).toEqual(StackEntryKind.FUNCTION);
+            expect(second.location).toEqual([3, 0]);
         }
     });
     testTest(test, "builtin errors also blame the offending arg", vm => {
-        expect.assertions(3);
+        expect.assertions(6);
         try {
             run(vm, ["begin",
                 ["define", ["id", "x"], ["local", "x"]],
@@ -1204,10 +1209,12 @@ describe("location tracking", () => {
             ]);
         } catch (e: any) {
             expect(e.message).toBe("positional argument can't follow keyword argument");
-            console.log(e.traceback);
             expect(e.paramLocation).toEqual([7, 0]);
             const first = e.traceback[0];
-            expect(first.leaf && first.name === undefined && first.type === StackEntryKind.PARAMETER && first.location).toEqual([7, 0]);
+            expect(first.leaf).toBeTrue();
+            expect(first.name).toBeUndefined();
+            expect(first.kind).toEqual(StackEntryKind.PARAMETER);
+            expect(first.location).toEqual([7, 0]);
         }
     });
     testTest(test, "error blame can go through the default", vm => {
@@ -1215,7 +1222,7 @@ describe("location tracking", () => {
             if (typeof args.x !== "string") throw parameterError(args, "x", ErrnoCode.EINVAL, "x must be a string");
             return args.x;
         }, "test needs-string"));
-        expect.assertions(4);
+        expect.assertions(10);
         try {
             run(vm, ["begin",
                 ["define", "hello", 42],
@@ -1223,12 +1230,17 @@ describe("location tracking", () => {
             ]);
         } catch (e: any) {
             expect(e.message).toBe("x must be a string");
-            console.log(e.traceback);
             expect(e.paramLocation).toEqual([7, 0]);
             const first = e.traceback[0];
-            expect(first.leaf && first.name === "x" && first.type === StackEntryKind.PARAMETER && first.location).toEqual([7, 0]);
+            expect(first.leaf).toBeTrue();
+            expect(first.name).toEqual("x");
+            expect(first.kind).toEqual(StackEntryKind.PARAMETER);
+            expect(first.location).toEqual([7, 0]);
             const second = e.traceback[1];
-            expect(second.leaf && second.name === "needs-string" && second.location).toEqual([3, 0]);
+            expect(second.leaf).toBeTrue();
+            expect(second.name).toEqual("needs-string");
+            expect(second.kind).toEqual(StackEntryKind.FUNCTION);
+            expect(second.location).toEqual([3, 0]);
         }
     });
 });
