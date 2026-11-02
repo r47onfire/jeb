@@ -1179,7 +1179,7 @@ describe("location tracking", () => {
         }
     });
     testTest(test, "gets parameter blame from callsites", vm => {
-        define(vm, "where", makeJSFun("where", ["x"], args => argumentLocation(args, "x") ?? null, "test where"));
+        define(vm, "where", makeJSFun("where", ["x"], args => argumentLocation(args, "x"), "test where"));
         expect(run(vm, ["begin",
             ["define", ["id", "x"], ["local", "x"]],
             ["where", ["at", [7, 0], ["id", 42]]],
@@ -1187,7 +1187,7 @@ describe("location tracking", () => {
         expect(popData(vm)).toEqual([7, 0]);
         // an argument that makes no call to at() records no location
         expect(run(vm, ["where", 42])).toBeTrue();
-        expect(popData(vm)).toBeNull();
+        expect(popData(vm)).toBeUndefined();
         expect(run(vm, ["where", ["at", [9, 0], 42]])).toBeTrue();
         expect(popData(vm)).toEqual([9, 0]);
     });
