@@ -83,12 +83,12 @@ export const B_macro_wrap = makeJSFun("macro", ["code"], ({ code }) => new Macro
 . Wraps the code in a special object that causes it to be evaluated using [[eval]] in the scope of where it was used and the result of the evaluation used in place of the actual code object.
 This can be used to create an unhygienic syntactic macro by returning the wrapper immediately.`);
 
-export const B_object = makeJSFun("object", [[0, "pairs"]], ({ pairs }) => {
+export const B_object = makeJSFun("object", [[0, "pairs"], [1, "rest"]], ({ pairs, rest }) => {
     const len = pairs.length;
     if ((len & 1) > 0) {
         throw new JEBError(ErrnoCode.ESYNTAX, "object should have an even number of arguments");
     }
-    const out = {} as Record<PropertyKey, any>;
+    const out = { ...rest } as Record<PropertyKey, any>;
     for (var i = 0; i < len; i += 2) {
         out[pairs[i] as PropertyKey] = pairs[i + 1];
     }

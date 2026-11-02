@@ -165,6 +165,22 @@ describe("basic", () => {
         expect(run(vm, ["object", s, "hello"])).toBeTrue();
         expect(popData(vm)).toEqual({ [s]: "hello" });
     });
+    testTest(test, "object with splat keys", vm => {
+        const s = Math.random();
+        const t = Math.random();
+        expect(run(vm, ["object", ["splat", { [s]: "hello" }, true], t, "bye"])).toBeTrue();
+        expect(popData(vm)).toEqual({ [s]: "hello", [t]: "bye" });
+    });
+    testTest(test, "object with splat key override", vm => {
+        const s = Math.random();
+        expect(run(vm, ["object", ["splat", { [s]: "hello" }, true], s, "bye"])).toBeTrue();
+        expect(popData(vm)).toEqual({ [s]: "bye" });
+    });
+    testTest(test, "object with splat key default", vm => {
+        const s = Math.random();
+        expect(run(vm, ["object", s, "bye", ["splat", { [s]: "hello" }, true]])).toBeTrue();
+        expect(popData(vm)).toEqual({ [s]: "hello" });
+    });
 });
 
 describe("tail-call elimination", () => {
