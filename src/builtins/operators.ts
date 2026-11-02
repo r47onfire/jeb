@@ -72,31 +72,23 @@ export const B_bitInv = makeJSFun("bitInv", ["a"], args => ~withType(args.a, ["n
 
 // comparisons
 const comparisonHelper = (op: string, bits: Relation, doc: string) => {
-    return makeJSFun(op, [[0, "items"]], ({ items: a }, vm) => {
-        const len = a.length;
-        if (len < 2) return true;
-        for (var i = 1; i < len; i++) {
-            const arg = [a[i - 1], a[i], bits] as [any, any, Relation];
-            const res = wrapThrowToError(ErrnoCode.EINVAL, () => vm.getProtocol(false, true, "cmp", arg).run(vm, arg));
-            if (!res.ok) {
-                throw new JEBError(ErrnoCode.ERANGE, "comparison error: " + res.error, {}, { return: vm.cc() });
-            }
-            if (!res.data) return false;
-        }
-        return true;
+    return makeJSFun(op, ["a", "b"], ({ a, b }, vm) => {
+        return vm.getProtocol(false, true, "cmp", [a, b, bits]).run(vm, [a, b, bits]).else(err => {
+            throw new JEBError(ErrnoCode.ENOTSUP, err);
+        });
     },
         `.func (${op} items...)
 ..param {number | string} items...
 .pure
 . ${doc}`);
 }
-const compDocHelper = (phrase: string) => `True if the sequence of items is strictly ${phrase} when read from left to right.`;
-export const B_eq = comparisonHelper("eq", Relation.EQUAL, "True if all of the items are equal.");
-export const B_not_eq = comparisonHelper("notEq", Relation.NOT_EQ, "True if no adjacent pair of items are equal.");
-export const B_less = comparisonHelper("less", Relation.LESS, compDocHelper("increasing"));
-export const B_greater = comparisonHelper("greater", Relation.GREATER, compDocHelper("decreasing"));
-export const B_less_eq = comparisonHelper("lessEq", Relation.LESS_EQ, compDocHelper("nondecreasing"));
-export const B_greater_eq = comparisonHelper("greaterEq", Relation.GREATER_EQ, compDocHelper("nonincreasing"));
+const compDocHelper = (phrase: string) => `True if \`a\` is ${phrase} \`b\`.`;
+export const B_eq = comparisonHelper("eq", Relation.EQUAL, compDocHelper("equal to"));
+export const B_not_eq = comparisonHelper("notEq", Relation.NOT_EQ, compDocHelper("not equal to"));
+export const B_less = comparisonHelper("less", Relation.LESS, compDocHelper("less than"));
+export const B_greater = comparisonHelper("greater", Relation.GREATER, compDocHelper("greater than"));
+export const B_less_eq = comparisonHelper("lessEq", Relation.LESS_EQ, compDocHelper("not greater than"));
+export const B_greater_eq = comparisonHelper("greaterEq", Relation.GREATER_EQ, compDocHelper("not less than"));
 
 const compareFn = (_: JebVM, { 0: a, 1: b, 2: c }: [any, any, Relation]) => {
     if (a == b) return Ok(!!(c & Relation.EQUAL));
