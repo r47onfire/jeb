@@ -53,9 +53,8 @@ const attachLocations = (ao: Record<Identifier, any>, locations: Record<Identifi
  * parameter twice (in either form) can be reported as an error.
  */
 const enum DoargsWhere {
-    _BLANK,
-    POSITIONAL,
-    KEYWORD,
+    POSITIONAL = 1,
+    KEYWORD = 2,
 }
 
 /**
@@ -241,19 +240,25 @@ export class DoargsState {
     #storeArgumentAndAdvance(vm: JebVM, argValue: any, loc: Location | undefined): DoargsState | typeof NOTHING {
         const p = this.#params, I = this.#paramsIndex;
         const param = p[I]!;
+        // A parameter whose flags name a wrapper kind ("keyword",
+        // "splat", "empty", "option") receives that kind of argument
+        // raw: the special handling below steps aside for it and the
+        // argument falls through to the ordinary positional store,
+        // wrapper intact, so the function itself can interpret it.
+        const paramHasFlag = (kind: string) => param.flags.includes(kind);
         if (argValue === MISSING && (param.rest !== Rest.NONE || (this.#seenKeyword && this.#seenByName[param.name]))) {
             // Nothing to fill here: rest parameters were already
             // initialized (and possibly collected into), and keyword-given
             // parameters already have their value. Just step over it.
             return this.#update(undefined, undefined, undefined, I + 1);
         }
-        if (param?.required && (argValue === MISSING || argValue instanceof EmptyArg)) {
+        if (param?.required && (argValue === MISSING || (argValue instanceof EmptyArg && !paramHasFlag("empty")))) {
             throw new JEBError(ErrnoCode.ERANGE, `missing required ${I > ((p.findIndex(x => x.rest === Rest.POSITIONAL) + p.length) % p.length) ? "keyword-only " : ""}parameter ${stringify(param.name)} of function ${stringify(this.#name)}`);
         }
-        if (argValue instanceof KeywordArg) {
+        if (argValue instanceof KeywordArg && !paramHasFlag("keyword")) {
             return this.#storeKeyword(argValue.name, argValue.obj, false, 1, loc);
         }
-        if (argValue instanceof SplatArg) {
+        if (argValue instanceof SplatArg && !paramHasFlag("splat")) {
             if (argValue.isKeyword) {
                 const values = { ...argValue.obj }, names = Reflect.ownKeys(values);
                 var state: DoargsState = this;
@@ -276,13 +281,13 @@ export class DoargsState {
                 return state.#update(undefined, undefined, state.#rawArgsIndex + 1);
             }
         }
-        if (argValue instanceof EmptyArg) {
+        if (argValue instanceof EmptyArg && !paramHasFlag("empty")) {
             if (param.rest !== Rest.NONE) {
                 return this.#update(undefined, undefined, this.#rawArgsIndex + 1, I + 1);
             }
             return evalHelper(vm, this, this.#defaultEnv(vm), param.defaultExpr, param);
         }
-        if (argValue instanceof OptionArg) {
+        if (argValue instanceof OptionArg && !paramHasFlag("option")) {
             const valueExpr = param.options[argValue.obj];
             if (!Reflect.has(param.options, argValue.obj)) {
                 throw new JEBError(ErrnoCode.ENAME, `no such option ${stringify(argValue.obj)}`);
@@ -321,8 +326,12 @@ export class DoargsState {
         if (this.#seenKeyword) {
             throw new JEBError(ErrnoCode.ESYNTAX, "positional argument can't follow keyword argument");
         }
-        this.#assertNotSpecial(value);
         const pList = this.#params, index = this.#paramsIndex;
+        // A wrapper kind the receiving parameter flagged for is stored
+        // raw, not unpacked, so it is exempt from the nested-wrapper check
+        const kind = value instanceof KeywordArg ? "keyword" : value instanceof SplatArg ? "splat" : undefined;
+        const receiving = index < pList.length ? pList[index]! : pList.find(x => x.rest === Rest.POSITIONAL);
+        if (!kind || !receiving?.flags.includes(kind)) this.#assertNotSpecial(value);
         if (index >= pList.length) {
             const p = this.#params.find(x => x.rest === Rest.POSITIONAL);
             if (p) {
