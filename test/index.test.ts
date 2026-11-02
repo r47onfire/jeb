@@ -144,7 +144,6 @@ describe("basic", () => {
                 ["jsonStringify", ["local", "x"]]
             ])).toThrow(error.message);
         }
-
     });
     testTest(test, "property chain get", vm => {
         expect(run(vm, ["begin",
@@ -160,6 +159,11 @@ describe("basic", () => {
             ["local", "x"]
         ])).toBeTrue();
         expect(popData(vm)).toEqual({ a: { b: { foo: 456 } } });
+    });
+    testTest(test, "object with computed keys", vm => {
+        const s = Math.random();
+        expect(run(vm, ["object", s, "hello"])).toBeTrue();
+        expect(popData(vm)).toEqual({ [s]: "hello" });
     });
 });
 
