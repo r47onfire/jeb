@@ -311,7 +311,7 @@ export class DoargsState {
         if (!this.#params.some(x => x.rest === Rest.NONE && name === x.name)) {
             const p = this.#params.find(x => x.rest === Rest.KEYWORD);
             if (p) {
-                return this.#update({ ...this.#argsObj, [p.name]: { ...this.#argsObj[p.name], [name]: obj } }, undefined, this.#rawArgsIndex + 1, undefined, undefined, this.#locationsFor(p.name, loc));
+                return this.#update({ ...this.#argsObj, [p.name]: { ...this.#argsObj[p.name], [name]: obj } }, undefined, this.#rawArgsIndex + rawDelta, undefined, undefined, this.#locationsFor(p.name, loc));
             }
             throw new JEBError(ErrnoCode.ERANGE, `unexpected ${isFromSplat ? "splat " : ""}keyword argument ${stringify(name)} to function ${stringify(this.#name)}`);
         }
