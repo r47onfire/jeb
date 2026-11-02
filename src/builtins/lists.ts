@@ -10,12 +10,12 @@ export const B_list = makeJSFun("list", [[0, "values"]], ({ values }) => values,
 .pure
 .returns {T[]}
 . Returns the arguments in a list.`);
-export const B_head = makeJSFun("head", ["list"], ({ list }) => withType(list, [Array], "list")[0],
+export const B_head = makeJSFun("head", ["list"], args => withType(args.list, [Array], "list", args)[0],
     `.func (head list)
 ..param {T[]} list
 .pure
 .returns {T} - The first element in the list`);
-export const B_tail = makeJSFun("tail", ["list"], ({ list }) => withType(list, [Array], "list").slice(1),
+export const B_tail = makeJSFun("tail", ["list"], args => withType(args.list, [Array], "list", args).slice(1),
     `.func (tail list)
 ..param {T[]} list
 .pure

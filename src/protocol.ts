@@ -11,6 +11,7 @@ import { CallableSignature } from "./signature";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";
 import { Wrapper } from "./wrapper";
+import { parameterError } from "./doargs";
 
 /**
  * Thing that can be used to match a type of an object. `true` = any
@@ -65,14 +66,17 @@ export const typeOf = (x: any): Type => { const t = typeof x; if (t === "object"
  * Asserts that `x` matches at least one of the given types, throwing a
  * {@link JEBError} (`EINVAL`) naming `paramName` if it matches none of them.
  */
-export const typecheck: <T extends Type[]>(x: unknown, t: T, paramName?: string) => asserts x is TypeValue<T[number]> = (x, t, paramName)=> {
-    if (!t.some(t2 => typeMatches(x, t2))) throw new JEBError(ErrnoCode.EINVAL, `${paramName ? paramName + ": " : ""}expected ${t.map(t2 => theTypeName(t2)).join(" | ")} but got ${theTypeName(typeOf(x))}: ${x}`);
+export const typecheck: <T extends Type[]>(x: unknown, t: T, paramName?: string, args?: Record<Identifier, any>) => asserts x is TypeValue<T[number]> = (x, t, paramName, args)=> {
+    if (!t.some(t2 => typeMatches(x, t2))) {
+        const msg = `expected ${t.map(t2 => theTypeName(t2)).join(" | ")} but got ${theTypeName(typeOf(x))}: ${x}`;
+        if (paramName) throw paramName ? parameterError(args!, paramName, ErrnoCode.EINVAL, msg) : new JEBError(ErrnoCode.EINVAL, msg);
+    }
 }
 /**
  * Like {@link typecheck}, but returns `x` (typed as the matched type) on success.
  */
-export const withType = <T extends Type[]>(x: unknown, t: T, paramName?: string): TypeValue<T[number]> => {
-    typecheck(x, t, paramName);
+export const withType = <T extends Type[]>(x: unknown, t: T, paramName?: string, args?: Record<Identifier, any>): TypeValue<T[number]> => {
+    typecheck(x, t, paramName, args);
     return x;
 }
 

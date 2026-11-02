@@ -20,14 +20,14 @@ import { EmptyArg, KeywordArg, OptionArg, SplatArg } from "./wrapper";
  * attaches to it). Only parameters whose filling evaluation actually
  * made a located call have an entry.
  */
-export const ARGUMENT_LOCATIONS = Symbol("jeb.argumentLocations");
+export const ARGUMENT_LOCATIONS = Symbol("__argv_locations__");
 
 /**
  * The location of the argument that filled the named parameter, as
  * recorded on the arguments object under {@link ARGUMENT_LOCATIONS}, or
  * `undefined` if that argument carried no location.
  */
-export const argumentLocation = (args: Record<string, any>, param: Identifier): Location | undefined => (args as any)[ARGUMENT_LOCATIONS]?.[param];
+export const argumentLocation = (args: Record<Identifier, any>, param: Identifier): Location | undefined => (args as any)[ARGUMENT_LOCATIONS]?.[param];
 
 /**
  * Builds an error blaming the named parameter: if the argument that filled
@@ -43,7 +43,7 @@ export const parameterError = (args: Record<string, any>, param: Identifier, cod
  * Records the given parameter locations on a finished arguments object
  * under {@link ARGUMENT_LOCATIONS}, if there are any.
  */
-const attachLocations = (ao: Record<string, any>, locations: Record<Identifier, Location>): Record<string, any> => {
+const attachLocations = (ao: Record<Identifier, any>, locations: Record<Identifier, Location>): Record<Identifier, any> => {
     if (Reflect.ownKeys(locations).length > 0) (ao as any)[ARGUMENT_LOCATIONS] = locations;
     return ao;
 };

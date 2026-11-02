@@ -9,6 +9,7 @@ import { loadOperatorsBuiltins } from "./operators";
 import { loadQuoteBuiltins } from "./quote";
 import { loadVarNamingBuiltins } from "./reference";
 import { loadSchemeBuiltins } from "./scheme";
+import { loadSymbolBuiltins } from "./symbols";
 import { loadUnwrappingBuiltins } from "./unwrap";
 import { loadVariablesBuiltins } from "./variables";
 
@@ -20,6 +21,7 @@ export { B_concat, B_head, B_list, B_tail } from "./lists";
 export { B_and_shortcircuit, B_bitAnd, B_bitInv, B_bitOr, B_bitXor, B_div, B_eq, B_greater, B_greater_eq, B_less, B_less_eq, B_minus, B_mod, B_mul, B_not, B_not_eq, B_or_shortcircuit, B_plus, B_pow } from "./operators";
 export { B_quasiquote, B_quote, B_unquote, B_unquoteSplicing } from "./quote";
 export { B_begin, B_define, B_if, B_let, B_let_in } from "./scheme";
+export { B_sym } from "./symbols";
 export { B_always, B_deref, B_index, B_local, B_ref, B_set, OP_set_env } from "./variables";
 
 // MARK: loadBuiltins()
@@ -42,4 +44,5 @@ export const loadBuiltins = (vm: JebVM) => {
     loadDataBuiltins(vm);
     loadQuoteBuiltins(vm);
     loadJsonBuiltins(vm);
+    loadSymbolBuiltins(vm);
 };

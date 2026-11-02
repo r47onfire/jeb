@@ -64,7 +64,7 @@ export const B_bitOr = mathHelper("bitOr", "bitOr", undefined, numberOp((a, b) =
 export const B_bitXor = mathHelper("bitXor", "bitXor", undefined, numberOp((a, b) => a ^ b), id, "Computes the bitwise XOR of all numbers.");
 export const B_shiftLeft = mathHelper("shl", "shl", undefined, numberOp((a, b) => a << b), id, "Shifts `a` left by `b` bits.\nAlternatively, equivalent to `a * 2**b`.");
 export const B_shiftRight = mathHelper("shr", "shr", undefined, numberOp((a, b) => a >> b), id, "Shifts `a` right by `b` bits.\nAlternatively, equivalent to `floor(a / 2**b)`.");
-export const B_bitInv = makeJSFun("bitInv", ["a"], ({ a }) => ~withType(a, ["number", "bigint"], "a"),
+export const B_bitInv = makeJSFun("bitInv", ["a"], args => ~withType(args.a, ["number", "bigint"], "a", args),
     `.func (bitInv number)
 ..param {number} a
 .pure

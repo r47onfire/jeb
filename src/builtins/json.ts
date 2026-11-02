@@ -5,7 +5,7 @@ import { wrapThrowToError } from "../errors";
 import { withType } from "../protocol";
 import { JebVM } from "../vm";
 
-export const B_jsonparse = makeJSFun("jsonParse", ["json"], ({ json }) => wrapThrowToError(ErrnoCode.ESYNTAX, () => parse(withType(json, ["string"], "json"))),
+export const B_jsonparse = makeJSFun("jsonParse", ["json"], args => wrapThrowToError(ErrnoCode.ESYNTAX, () => parse(withType(args.json, ["string"], "json", args))),
     `.func (jsonParse json)
 ..param {string} json
 .pure

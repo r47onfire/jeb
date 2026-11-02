@@ -21,7 +21,7 @@ export const OP_audit = makeOpcode("audit", <T extends keyof JEBAuditEvents>(vm:
 ..param {any} arg
 . Raises an auditing event with the given argument.`);
 
-export const B_audit = makeJSFun("audit", ["event", "param"], ({ event, param }, vm) => vm.emit(withType(event, ["string"], "event"), param),
+export const B_audit = makeJSFun("audit", ["event", "param"], (args, vm) => vm.emit(withType(args.event, ["string"], "event", args), args.param),
     `.func (audit event param)
 ..param {keyof JEBAuditEvents} event
 ..param {any} param
@@ -192,13 +192,13 @@ export const B_atLocation = makeJSFun("at", [[true, "pos"], [true, "expr"]], ({ 
 ..param {opaque-id} location
 ..param {code} expr
 . Equivalent to \`expr\` as a normal [[eval]]uation, but inserts the metadata of \`location\` into the stack frame to identify the call site itself instead of just the thing that was called. \`at\` frames never appear in tracebacks.`);
-export const B_splat = makeJSFun("splat", ["value", ["kw", false]], ({ value, kw }) => new SplatArg(value, withType(kw, ["boolean"], "kw")),
+export const B_splat = makeJSFun("splat", ["value", ["kw", false]], args => new SplatArg(args.value, withType(args.kw, ["boolean"], "kw", args)),
     `.func (splat arg kw)
 ..param {any[] | object} arg - iterable or object to unpack
 ..param {boolean?} [kw=false] - whether to unpack into positional or keyword arguments
 .pure
 . Causes the value to unpack into keyword or positional arguments instead of being passed as a single value.`);
-export const B_keyword = makeJSFun("kw", ["name", "value"], ({ name, value }) => new KeywordArg(value, withType(name, ["string"], "name")),
+export const B_keyword = makeJSFun("kw", ["name", "value"], args => new KeywordArg(args.value, withType(args.name, ["string"], "name", args)),
     `.func (kw name value)
 ..param {string} name - name of keyword arg to unpack into
 ..param {any} value

@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_shuffle, parameterError, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typeMatches, withType } from "../src";
+import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_shuffle, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typecheck, typeMatches, withType } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -1173,7 +1173,7 @@ describe("location tracking", () => {
     });
     testTest(test, "errors can blame a parameter", vm => {
         define(vm, "needs-string", makeJSFun("needs-string", ["x"], args => {
-            if (typeof args.x !== "string") throw parameterError(args, "x", ErrnoCode.EINVAL, "x must be a string");
+            typecheck(args.x, ["string"], "x", args);
             return args.x;
         }, "test needs-string"));
         expect.assertions(10);
@@ -1183,7 +1183,7 @@ describe("location tracking", () => {
                 ["at", [3, 0], ["needs-string", ["at", [7, 0], ["id", 42]]]],
             ]);
         } catch (e: any) {
-            expect(e.message).toBe("x must be a string");
+            expect(e.message).toBe("expected string but got number: 42");
             expect(e.paramLocation).toEqual([7, 0]);
             // a frame for the parameter sits on top, at the argument's
             // location; the call's own frame below it keeps the call's
@@ -1219,7 +1219,7 @@ describe("location tracking", () => {
     });
     testTest(test, "error blame can go through the default", vm => {
         define(vm, "needs-string", makeJSFun("needs-string", [["x", ["at", [7, 0], ["local", "hello"]]]], args => {
-            if (typeof args.x !== "string") throw parameterError(args, "x", ErrnoCode.EINVAL, "x must be a string");
+            typecheck(args.x, ["string"], "x", args);
             return args.x;
         }, "test needs-string"));
         expect.assertions(10);
@@ -1229,7 +1229,7 @@ describe("location tracking", () => {
                 ["at", [3, 0], ["needs-string"]],
             ]);
         } catch (e: any) {
-            expect(e.message).toBe("x must be a string");
+            expect(e.message).toBe("expected string but got number: 42");
             expect(e.paramLocation).toEqual([7, 0]);
             const first = e.traceback[0];
             expect(first.leaf).toBeTrue();

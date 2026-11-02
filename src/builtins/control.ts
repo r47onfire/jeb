@@ -40,7 +40,10 @@ export const B_throw = makeJSFun("throw", ["err"], ({ err }) => {
 .returns {never}
 . Throw an error. If we're inside a [[with]] block, it will trigger the \`exit\` handler of the context object to possibly handle the error.
 If the error is not handled, it will be thrown as a Javascript error, causing the program to halt.`);
-export const B_err = makeJSFun("err", [["type", "EPANIC"], ["message", "no message"], ["up", 0]], ({ type, message, up }, vm) => new JEBError(ErrnoCode[withType(type, ["string"], "type") as any] ?? type as any, withType(message, ["string"], "message"), {}, {}, vm.tracebackArray(withType(up, ["number"], "up"))),
+export const B_err = makeJSFun("err", [["type", "EPANIC"], ["message", "no message"], ["up", 0]], (args, vm) => {
+    const { type, message, up } = args;
+    return new JEBError(ErrnoCode[withType(type, ["string"], "type", args) as any] ?? type as any, withType(message, ["string"], "message", args), {}, {}, vm.tracebackArray(withType(up, ["number"], "up", args)))
+},
     `.func (err message type up)
 ..param {string?} [message="no message"]
 ..param {string?} type - errno code for error

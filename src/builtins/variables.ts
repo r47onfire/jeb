@@ -52,11 +52,12 @@ const OP_set_internal = makeOpcode(null, (vm: JebVM, { 0: b, 1: old }: [Block, b
     pushCommand(vm, OP_get, true);
     pushCommand(vm, OP_shuffle, 1, [0, 0]);
 }, null);
-export const B_set = makeJSFun("set", [[["ref"], "ref"], [false, "value"], ["old", false]], ({ ref, value, old }, vm) => {
+export const B_set = makeJSFun("set", [[["ref"], "ref"], [false, "value"], ["old", false]], (args, vm) => {
+    const { ref, value, old } = args;
     if (!(ref instanceof ReferenceWrapper)) {
         throw new JEBError(ErrnoCode.EINVAL, `cannot assign to ${theTypeName(typeOf(ref))}`);
     }
-    pushCommand(vm, OP_set_internal, value as Block, withType(old, ["boolean"], "old"));
+    pushCommand(vm, OP_set_internal, value as Block, withType(old, ["boolean"], "old", args));
     return ref.obj;
 },
     `.macro (set slot value old)
@@ -68,20 +69,21 @@ export const B_set = makeJSFun("set", [[["ref"], "ref"], [false, "value"], ["old
 .returns {old ? U : T}
 . Changes the value of the slot, and returns the new or old value as determined by \`old\`.`);
 
-export const B_ref = makeJSFun("ref", [[["ref"], "ref"]], ({ ref }) => withType(ref, [ReferenceWrapper]).obj,
+export const B_ref = makeJSFun("ref", [[["ref"], "ref"]], args => withType(args.ref, [ReferenceWrapper], "ref", args).obj,
     `.macro (ref x)
 ..param {[assignable location]} x
 .pure
 . Asserts that \`x\` is a valid assignable, and then returns a reference to it, which can be assigned to or read with [[deref]].`);
 
-export const B_deref = makeJSFun("deref", ["ref"], ({ ref }) => new ReferenceWrapper(withType(ref, [Reference])),
+export const B_deref = makeJSFun("deref", ["ref"], args => new ReferenceWrapper(withType(args.ref, [Reference], "ref", args)),
     `.func (deref x)
 ..param {Reference} x
 .pure
 . Asserts that \`x\` is a valid reference value created by [[ref]], and then returns the value stored in the reference.
 This function works with [[set]] to be able to change the value of the reference as well.`);
 
-export const B_always = makeJSFun("always", ["derived", [false, "onchange"], [["ref"], 0, "refs"]], ({ derived, onchange, refs }, vm) => {
+export const B_always = makeJSFun("always", ["derived", [false, "onchange"], [["ref"], 0, "refs"]], (args, vm) => {
+    const { derived, onchange, refs } = args;
     const watches: (() => void)[] = [];
     if (refs!.length < 1) throw new JEBError(ErrnoCode.EINVAL, "need at least 1 variable to watch");
     for (var i = 0; i < refs!.length; i++) {
@@ -99,7 +101,7 @@ export const B_always = makeJSFun("always", ["derived", [false, "onchange"], [["
             watches.push(env.watch(slot.name, onchange as any as Block));
         }).else(() => slot.referenceError());
     }
-    const shouldRunInitially = withType(derived, ["boolean"], "derived");
+    const shouldRunInitially = withType(derived, ["boolean"], "derived", args);
     if (shouldRunInitially) {
         pushCommand(vm, OP_shuffle, 1, []);
         pushCommand(vm, OP_apply, [], undefined, false);
