@@ -83,14 +83,23 @@ export const B_macro_wrap = makeJSFun("macro", ["code"], ({ code }) => new Macro
 . Wraps the code in a special object that causes it to be evaluated using [[eval]] in the scope of where it was used and the result of the evaluation used in place of the actual code object.
 This can be used to create an unhygienic syntactic macro by returning the wrapper immediately.`);
 
-export const B_object = makeJSFun("object", [[0, "pairs"], [1, "rest"]], ({ pairs, rest }) => {
-    const len = pairs.length;
-    if ((len & 1) > 0) {
-        throw new JEBError(ErrnoCode.ESYNTAX, "object should have an even number of arguments");
-    }
-    const out = { ...rest } as Record<PropertyKey, any>;
-    for (var i = 0; i < len; i += 2) {
-        out[pairs[i] as PropertyKey] = pairs[i + 1];
+export const B_object = makeJSFun("object", [[["splat", "keyword"], 0, "pairs"]], ({ pairs }) => {
+    const out = {} as Record<PropertyKey, any>;
+    for (var i = 0; i < pairs.length; i++) {
+        const arg = pairs[i];
+        if (arg instanceof SplatArg) {
+            if (arg.isKeyword) {
+                Object.assign(out, arg.obj);
+            } else {
+                throw new JEBError(ErrnoCode.EPANIC, "positional splat to 'object' not implemented yet");
+            }
+        } else if (arg instanceof KeywordArg) {
+            out[arg.name] = arg.obj;
+        } else {
+            if (i + 1 >= pairs.length) throw new JEBError(ErrnoCode.ESYNTAX, "object should have an even number of positional arguments");
+            out[arg as PropertyKey] = pairs[i + 1];
+            i++;
+        }
     }
     return out;
 },
