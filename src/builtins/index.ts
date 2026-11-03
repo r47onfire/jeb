@@ -4,6 +4,7 @@ import { loadControlBuiltins } from "./control";
 import { loadEvalBuiltins } from "./eval";
 import { loadFFIBuiltins } from "./ffi";
 import { loadJsonBuiltins } from "./json";
+import { loadProtocolMethods } from "./methods";
 import { loadDataBuiltins } from "./lists";
 import { loadOperatorsBuiltins } from "./operators";
 import { loadQuoteBuiltins } from "./quote";
@@ -32,6 +33,7 @@ export {
     OP_shuffle,
     OP_tbPop,
     OP_tbPush,
+    pushMethodCall,
 } from "./eval";
 export { B_is_nil } from "./ffi";
 export { B_jsonparse, B_jsonstringify } from "./json";
@@ -85,6 +87,7 @@ export const loadBuiltins = (vm: JebVM) => {
     loadEvalBuiltins(vm);
     loadUnwrappingBuiltins(vm);
     loadVariablesBuiltins(vm);
+    loadProtocolMethods(vm);
     loadVarNamingBuiltins(vm);
     loadControlBuiltins(vm);
     loadFFIBuiltins(vm);
