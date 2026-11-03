@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_shuffle, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typecheck, typeMatches, withType } from "../src";
+import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_get, OP_set, OP_shuffle, OP_unwrap, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typecheck, typeMatches, withType, Wrapper } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -1320,4 +1320,131 @@ testTest(test, "names stick on functions", vm => {
     const i = popData(vm);
     expect(i).toBeInstanceOf(Fun);
     expect(i.name).toEqual("foo");
+});
+
+describe("protocol methods", () => {
+    testTest(test, "__call__ method makes an object callable", vm => {
+        expect(run(vm, ["define", "c", {
+            n: 5,
+            [Symbol.for("__call__")]: ["fn", ["self", "x"], ["add", ["index", ["local", "self"], "n"], ["local", "x"]]],
+        }])).toBeTrue();
+        expect(run(vm, [["local", "c"], 37])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+    });
+    testTest(test, "math protocol methods overload the operators", vm => {
+        expect(run(vm, ["define", "vec", {
+            [Symbol.for("__add__")]: ["fn", ["self", "other"], ["add", ["local", "other"], 100]],
+            [Symbol.for("__bitNot__")]: ["fn", ["self"], 42],
+            [Symbol.for("__neg__")]: ["fn", ["self"], -1],
+        }])).toBeTrue();
+        expect(run(vm, ["add", ["local", "vec"], 1])).toBeTrue();
+        expect(popData(vm)).toBe(101);
+        // the unary form of sub dispatches to __neg__
+        expect(run(vm, ["sub", ["local", "vec"]])).toBeTrue();
+        expect(popData(vm)).toBe(-1);
+        expect(run(vm, ["bitInv", ["local", "vec"]])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+        // an object without the method gets the usual no-overload error
+        expect(() => run(vm, ["add", ["object"], 1])).toThrow(/No overload of add/);
+    });
+    testTest(test, "__cmp__ method overloads the comparisons", vm => {
+        expect(run(vm, ["define", "o", {
+            [Symbol.for("__cmp__")]: ["fn", ["self", "other", "rel"], true],
+        }])).toBeTrue();
+        expect(run(vm, ["eq", ["local", "o"], 1])).toBeTrue();
+        expect(popData(vm)).toBe(true);
+        expect(run(vm, ["less", ["local", "o"], 1])).toBeTrue();
+        expect(popData(vm)).toBe(true);
+    });
+    testTest(test, "descriptor cell: deref and assign through __get__/__set__", vm => {
+        vm.currentEnv.add("stored", 7);
+        const cellCode = {
+            [Symbol.for("__get__")]: ["fn", ["self"], ["local", "stored"]],
+            [Symbol.for("__set__")]: ["fn", ["self", "v"], ["assign", ["local", "stored"], ["local", "v"]]],
+        };
+        expect(run(vm, ["define", "cell", cellCode])).toBeTrue();
+        expect(run(vm, ["local", "cell"])).toBeTrue();
+        const cell = popData(vm);
+        // read through the get opcode
+        pushData(vm, cell);
+        pushCommand(vm, OP_get, false);
+        while (vm.step());
+        expect(popData(vm)).toBe(7);
+        // assign through the assign opcode: the value stays on the stack
+        pushData(vm, 42);
+        pushData(vm, cell);
+        pushCommand(vm, OP_set);
+        while (vm.step());
+        expect(popData(vm)).toBe(42);
+        expect(run(vm, ["deref", ["local", "cell"]])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+        // the assign builtin also accepts a bare descriptor object
+        expect(run(vm, ["assign", cellCode, 9])).toBeTrue();
+        expect(popData(vm)).toBe(9);
+        expect(run(vm, ["local", "stored"])).toBeTrue();
+        expect(popData(vm)).toBe(9);
+        // and ref returns a descriptor as-is (it is its own reference)
+        expect(run(vm, ["ref", cellCode])).toBeTrue();
+        expect(popData(vm)[Symbol.for("__get__")]).toBeInstanceOf(Fun);
+    });
+    testTest(test, "descriptor fields: index reads and assigns through __get__/__set__", vm => {
+        expect(run(vm, ["define", "makeContainer", ["fn", [], ["begin",
+            ["define", "data", ["object"]],
+            ["object",
+                ["sym", "__get__"], ["fn", ["self", "k"], ["index", ["local", "data"], ["local", "k"]]],
+                ["sym", "__set__"], ["fn", ["self", "k", "v"], ["assign", ["index", ["local", "data"], ["local", "k"]], ["local", "v"]]],
+            ],
+        ]]])).toBeTrue();
+        expect(run(vm, ["define", "c", ["makeContainer"]])).toBeTrue();
+        expect(run(vm, ["assign", ["index", ["local", "c"], "x"], 5])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        expect(run(vm, ["index", ["local", "c"], "x"])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+    });
+    testTest(test, "lazy __set__ and __call__: the hole never evaluates what it ignores", vm => {
+        vm.currentEnv.add("count", 0);
+        expect(run(vm, ["define", "bump", ["fn", [], ["begin",
+            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
+            99,
+        ]]])).toBeTrue();
+        expect(run(vm, ["define", "hole", {
+            [Symbol.for("__get__")]: ["fn", ["self", "k"], ["local", "self"]],
+            [Symbol.for("__set__")]: ["fn", ["self", "k", [false, "v"]], ["local", "self"]],
+            [Symbol.for("__call__")]: ["fn", ["self", [false, "a"]], ["local", "self"]],
+        }])).toBeTrue();
+        expect(run(vm, ["local", "hole"])).toBeTrue();
+        const hole = popData(vm);
+        // calling the hole does not evaluate the argument, and returns the hole
+        expect(run(vm, [["local", "hole"], ["bump"]])).toBeTrue();
+        expect(popData(vm)).toBe(hole);
+        // indexing the hole returns the hole
+        expect(run(vm, ["index", ["local", "hole"], "x"])).toBeTrue();
+        expect(popData(vm)).toBe(hole);
+        // assigning to the hole does not evaluate the right-hand side, and returns the hole
+        expect(run(vm, ["assign", ["index", ["local", "hole"], "x"], ["bump"]])).toBeTrue();
+        expect(popData(vm)).toBe(hole);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+    });
+    testTest(test, "__name__ method is told the variable's name", vm => {
+        vm.currentEnv.add("seen", null);
+        expect(run(vm, ["define", "thing", {
+            [Symbol.for("__name__")]: ["fn", ["self", "n"], ["assign", ["local", "seen"], ["local", "n"]]],
+        }])).toBeTrue();
+        expect(run(vm, ["local", "seen"])).toBeTrue();
+        expect(popData(vm)).toBe("thing");
+    });
+    testTest(test, "__unwrap__ method unwraps a wrapper with no dedicated unwrapper", vm => {
+        class TestWrapper extends Wrapper {
+            flag = "test";
+            constructor(obj: any) {
+                super(obj);
+                (this as any)[Symbol.for("__unwrap__")] = makeJSFun("unwrapTest", ["self"], () => 123, "test unwrapper");
+            }
+        }
+        pushData(vm, new TestWrapper(0));
+        pushCommand(vm, OP_unwrap, []);
+        while (vm.step());
+        expect(popData(vm)).toBe(123);
+    });
 });
