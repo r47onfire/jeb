@@ -37,13 +37,8 @@ export const OP_throw = makeOpcode(
 export const B_throw = makeJSFun(
     "throw",
     ["err"],
-    ({ err }) => {
-        if (!(err instanceof JEBError))
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                "errors must inherit from JEBError",
-            );
-        throw err;
+    (args) => {
+        throw withType(args.err, [JEBError], "err", args);
     },
     `.func (throw err)
 ..param {JEBError} err

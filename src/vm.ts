@@ -223,7 +223,7 @@ export class JebVM<
      * @example
      *     ```ts
      *     while (vm.step()); // Steps as far as possible until there's nothing left to do
-     *     ```
+     *     ```;
      *
      * @returns True if progress was made, false if there's nothing left to do
      */
