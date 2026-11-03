@@ -12,6 +12,7 @@ import {
     StackEntryKind,
 } from "../vm";
 import {
+    DescriptorWrapper,
     EmptyArg,
     MacroWrapper,
     OptionArg,
@@ -67,6 +68,15 @@ export const loadUnwrappingBuiltins = (vm: JebVM) => {
             pushData(vm, obj);
         },
         "Unwraps a reference",
+    );
+    defineUnwrapper(
+        vm,
+        [DescriptorWrapper],
+        (vm, { 0: { obj } }) => {
+            pushCommand(vm, OP_get, false);
+            pushData(vm, obj);
+        },
+        "Unwraps a descriptor object by reading through its __get__ method",
     );
     defineUnwrapper(
         vm,

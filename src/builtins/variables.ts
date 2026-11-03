@@ -10,14 +10,27 @@ import { Env } from "../env";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { implicitBegin } from "../implicitBegin";
-import { AccessType, Reference } from "../protocol";
+import {
+    AccessType,
+    DescriptorReference,
+    protocolMethod,
+    Reference,
+} from "../protocol";
+import { Laziness } from "../signature";
 import { theTypeName, typeOf, withType } from "../typecheck";
 import { ObjectPropertyReference, VariableReference } from "./reference";
-import { OP_wrap } from "./unwrap";
+import { OP_unwrap, OP_wrap } from "./unwrap";
 import { Identifier } from "../utils";
-import { JebVM, popData, pushCommand, pushData } from "../vm";
-import { ReferenceWrapper } from "../wrapper";
-import { OP_apply, OP_get, OP_index, OP_assign, OP_shuffle } from "./eval";
+import { JebVM, peekData, popData, pushCommand, pushData } from "../vm";
+import { DescriptorWrapper, ReferenceWrapper } from "../wrapper";
+import {
+    OP_apply,
+    OP_get,
+    OP_index,
+    OP_assign,
+    OP_shuffle,
+    pushMethodCall,
+} from "./eval";
 
 // MARK: variables
 const accessorInit = (vm: JebVM) => {
@@ -87,6 +100,143 @@ const OP_assign_internal = makeOpcode(
     },
     null,
 );
+/** Pushes an already-computed value onto the data stack as a command. */
+const OP_push_value = makeOpcode(
+    null,
+    (vm: JebVM, { 0: value }: [any]) => pushData(vm, value),
+    null,
+);
+/**
+ * Calls a descriptor's `__set__` method with the value on top of the data
+ * stack, leaving the value there (like the `assign` opcode does for
+ * references).
+ */
+const OP_desc_set = makeOpcode(
+    null,
+    (
+        vm: JebVM,
+        {
+            0: target,
+            1: field,
+            2: hasField,
+        }: [any, PropertyKey | undefined, boolean],
+    ) => {
+        const set = protocolMethod(target, "set")!;
+        if (
+            !pushMethodCall(
+                vm,
+                set,
+                hasField
+                    ? [target, field, peekData(vm)]
+                    : [target, peekData(vm)],
+                true,
+            )
+        )
+            throw new JEBError(
+                ErrnoCode.EINVAL,
+                "__set__ method is not callable",
+            );
+    },
+    null,
+);
+/**
+ * The descriptor counterpart of {@link OP_assign_internal}: reads the old
+ * value through the descriptor's `__get__` method (`undefined` if it has
+ * none), evaluates the value block with `_` bound to it, and assigns the
+ * result through `__set__`.
+ */
+const OP_assign_descriptor_internal = makeOpcode(
+    null,
+    (
+        vm: JebVM,
+        {
+            0: target,
+            1: field,
+            2: hasField,
+            3: b,
+            4: old,
+        }: [any, PropertyKey | undefined, boolean, Block, boolean],
+    ) => {
+        pushCommand(vm, OP_shuffle, 2, [old ? 0 : 1]);
+        pushCommand(vm, OP_desc_set, target, field, hasField);
+        pushCommand(vm, OP_block_invoke, b, false);
+        pushCommand(vm, OP_assign_internal_nested);
+        pushCommand(vm, OP_shuffle, 1, [0, 0]);
+        const get = protocolMethod(target, "get");
+        if (get) {
+            pushCommand(vm, OP_unwrap, []);
+            if (
+                !pushMethodCall(
+                    vm,
+                    get,
+                    hasField ? [target, field] : [target],
+                )
+            )
+                throw new JEBError(
+                    ErrnoCode.EINVAL,
+                    "__get__ method is not callable",
+                );
+        } else pushCommand(vm, OP_push_value, undefined);
+    },
+    null,
+);
+/**
+ * Schedules an assignment to a descriptor: an object with a `__set__`
+ * protocol method, either the object itself (a cell, called as
+ * `__set__(obj, value)`) or one of its fields through a
+ * {@link DescriptorReference} (`__set__(obj, field, value)`).
+ *
+ * If the method's value parameter is lazy, the unevaluated value block is
+ * handed to the method as-is: if the method never evaluates it, the
+ * right-hand side never runs, and the assignment returns the method's own
+ * result (or the old value, read through `__get__` first, if that was
+ * requested). Otherwise the value block is evaluated with `_` bound to the
+ * old value, as for references, and the assignment returns the new or old
+ * value.
+ */
+const assignDescriptor = (
+    vm: JebVM,
+    target: any,
+    field: PropertyKey | undefined,
+    hasField: boolean,
+    value: Block,
+    wantOld: boolean,
+) => {
+    const set = protocolMethod(target, "set")!;
+    const { signature } = vm
+        .getProtocol(true, true, "apply", [set])
+        .describe(vm, set);
+    const valueParam = signature[hasField ? 2 : 1];
+    if (valueParam && valueParam.lazy !== Laziness.NONE) {
+        const selfAndField = hasField ? [target, field] : [target];
+        if (!pushMethodCall(vm, set, [...selfAndField, value], wantOld))
+            throw new JEBError(
+                ErrnoCode.EINVAL,
+                "__set__ method is not callable",
+            );
+        if (wantOld) {
+            const get = protocolMethod(target, "get");
+            if (get) {
+                pushCommand(vm, OP_unwrap, []);
+                if (!pushMethodCall(vm, get, selfAndField))
+                    throw new JEBError(
+                        ErrnoCode.EINVAL,
+                        "__get__ method is not callable",
+                    );
+            } else pushCommand(vm, OP_push_value, undefined);
+        }
+        return;
+    }
+    pushCommand(
+        vm,
+        OP_assign_descriptor_internal,
+        target,
+        field,
+        hasField,
+        value,
+        wantOld,
+    );
+};
 export const B_assign = makeJSFun(
     "assign",
     [
@@ -96,50 +246,84 @@ export const B_assign = makeJSFun(
     ],
     (args, vm) => {
         const { ref, value, old } = args;
-        if (!(ref instanceof ReferenceWrapper)) {
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                `cannot assign to ${theTypeName(typeOf(ref))}`,
-            );
+        const wantOld = withType(old, ["boolean"], "old", args);
+        if (ref instanceof ReferenceWrapper) {
+            if (ref.obj instanceof DescriptorReference) {
+                assignDescriptor(
+                    vm,
+                    ref.obj.obj,
+                    ref.obj.field,
+                    true,
+                    value as Block,
+                    wantOld,
+                );
+                return NOTHING;
+            }
+            pushCommand(vm, OP_assign_internal, value as Block, wantOld);
+            return ref.obj;
         }
-        pushCommand(
-            vm,
-            OP_assign_internal,
-            value as Block,
-            withType(old, ["boolean"], "old", args),
+        if (protocolMethod(ref, "set")) {
+            assignDescriptor(
+                vm,
+                ref,
+                undefined,
+                false,
+                value as Block,
+                wantOld,
+            );
+            return NOTHING;
+        }
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            `cannot assign to ${theTypeName(typeOf(ref))}`,
         );
-        return ref.obj;
     },
     `.macro (assign slot value old)
-..param {reference} slot
+..param {reference | descriptor} slot
 ..param {T} value
 ...injected {U} _ - old value of field
 ..param {boolean?} [old=false]
 .throws ENAME - if the value is not defined anywhere
 .returns {old ? U : T}
-. Changes the value of the slot, and returns the new or old value as determined by \`old\`.`,
+. Changes the value of the slot, and returns the new or old value as determined by \`old\`.
+. The slot may also be a descriptor (an object with a \`__set__\` protocol method, or a field of one): the assignment then calls that method instead. If the method's value parameter is lazy it receives the value unevaluated, and the assignment returns the method's result instead.`,
 );
 
 export const B_ref = makeJSFun(
     "ref",
     [[["ref"], "ref"]],
-    (args) => withType(args.ref, [ReferenceWrapper], "ref", args).obj,
+    (args) => {
+        if (args.ref instanceof ReferenceWrapper) return args.ref.obj;
+        if (protocolMethod(args.ref, "get") ?? protocolMethod(args.ref, "set"))
+            // A descriptor object is its own reference.
+            return args.ref;
+        return withType(args.ref, [ReferenceWrapper], "ref", args).obj;
+    },
     `.macro (ref x)
 ..param {[assignable location]} x
 .pure
-. Asserts that \`x\` is a valid assignable, and then returns a reference to it, which can be assigned to or read with [[deref]].`,
+. Asserts that \`x\` is a valid assignable, and then returns a reference to it, which can be assigned to or read with [[deref]].
+. A descriptor (an object with \`__get__\`/\`__set__\` protocol methods) is its own reference, and is returned as-is.`,
 );
 
 export const B_deref = makeJSFun(
     "deref",
     ["ref"],
-    (args) =>
-        new ReferenceWrapper(withType(args.ref, [Reference], "ref", args)),
+    (args) => {
+        if (args.ref instanceof Reference)
+            return new ReferenceWrapper(args.ref);
+        if (protocolMethod(args.ref, "get"))
+            return new DescriptorWrapper(args.ref);
+        return new ReferenceWrapper(
+            withType(args.ref, [Reference], "ref", args),
+        );
+    },
     `.func (deref x)
-..param {Reference} x
+..param {Reference | descriptor} x
 .pure
 . Asserts that \`x\` is a valid reference value created by [[ref]], and then returns the value stored in the reference.
-This function works with [[set]] to be able to change the value of the reference as well.`,
+. A descriptor (an object with a \`__get__\` protocol method) may be given instead of a reference; the value read through it is returned.
+This function works with [[assign]] to be able to change the value of the reference as well.`,
 );
 
 export const B_always = makeJSFun(
