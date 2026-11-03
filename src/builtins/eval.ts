@@ -226,7 +226,7 @@ const loadObjectEvaluator = (vm: JebVM) =>
                 );
                 pushData(vm, code[keys[i]!]);
                 pushCommand(vm, OP_shuffle, 1, []);
-                pushCommand(vm, OP_set, true);
+                pushCommand(vm, OP_assign, true);
                 pushCommand(vm, OP_shuffle, 2, [1, 0]);
                 pushCommand(vm, OP_eval, location);
             }
@@ -512,8 +512,8 @@ export const OP_get = makeOpcode(
 .sed lvalue -- value
 . Takes an LValue on the top of the stack and unwraps it by calling its get() method.`,
 );
-export const OP_set = makeOpcode(
-    "set",
+export const OP_assign = makeOpcode(
+    "assign",
     (
         vm: JebVM,
         { 0: create, 1: readonly }: [create?: boolean, readonly_?: boolean],

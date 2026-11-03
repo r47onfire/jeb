@@ -8,10 +8,10 @@ import { AccessType, withType } from "../protocol";
 import { Identifier, isIdentifier } from "../utils";
 import { JebVM, pushCommand, pushData } from "../vm";
 import { B_fn } from "./callables";
-import { B_audit, OP_eval, OP_if, OP_set, OP_shuffle } from "./eval";
+import { B_audit, OP_eval, OP_if, OP_assign, OP_shuffle } from "./eval";
 import { B_plus } from "./operators";
 import { VariableReference } from "./reference";
-import { B_local, B_set } from "./variables";
+import { B_local, B_assign } from "./variables";
 
 // MARK: Scheme analogs
 export const B_if = makeJSFun(
@@ -70,7 +70,7 @@ export const B_let = makeJSFun(
                     true,
                     [recur],
                     [
-                        B_set,
+                        B_assign,
                         [B_local, recur],
                         [
                             B_fn,
@@ -146,7 +146,7 @@ export const B_let_in = makeJSFun(
             );
             pushData(vm, value);
             if (i > 0) pushCommand(vm, OP_shuffle, 1, []);
-            pushCommand(vm, OP_set, true, false);
+            pushCommand(vm, OP_assign, true, false);
             pushCommand(vm, OP_shuffle, 2, [1, 0]);
             pushCommand(vm, OP_eval, undefined);
         }
@@ -185,7 +185,7 @@ export const B_define = makeJSFun(
             const body = args.slice(1);
             setHelper(funcName, [B_fn, params, ...body]);
         } else throw new JEBError(ErrnoCode.ESYNTAX, "invalid define syntax");
-        pushCommand(vm, OP_set, true, true);
+        pushCommand(vm, OP_assign, true, true);
         pushCommand(vm, OP_shuffle, 2, [1, 0]);
         pushCommand(vm, OP_eval, location);
         return NOTHING;

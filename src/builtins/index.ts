@@ -28,7 +28,7 @@ export {
     OP_get,
     OP_if,
     OP_index,
-    OP_set,
+    OP_assign as OP_set,
     OP_shuffle,
     OP_tbPop,
     OP_tbPush,
@@ -66,7 +66,7 @@ export {
     B_index,
     B_local,
     B_ref,
-    B_set,
+    B_assign as B_set,
     OP_set_env,
 } from "./variables";
 

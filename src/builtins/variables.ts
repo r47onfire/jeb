@@ -22,7 +22,7 @@ import { OP_wrap } from "./unwrap";
 import { Identifier } from "../utils";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { ReferenceWrapper } from "../wrapper";
-import { OP_apply, OP_get, OP_index, OP_set, OP_shuffle } from "./eval";
+import { OP_apply, OP_get, OP_index, OP_assign, OP_shuffle } from "./eval";
 
 // MARK: variables
 const accessorInit = (vm: JebVM) => {
@@ -72,28 +72,28 @@ export const B_index = makeJSFun(
 .pure
 . Returns a reference to \`obj[name]\`.`,
 );
-const OP_set_internal_nested = makeOpcode(
+const OP_assign_internal_nested = makeOpcode(
     null,
     (vm) => pushData(vm, { _: { _: popData(vm) } }),
     null,
 );
-const OP_set_internal = makeOpcode(
+const OP_assign_internal = makeOpcode(
     null,
     (vm: JebVM, { 0: b, 1: old }: [Block, boolean]) => {
         // accessor is first on stack
         if (old) pushCommand(vm, OP_shuffle, 1, []);
-        pushCommand(vm, OP_set);
+        pushCommand(vm, OP_assign);
         pushCommand(vm, OP_shuffle, 2, [1, 0]);
         pushCommand(vm, OP_block_invoke, b, false);
-        pushCommand(vm, OP_set_internal_nested);
+        pushCommand(vm, OP_assign_internal_nested);
         if (old) pushCommand(vm, OP_shuffle, 2, [1, 0, 1]);
         pushCommand(vm, OP_get, true);
         pushCommand(vm, OP_shuffle, 1, [0, 0]);
     },
     null,
 );
-export const B_set = makeJSFun(
-    "set",
+export const B_assign = makeJSFun(
+    "assign",
     [
         [["ref"], "ref"],
         [false, "value"],
@@ -109,13 +109,13 @@ export const B_set = makeJSFun(
         }
         pushCommand(
             vm,
-            OP_set_internal,
+            OP_assign_internal,
             value as Block,
             withType(old, ["boolean"], "old", args),
         );
         return ref.obj;
     },
-    `.macro (set slot value old)
+    `.macro (assign slot value old)
 ..param {reference} slot
 ..param {T} value
 ...injected {U} _ - old value of field
@@ -233,7 +233,7 @@ Used by the block invocation mechanism to restore the caller's environment after
 export const loadVariablesBuiltins = (vm: JebVM) => {
     define(vm, "local", B_local);
     define(vm, "index", B_index);
-    define(vm, "set", B_set);
+    define(vm, "assign", B_assign);
     define(vm, "ref", B_ref);
     define(vm, "deref", B_deref);
     define(vm, "always", B_always);

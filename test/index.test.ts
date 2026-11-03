@@ -52,7 +52,7 @@ describe("basic", () => {
             expect(() => run(vm, ["local", "nonexistent"])).toThrow('variable "nonexistent" not found');
         });
         testTest(test, "setting variable", vm => {
-            expect(() => run(vm, ["set", ["local", "nonexistent"], 1])).toThrow('variable "nonexistent" not found');
+            expect(() => run(vm, ["assign", ["local", "nonexistent"], 1])).toThrow('variable "nonexistent" not found');
         });
         testTest(test, "function", vm => {
             expect(() => run(vm, ["nonexistent"])).toThrow('function "nonexistent" not found');
@@ -76,9 +76,9 @@ describe("basic", () => {
     testTest(test, "set with existing value", (vm, out) => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
-            ["print", ["set", ["local", "x"], 10]],
+            ["print", ["assign", ["local", "x"], 10]],
             ["print", ["local", "x"]],
-            ["print", ["set", ["local", "x"], ["add", 1, ["local", "_"]]]],
+            ["print", ["assign", ["local", "x"], ["add", 1, ["local", "_"]]]],
             ["print", ["local", "x"]]
         ])).toBeTrue();
         expect(out).toEqual(["10", "10", "11", "11"]);
@@ -93,9 +93,9 @@ describe("basic", () => {
     testTest(test, "set with old value", (vm, out) => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
-            ["print", ["set", ["local", "x"], 10, true]],
+            ["print", ["assign", ["local", "x"], 10, true]],
             ["print", ["local", "x"]],
-            ["print", ["set", ["local", "x"], ["add", 1, ["local", "_"]], true]],
+            ["print", ["assign", ["local", "x"], ["add", 1, ["local", "_"]], true]],
             ["print", ["local", "x"]]
         ])).toBeTrue();
         expect(out).toEqual(["0", "10", "10", "11"]);
@@ -104,7 +104,7 @@ describe("basic", () => {
         expect(run(vm, ["begin",
             ["define", "value", { x: 1 }],
             ["define", ["f"], ["print", "called"], ["local", "value"]],
-            ["set", ["index", ["f"], "x"], ["add", 10, ["local", "_"]]],
+            ["assign", ["index", ["f"], "x"], ["add", 10, ["local", "_"]]],
             ["local", "value"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual({ x: 11 });
@@ -140,7 +140,7 @@ describe("basic", () => {
         } catch (error: any) {
             expect(() => run(vm, ["begin",
                 ["letIn", "x", ["list"]],
-                ["set", ["index", ["local", "x"], 0], ["local", "x"]],
+                ["assign", ["index", ["local", "x"], 0], ["local", "x"]],
                 ["jsonStringify", ["local", "x"]]
             ])).toThrow(error.message);
         }
@@ -155,7 +155,7 @@ describe("basic", () => {
     testTest(test, "property chain set", vm => {
         expect(run(vm, ["begin",
             ["define", "x", { a: { b: { foo: 123 } } }],
-            ["set", ["index", ["index", ["index", ["local", "x"], "a"], "b"], "foo"], ["add", ["local", "_"], 333]],
+            ["assign", ["index", ["index", ["index", ["local", "x"], "a"], "b"], "foo"], ["add", ["local", "_"], 333]],
             ["local", "x"]
         ])).toBeTrue();
         expect(popData(vm)).toEqual({ a: { b: { foo: 456 } } });
@@ -317,7 +317,7 @@ describe("with / dynamic-wind", () => {
         expect(run(vm, ["begin",
             ["letIn", "k", null],
             makeWith("enter", "exit",
-                [["fn", [], ["set", ["local", "k"], ["local", "return"]]]],
+                [["fn", [], ["assign", ["local", "k"], ["local", "return"]]]],
                 ["print", "inside"]),
             ["print", "outside"],
             ["k", null],          // jump back into the with
@@ -376,7 +376,7 @@ describe("with / dynamic-wind", () => {
     testTest(test, "continuation can be called with computed value", vm => {
         expect(run(vm, ["begin",
             ["letIn", "x", null],
-            ["letIn", "y", [["fn", ["f"], ["f", ["local", "return"]]], ["fn", ["k"], ["set", ["local", "x"], ["local", "k"]]]]],
+            ["letIn", "y", [["fn", ["f"], ["f", ["local", "return"]]], ["fn", ["k"], ["assign", ["local", "x"], ["local", "k"]]]]],
             ["if", ["eq", ["local", "y"], 123],
                 null,
                 ["x", ["add", 23, 100]]],
@@ -432,7 +432,7 @@ describe("metaprogramming", () => {
         expect(run(vm, ["begin",
             ["define", ["m"], ["macro", ["list", "local", "x"]]],
             ["letIn", "x", 1],
-            ["set", ["m"], 42],
+            ["assign", ["m"], 42],
             ["local", "x"],
         ])).toBeTrue();
         expect(popData(vm)).toBe(42);
@@ -520,7 +520,7 @@ describe("references", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 1],
             ["letIn", "y", ["ref", ["local", "x"]]],
-            ["set", ["local", "y"], 2],
+            ["assign", ["local", "y"], 2],
             ["local", "x"],
         ])).toBeTrue();
         expect(popData(vm)).not.toEqual(2);
@@ -529,7 +529,7 @@ describe("references", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 1],
             ["letIn", "y", ["ref", ["local", "x"]]],
-            ["set", ["deref", ["local", "y"]], 2],
+            ["assign", ["deref", ["local", "y"]], 2],
             ["local", "x"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(2);
@@ -538,7 +538,7 @@ describe("references", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", { foo: 1 }],
             ["letIn", "y", ["ref", ["index", ["local", "x"], "foo"]]],
-            ["set", ["deref", ["local", "y"]], 2],
+            ["assign", ["deref", ["local", "y"]], 2],
             ["local", "x"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual({ foo: 2 });
@@ -558,8 +558,8 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["letIn", "count", 0],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
-            ["set", ["local", "x"], 1],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["assign", ["local", "x"], 1],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(1);
@@ -568,7 +568,7 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["letIn", "count", 0],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(0);
@@ -577,9 +577,9 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["letIn", "count", 0],
-            ["set", ["local", "x"], 1],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
-            ["set", ["local", "x"], 2],
+            ["assign", ["local", "x"], 1],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["assign", ["local", "x"], 2],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(1);
@@ -588,8 +588,8 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["letIn", "seen", 0],
-            ["always", false, ["set", ["local", "seen"], ["local", "x"]], ["local", "x"]],
-            ["set", ["local", "x"], 42],
+            ["always", false, ["assign", ["local", "seen"], ["local", "x"]], ["local", "x"]],
+            ["assign", ["local", "x"], 42],
             ["local", "seen"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(42);
@@ -598,10 +598,10 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["letIn", "count", 0],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
-            ["set", ["local", "x"], 1],
-            ["set", ["local", "x"], 2],
-            ["set", ["local", "x"], 3],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["assign", ["local", "x"], 1],
+            ["assign", ["local", "x"], 2],
+            ["assign", ["local", "x"], 3],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(3);
@@ -610,11 +610,11 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 1],
             ["letIn", "count", 0],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
-            ["set", ["local", "x"], 1],
-            ["set", ["local", "x"], 1],
-            ["set", ["local", "x"], 1],
-            ["set", ["local", "x"], 1],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["assign", ["local", "x"], 1],
+            ["assign", ["local", "x"], 1],
+            ["assign", ["local", "x"], 1],
+            ["assign", ["local", "x"], 1],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(4);
@@ -623,7 +623,7 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["always", false, ["print", "watcher"], ["local", "x"]],
-            ["set", ["local", "x"], 1],
+            ["assign", ["local", "x"], 1],
             ["print", "after set"],
         ])).toBeTrue();
         expect(out).toEqual(["watcher", "after set"]);
@@ -633,8 +633,8 @@ describe("reactivity", () => {
             ["letIn", "x", 0],
             ["letIn", "y", 0],
             ["letIn", "count", 0],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
-            ["set", ["local", "y"], 5],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["assign", ["local", "y"], 5],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(0);
@@ -644,9 +644,9 @@ describe("reactivity", () => {
             ["letIn", "x", 0],
             ["letIn", "y", 0],
             ["letIn", "count", 0],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"], ["local", "y"]],
-            ["set", ["local", "x"], 1],
-            ["set", ["local", "y"], 1],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"], ["local", "y"]],
+            ["assign", ["local", "x"], 1],
+            ["assign", ["local", "y"], 1],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(2);
@@ -655,8 +655,8 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["letIn", "count", 0],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"], ["local", "x"]],
-            ["set", ["local", "x"], 1],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"], ["local", "x"]],
+            ["assign", ["local", "x"], 1],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(1);
@@ -666,9 +666,9 @@ describe("reactivity", () => {
             ["letIn", "x", 0],
             ["letIn", "a", 0],
             ["letIn", "b", 0],
-            ["always", false, ["set", ["local", "a"], ["add", ["local", "a"], 1]], ["local", "x"]],
-            ["always", false, ["set", ["local", "b"], ["add", ["local", "b"], 10]], ["local", "x"]],
-            ["set", ["local", "x"], 1],
+            ["always", false, ["assign", ["local", "a"], ["add", ["local", "a"], 1]], ["local", "x"]],
+            ["always", false, ["assign", ["local", "b"], ["add", ["local", "b"], 10]], ["local", "x"]],
+            ["assign", ["local", "x"], 1],
             ["list", ["local", "a"], ["local", "b"]],
         ])).toBeTrue();
         expect(popData(vm)).toEqual([1, 10]);
@@ -678,8 +678,8 @@ describe("reactivity", () => {
             ["letIn", "x", 0],
             ["letIn", "count", 0],
             ["letIn", "rx", ["ref", ["local", "x"]]],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
-            ["set", ["deref", ["local", "rx"]], 9],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["assign", ["deref", ["local", "rx"]], 9],
             ["list", ["local", "x"], ["local", "count"]],
         ])).toBeTrue();
         expect(popData(vm)).toEqual([9, 1]);
@@ -688,8 +688,8 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["letIn", "count", 0],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
-            ["define", ["bump"], ["set", ["local", "x"], ["add", ["local", "x"], 1]]],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["define", ["bump"], ["assign", ["local", "x"], ["add", ["local", "x"], 1]]],
             ["bump"],
             ["bump"],
             ["local", "count"],
@@ -701,9 +701,9 @@ describe("reactivity", () => {
             ["letIn", "x", 0],
             ["letIn", "y", 0],
             ["letIn", "z", 0],
-            ["always", false, ["set", ["local", "y"], ["add", ["local", "x"], 10]], ["local", "x"]],
-            ["always", false, ["set", ["local", "z"], ["add", ["local", "y"], 100]], ["local", "y"]],
-            ["set", ["local", "x"], 1],
+            ["always", false, ["assign", ["local", "y"], ["add", ["local", "x"], 10]], ["local", "x"]],
+            ["always", false, ["assign", ["local", "z"], ["add", ["local", "y"], 100]], ["local", "y"]],
+            ["assign", ["local", "x"], 1],
             ["list", ["local", "y"], ["local", "z"]],
         ])).toBeTrue();
         expect(popData(vm)).toEqual([11, 111]);
@@ -712,8 +712,8 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["letIn", "count", 0],
-            ["let", [["f", ["fn", [], ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]]]]], ["f"]],
-            ["set", ["local", "x"], 7],
+            ["let", [["f", ["fn", [], ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]]]]], ["f"]],
+            ["assign", ["local", "x"], 7],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(1);
@@ -722,8 +722,8 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["letIn", "count", 0],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
-            ["let", [["g", ["fn", [], ["begin", ["letIn", "x", 50], ["set", ["local", "x"], 51]]]]], ["g"]],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["let", [["g", ["fn", [], ["begin", ["letIn", "x", 50], ["assign", ["local", "x"], 51]]]]], ["g"]],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(0);
@@ -733,7 +733,7 @@ describe("reactivity", () => {
             ["letIn", "count", 0],
             ["let", [["h", ["fn", [],
                 ["letIn", "q", 1],
-                ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "q"]],
+                ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "q"]],
                 ["define", "q", 2],
             ]]], ["h"]],
             ["local", "count"],
@@ -745,8 +745,8 @@ describe("reactivity", () => {
             ["letIn", "x", 0],
             ["letIn", "count", 0],
             ["letIn", "rx", ["ref", ["local", "x"]]],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["deref", ["local", "rx"]]],
-            ["set", ["local", "x"], 1],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["deref", ["local", "rx"]]],
+            ["assign", ["local", "x"], 1],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(1);
@@ -755,9 +755,9 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", { foo: 1 }],
             ["letIn", "count", 0],
-            ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
-            ["set", ["index", ["local", "x"], "foo"], 2],
-            ["set", ["local", "x"], { foo: 3 }],
+            ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]],
+            ["assign", ["index", ["local", "x"], "foo"], 2],
+            ["assign", ["local", "x"], { foo: 3 }],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(1);
@@ -766,10 +766,10 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["letIn", "count", 0],
-            ["letIn", "cancel", ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]]],
-            ["set", ["local", "x"], 1],
+            ["letIn", "cancel", ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]]],
+            ["assign", ["local", "x"], 1],
             [["local", "cancel"]],
-            ["set", ["local", "x"], 2],
+            ["assign", ["local", "x"], 2],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(1);
@@ -779,10 +779,10 @@ describe("reactivity", () => {
             ["letIn", "x", 0],
             ["letIn", "a", 0],
             ["letIn", "b", 0],
-            ["letIn", "cancelA", ["always", false, ["set", ["local", "a"], ["add", ["local", "a"], 1]], ["local", "x"]]],
-            ["always", false, ["set", ["local", "b"], ["add", ["local", "b"], 10]], ["local", "x"]],
+            ["letIn", "cancelA", ["always", false, ["assign", ["local", "a"], ["add", ["local", "a"], 1]], ["local", "x"]]],
+            ["always", false, ["assign", ["local", "b"], ["add", ["local", "b"], 10]], ["local", "x"]],
             [["local", "cancelA"]],
-            ["set", ["local", "x"], 1],
+            ["assign", ["local", "x"], 1],
             ["list", ["local", "a"], ["local", "b"]],
         ])).toBeTrue();
         expect(popData(vm)).toEqual([0, 10]);
@@ -792,10 +792,10 @@ describe("reactivity", () => {
             ["letIn", "x", 0],
             ["letIn", "y", 0],
             ["letIn", "count", 0],
-            ["letIn", "cancel", ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"], ["local", "y"]]],
+            ["letIn", "cancel", ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"], ["local", "y"]]],
             [["local", "cancel"]],
-            ["set", ["local", "x"], 1],
-            ["set", ["local", "y"], 1],
+            ["assign", ["local", "x"], 1],
+            ["assign", ["local", "y"], 1],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(0);
@@ -804,10 +804,10 @@ describe("reactivity", () => {
         expect(run(vm, ["begin",
             ["letIn", "x", 0],
             ["letIn", "count", 0],
-            ["letIn", "cancel", ["always", false, ["set", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]]],
+            ["letIn", "cancel", ["always", false, ["assign", ["local", "count"], ["add", ["local", "count"], 1]], ["local", "x"]]],
             [["local", "cancel"]],
             [["local", "cancel"]],
-            ["set", ["local", "x"], 1],
+            ["assign", ["local", "x"], 1],
             ["local", "count"],
         ])).toBeTrue();
         expect(popData(vm)).toEqual(0);
@@ -837,7 +837,7 @@ describe("reactivity", () => {
         expect(() => run(vm, ["begin",
             ["letIn", "x", 0],
             ["always", false, ["throw", ["err", "EPANIC", "watcher blew up"]], ["local", "x"]],
-            ["set", ["local", "x"], 1],
+            ["assign", ["local", "x"], 1],
         ])).toThrow("watcher blew up");
     });
     testTest(test, "watching a constant errors", vm => {
@@ -1019,7 +1019,7 @@ describe("recursion stress tests", () => {
             ["fn", ["a"],
                 ["let", [["cached", ["index", ["local", "cache"], ["local", "a"]]]],
                     ["if", ["isNil", ["local", "cached"]],
-                        ["set", ["index", ["local", "cache"], ["local", "a"]], ["f", ["local", "a"]]],
+                        ["assign", ["index", ["local", "cache"], ["local", "a"]], ["f", ["local", "a"]]],
                         ["local", "cached"]]]]]
     ];
     const fibonacci = MEMOIZE_F(a => a < 2 ? a : fibonacci(a - 1n) + fibonacci(a - 2n));
@@ -1280,7 +1280,7 @@ testTest(test, "async test", async vm => {
 testTest(test, "names stick on functions", vm => {
     expect(run(vm, ["begin",
         ["letIn", "foo", ["fn", []], "bar", null],
-        ["set", ["local", "bar"], ["local", "foo"]],
+        ["assign", ["local", "bar"], ["local", "foo"]],
         ["local", "bar"],
     ])).toBeTrue();
     const i = popData(vm);
