@@ -7,8 +7,9 @@ import { ErrnoCode } from "../errno";
 import { JEBError, wrapThrowToError } from "../errors";
 import { float, numberOp, Relation } from "../math";
 import { theTypeName, typeOf, withType } from "../typecheck";
+import { protocolMethod } from "../protocol";
 import { JebVM, pushCommand, pushData } from "../vm";
-import { OP_eval } from "./eval";
+import { OP_eval, pushMethodCall } from "./eval";
 
 const None = Symbol("__none__");
 
@@ -46,10 +47,31 @@ const mathHelper = (
                         `${stringify(op2)} is not defined for one argument`,
                     );
                 }
-                f = () => vm.getProtocol(false, true, op1, [a]).run(vm, [a]);
+                const handler = vm.getProtocol(false, false, op1, [a]);
+                if (!handler) {
+                    // No host implementation matches: fall back to the
+                    // object's own protocol method (e.g. __neg__), if any.
+                    const method = protocolMethod(a, op1);
+                    if (
+                        method !== undefined &&
+                        pushMethodCall(vm, method, [a])
+                    )
+                        return NOTHING;
+                    vm.getProtocol(false, true, op1, [a]); // throws the no-overload error
+                }
+                f = () => handler!.run(vm, [a]);
             } else {
-                f = () =>
-                    vm.getProtocol(false, true, op2, [a, b]).run(vm, [a, b]);
+                const handler = vm.getProtocol(false, false, op2, [a, b]);
+                if (!handler) {
+                    const method = protocolMethod(a, op2);
+                    if (
+                        method !== undefined &&
+                        pushMethodCall(vm, method, [a, b])
+                    )
+                        return NOTHING;
+                    vm.getProtocol(false, true, op2, [a, b]); // throws the no-overload error
+                }
+                f = () => handler!.run(vm, [a, b]);
             }
             return wrapThrowToError(ErrnoCode.EINVAL, f).else((e) => {
                 throw new JEBError(ErrnoCode.ERANGE, String(e));
@@ -198,7 +220,24 @@ export const B_shiftRight = mathHelper(
 export const B_bitInv = makeJSFun(
     "bitInv",
     ["a"],
-    (args) => ~withType(args.a, ["number", "bigint"], "a", args),
+    (args, vm) => {
+        const { a } = args;
+        if (typeof a === "number" || typeof a === "bigint") return ~a;
+        // (the bitNot protocol may not exist at all if nothing registered it)
+        const handler = vm.protocols.bitNot
+            ? vm.getProtocol(false, false, "bitNot", [a])
+            : undefined;
+        if (handler)
+            return wrapThrowToError(ErrnoCode.EINVAL, () =>
+                handler.run(vm, [a], undefined),
+            ).else((e) => {
+                throw new JEBError(ErrnoCode.ERANGE, String(e));
+            });
+        const method = protocolMethod(a, "bitNot");
+        if (method !== undefined && pushMethodCall(vm, method, [a]))
+            return NOTHING;
+        return ~withType(a, ["number", "bigint"], "a", args);
+    },
     `.func (bitInv number)
 ..param {number} a
 .pure
@@ -211,6 +250,17 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
         op,
         ["a", "b"],
         ({ a, b }, vm) => {
+            // An object with a __cmp__ method takes over its own
+            // comparisons entirely (the cmp protocol's catch-all identity
+            // implementation would otherwise shadow it). The method
+            // receives the object, the other operand, and the Relation
+            // bitset being tested, and returns whether the relation holds.
+            const method = protocolMethod(a, "cmp");
+            if (
+                method !== undefined &&
+                pushMethodCall(vm, method, [a, b, bits])
+            )
+                return NOTHING;
             return vm
                 .getProtocol(false, true, "cmp", [a, b, bits])
                 .run(vm, [a, b, bits])
