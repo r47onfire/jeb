@@ -318,10 +318,9 @@ export const formatStackTraceCompact = (nodes: StackTreeNode[]): string => {
  * function result.
  *
  * @example
- *     ```
- *     wrapThrowToError(vm, ErrnoCode.EJAVASCRIPT,
- *     () => doSomethingThatMayThrow(vm, args[0]));
- *     ```;
+ *     wrapThrowToError(vm, ErrnoCode.EJAVASCRIPT, () =>
+ *         doSomethingThatMayThrow(vm, args[0]),
+ *     );
  *
  * @param kind Kind of JEB error a thrown error causes
  * @param f The function to catch errors from
