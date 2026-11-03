@@ -1023,8 +1023,6 @@ describe("recursion stress tests", () => {
                         ["local", "cached"]]]]]
     ];
     const fibonacci = MEMOIZE_F(a => a < 2 ? a : fibonacci(a - 1n) + fibonacci(a - 2n));
-    const q = MEMOIZE_F(a => a < 3 ? 1n : q(a - q(a - 1n)) + q(a - q(a - 2n)));
-    const A063510 = (a: number): number => a < 2 ? 1 : 1 + A063510(a ** 0.5 | 0);
     testTest(test, "A000045 (Fibonacci sequence)", vm => {
         const x = 5000n;
         expect(run(vm, ["begin",
@@ -1039,6 +1037,24 @@ describe("recursion stress tests", () => {
         ], undefined, 10000000)).toBeTrue();
         expect(popData(vm)).toEqual(fibonacci(x));
     });
+    const tribonacci = MEMOIZE_F(a => a < 3 ? [0n, 0n, 1n][a as any]! : tribonacci(a - 1n) + tribonacci(a - 2n) + tribonacci(a - 3n));
+    testTest(test, "A000073 (Tribonacci sequence)", vm => {
+        const x = 5000n;
+        expect(run(vm, ["begin",
+            MEMOIZE,
+            ["define", "tribonacci", ["memoize", ["fn", ["a"],
+                ["if", ["less", ["local", "a"], 3],
+                    ["index", ["list", 0, 0, 1], ["local", "a"]],
+                    ["add",
+                        ["add",
+                            ["tribonacci", ["sub", ["local", "a"], 1]],
+                            ["tribonacci", ["sub", ["local", "a"], 2]]],
+                        ["tribonacci", ["sub", ["local", "a"], 3]]]]]]],
+            ["tribonacci", x]
+        ], undefined, 10000000)).toBeTrue();
+        expect(popData(vm)).toEqual(tribonacci(x));
+    });
+    const q = MEMOIZE_F(a => a < 3 ? 1n : q(a - q(a - 1n)) + q(a - q(a - 2n)));
     testTest(test, "A005185 (Hofstadter 'Q' sequence)", vm => {
         const x = 5000n;
         expect(run(vm, ["begin",
@@ -1053,6 +1069,24 @@ describe("recursion stress tests", () => {
         ], undefined, 10000000)).toBeTrue();
         expect(popData(vm)).toEqual(Number(q(x)));
     });
+    const collatz = MEMOIZE_F(a => a < 2 ? 0n : 1n + (a & 1n ? collatz(1n + 3n * a) : collatz(a >> 1n)));
+    testTest(test, "A006577 (Collatz conjecture)", vm => {
+        const x = 50000000000n;
+        expect(run(vm, ["begin",
+            MEMOIZE,
+            ["define", "collatz", ["memoize", ["fn", ["a"],
+                ["if", ["less", ["local", "a"], 2],
+                    0,
+                    ["add",
+                        1,
+                        ["if", ["bitAnd", ["local", "a"], 1],
+                            ["collatz", ["add", 1, ["mul", 3, ["local", "a"]]]],
+                            ["collatz", ["shr", ["local", "a"], 1]]]]]]]],
+            ["collatz", x]
+        ], undefined, 10000000)).toBeTrue();
+        expect(popData(vm)).toEqual(Number(collatz(x)));
+    });
+    const A063510 = (a: number): number => a < 2 ? 1 : 1 + A063510(a ** 0.5 | 0);
     testTest(test, "A063510", vm => {
         const x = 1e20;
         expect(run(vm, ["begin",

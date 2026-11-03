@@ -1,6 +1,7 @@
 {
     "cSpell.words": [
         "Backolon's",
+        "collatz",
         "cwcc",
         "defun",
         "Doargs",
@@ -66,6 +67,7 @@
         "pycache",
         "pyparsing",
         "SRFI",
+        "tribonacci",
         "uation",
         "unformat",
         "unlambda",
