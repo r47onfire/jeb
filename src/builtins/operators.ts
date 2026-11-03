@@ -12,83 +12,247 @@ import { OP_eval } from "./eval";
 
 // MARK: Operators
 const mathLoaders: ((vm: JebVM) => void)[] = [];
-const mathHelper = (operator: string, op2: "add" | "sub" | "mul" | "matMul" | "div" | "mod" | "pow" | "bitAnd" | "bitOr" | "bitXor" | "shl" | "shr", op1: "abs" | "neg" | "inv" | undefined,
+const mathHelper = (
+    operator: string,
+    op2:
+        | "add"
+        | "sub"
+        | "mul"
+        | "matMul"
+        | "div"
+        | "mod"
+        | "pow"
+        | "bitAnd"
+        | "bitOr"
+        | "bitXor"
+        | "shl"
+        | "shr",
+    op1: "abs" | "neg" | "inv" | undefined,
     f2: (a: number | bigint, b: number | bigint) => number | bigint,
     f1: (x: bigint) => any,
     doc: string,
 ) => {
-    const b = makeJSFun(operator, ["a", ["b", NOTHING]], ({ a, b }, vm) => {
-        var f: () => Result<any, any>;
-        if (b === NOTHING) {
-            if (op1 === undefined) {
-                throw new JEBError(ErrnoCode.EINVAL, `${stringify(op2)} is not defined for one argument`);
+    const b = makeJSFun(
+        operator,
+        ["a", ["b", NOTHING]],
+        ({ a, b }, vm) => {
+            var f: () => Result<any, any>;
+            if (b === NOTHING) {
+                if (op1 === undefined) {
+                    throw new JEBError(
+                        ErrnoCode.EINVAL,
+                        `${stringify(op2)} is not defined for one argument`,
+                    );
+                }
+                f = () => vm.getProtocol(false, true, op1, [a]).run(vm, [a]);
+            } else {
+                f = () =>
+                    vm.getProtocol(false, true, op2, [a, b]).run(vm, [a, b]);
             }
-            f = () => vm.getProtocol(false, true, op1, [a]).run(vm, [a]);
-        } else {
-            f = () => vm.getProtocol(false, true, op2, [a, b]).run(vm, [a, b]);
-        }
-        return wrapThrowToError(ErrnoCode.EINVAL, f).else(e => { throw new JEBError(ErrnoCode.ERANGE, String(e)); })
-    },
+            return wrapThrowToError(ErrnoCode.EINVAL, f).else((e) => {
+                throw new JEBError(ErrnoCode.ERANGE, String(e));
+            });
+        },
         `.func (${operator} a [b])
 ..param {any} a
 ..param {any?} b
 .throws EPROTONOSUPPORT - if no overload was found for the given argument types
 .pure
-. ${doc}`);
-    mathLoaders.push(vm => vm.addProtocol(op2, { type: [["number", "bigint"], ["number", "bigint"]], run: (_, { 0: a, 1: b }) => Ok(f2(a, b)), doc }));
+. ${doc}`,
+    );
+    mathLoaders.push((vm) =>
+        vm.addProtocol(op2, {
+            type: [
+                ["number", "bigint"],
+                ["number", "bigint"],
+            ],
+            run: (_, { 0: a, 1: b }) => Ok(f2(a, b)),
+            doc,
+        }),
+    );
     if (op1) {
-        mathLoaders.push(vm => {
-            vm.addProtocol(op1, { type: [["number", "bigint"]], run: (_, { 0: a }) => Ok(f1(a)), doc });
+        mathLoaders.push((vm) => {
+            vm.addProtocol(op1, {
+                type: [["number", "bigint"]],
+                run: (_, { 0: a }) => Ok(f1(a)),
+                doc,
+            });
         });
     }
     return b;
-}
-export const B_plus = mathHelper("add", "add", "abs", numberOp(add), a => a > 0 ? a : -a, "Adds numbers or concatenates strings.");
-const loadConcatProtocol = (vm: JebVM) => vm.addProtocol("add", { type: [["string"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(a + b), doc: "Concatenates strings" });
-export const B_minus = mathHelper("sub", "sub", "neg", numberOp((a, b) => a - b), a => -a, "Subtracts numbers.\nIn the case of one number, returns the additive inverse (i.e. the negative).");
-export const B_mul = mathHelper("mul", "mul", undefined, numberOp((a, b) => a * b), id, "Multiplies numbers.\nThe special case of `string * number` or `number * string` results in repeating the string N times.");
+};
+export const B_plus = mathHelper(
+    "add",
+    "add",
+    "abs",
+    numberOp(add),
+    (a) => (a > 0 ? a : -a),
+    "Adds numbers or concatenates strings.",
+);
+const loadConcatProtocol = (vm: JebVM) =>
+    vm.addProtocol("add", {
+        type: [["string"], ["string"]],
+        run: (_, { 0: a, 1: b }) => Ok(a + b),
+        doc: "Concatenates strings",
+    });
+export const B_minus = mathHelper(
+    "sub",
+    "sub",
+    "neg",
+    numberOp((a, b) => a - b),
+    (a) => -a,
+    "Subtracts numbers.\nIn the case of one number, returns the additive inverse (i.e. the negative).",
+);
+export const B_mul = mathHelper(
+    "mul",
+    "mul",
+    undefined,
+    numberOp((a, b) => a * b),
+    id,
+    "Multiplies numbers.\nThe special case of `string * number` or `number * string` results in repeating the string N times.",
+);
 const repeat = (a: string, b: number): Result<string, string> => {
     if (b < 0) return Err("Cannot repeat a negative number of times");
-    if ((b | 0) !== b) return Err("Cannot repeat a non-integer number of times");
+    if ((b | 0) !== b)
+        return Err("Cannot repeat a non-integer number of times");
     return Ok(a.repeat(b));
-}
-const loadRepeatProtocols = (vm: JebVM) => {
-    vm.addProtocol("mul", { type: [["string"], ["number"]], run: (_, { 0: a, 1: b }) => Ok(repeat(a, b)), doc: "Repeats strings" });
-    vm.addProtocol("mul", { type: [["number"], ["string"]], run: (_, { 0: a, 1: b }) => Ok(repeat(b, a)), doc: "Repeats strings" });
 };
-export const B_div = mathHelper("div", "div", "inv", (a, b) => float(a) / float(b), a => 1 / float(a), "Divides numbers.\nIn the case of one number, returns the multiplicative inverse (i.e. the reciprocal).");
-export const B_mod = mathHelper("mod", "mod", undefined, numberOp((a, b) => a % b), id, "Computes the modulo of two numbers.");
-export const B_pow = mathHelper("pow", "pow", undefined, numberOp((a, b) => a ** b), id, "Computes the power of numbers.\nHowever, this function still folds from the right like the other math functions, so unlike how power is notated mathematically (where `a^b^c^d^e` means `a^(b^(c^(d^e)))`), `[\"pow\", a, b, c, d, e]` is interpreted as `(((a^b)^c)^d)^e`.");
-export const B_bitAnd = mathHelper("bitAnd", "bitAnd", undefined, numberOp((a, b) => a & b), id, "Computes the bitwise AND of all numbers.");
-export const B_bitOr = mathHelper("bitOr", "bitOr", undefined, numberOp((a, b) => a | b), id, "Computes the bitwise OR of all numbers.");
-export const B_bitXor = mathHelper("bitXor", "bitXor", undefined, numberOp((a, b) => a ^ b), id, "Computes the bitwise XOR of all numbers.");
-export const B_shiftLeft = mathHelper("shl", "shl", undefined, numberOp((a, b) => a << b), id, "Shifts `a` left by `b` bits.\nAlternatively, equivalent to `a * 2**b`.");
-export const B_shiftRight = mathHelper("shr", "shr", undefined, numberOp((a, b) => a >> b), id, "Shifts `a` right by `b` bits.\nAlternatively, equivalent to `floor(a / 2**b)`.");
-export const B_bitInv = makeJSFun("bitInv", ["a"], args => ~withType(args.a, ["number", "bigint"], "a", args),
+const loadRepeatProtocols = (vm: JebVM) => {
+    vm.addProtocol("mul", {
+        type: [["string"], ["number"]],
+        run: (_, { 0: a, 1: b }) => Ok(repeat(a, b)),
+        doc: "Repeats strings",
+    });
+    vm.addProtocol("mul", {
+        type: [["number"], ["string"]],
+        run: (_, { 0: a, 1: b }) => Ok(repeat(b, a)),
+        doc: "Repeats strings",
+    });
+};
+export const B_div = mathHelper(
+    "div",
+    "div",
+    "inv",
+    (a, b) => float(a) / float(b),
+    (a) => 1 / float(a),
+    "Divides numbers.\nIn the case of one number, returns the multiplicative inverse (i.e. the reciprocal).",
+);
+export const B_mod = mathHelper(
+    "mod",
+    "mod",
+    undefined,
+    numberOp((a, b) => a % b),
+    id,
+    "Computes the modulo of two numbers.",
+);
+export const B_pow = mathHelper(
+    "pow",
+    "pow",
+    undefined,
+    numberOp((a, b) => a ** b),
+    id,
+    'Computes the power of numbers.\nHowever, this function still folds from the right like the other math functions, so unlike how power is notated mathematically (where `a^b^c^d^e` means `a^(b^(c^(d^e)))`), `["pow", a, b, c, d, e]` is interpreted as `(((a^b)^c)^d)^e`.',
+);
+export const B_bitAnd = mathHelper(
+    "bitAnd",
+    "bitAnd",
+    undefined,
+    numberOp((a, b) => a & b),
+    id,
+    "Computes the bitwise AND of all numbers.",
+);
+export const B_bitOr = mathHelper(
+    "bitOr",
+    "bitOr",
+    undefined,
+    numberOp((a, b) => a | b),
+    id,
+    "Computes the bitwise OR of all numbers.",
+);
+export const B_bitXor = mathHelper(
+    "bitXor",
+    "bitXor",
+    undefined,
+    numberOp((a, b) => a ^ b),
+    id,
+    "Computes the bitwise XOR of all numbers.",
+);
+export const B_shiftLeft = mathHelper(
+    "shl",
+    "shl",
+    undefined,
+    numberOp((a, b) => a << b),
+    id,
+    "Shifts `a` left by `b` bits.\nAlternatively, equivalent to `a * 2**b`.",
+);
+export const B_shiftRight = mathHelper(
+    "shr",
+    "shr",
+    undefined,
+    numberOp((a, b) => a >> b),
+    id,
+    "Shifts `a` right by `b` bits.\nAlternatively, equivalent to `floor(a / 2**b)`.",
+);
+export const B_bitInv = makeJSFun(
+    "bitInv",
+    ["a"],
+    (args) => ~withType(args.a, ["number", "bigint"], "a", args),
     `.func (bitInv number)
 ..param {number} a
 .pure
-. Computes the two's complement signed bitwise inverse of the number.`);
+. Computes the two's complement signed bitwise inverse of the number.`,
+);
 
 // comparisons
 const comparisonHelper = (op: string, bits: Relation, doc: string) => {
-    return makeJSFun(op, ["a", "b"], ({ a, b }, vm) => {
-        return vm.getProtocol(false, true, "cmp", [a, b, bits]).run(vm, [a, b, bits]).else(err => {
-            throw new JEBError(ErrnoCode.ENOTSUP, err);
-        });
-    },
+    return makeJSFun(
+        op,
+        ["a", "b"],
+        ({ a, b }, vm) => {
+            return vm
+                .getProtocol(false, true, "cmp", [a, b, bits])
+                .run(vm, [a, b, bits])
+                .else((err) => {
+                    throw new JEBError(ErrnoCode.ENOTSUP, err);
+                });
+        },
         `.func (${op} items...)
 ..param {number | string} items...
 .pure
-. ${doc}`);
-}
+. ${doc}`,
+    );
+};
 const compDocHelper = (phrase: string) => `True if \`a\` is ${phrase} \`b\`.`;
-export const B_eq = comparisonHelper("eq", Relation.EQUAL, compDocHelper("equal to"));
-export const B_not_eq = comparisonHelper("notEq", Relation.NOT_EQ, compDocHelper("not equal to"));
-export const B_less = comparisonHelper("less", Relation.LESS, compDocHelper("less than"));
-export const B_greater = comparisonHelper("greater", Relation.GREATER, compDocHelper("greater than"));
-export const B_less_eq = comparisonHelper("lessEq", Relation.LESS_EQ, compDocHelper("not greater than"));
-export const B_greater_eq = comparisonHelper("greaterEq", Relation.GREATER_EQ, compDocHelper("not less than"));
+export const B_eq = comparisonHelper(
+    "eq",
+    Relation.EQUAL,
+    compDocHelper("equal to"),
+);
+export const B_not_eq = comparisonHelper(
+    "notEq",
+    Relation.NOT_EQ,
+    compDocHelper("not equal to"),
+);
+export const B_less = comparisonHelper(
+    "less",
+    Relation.LESS,
+    compDocHelper("less than"),
+);
+export const B_greater = comparisonHelper(
+    "greater",
+    Relation.GREATER,
+    compDocHelper("greater than"),
+);
+export const B_less_eq = comparisonHelper(
+    "lessEq",
+    Relation.LESS_EQ,
+    compDocHelper("not greater than"),
+);
+export const B_greater_eq = comparisonHelper(
+    "greaterEq",
+    Relation.GREATER_EQ,
+    compDocHelper("not less than"),
+);
 
 const compareFn = (_: JebVM, { 0: a, 1: b, 2: c }: [any, any, Relation]) => {
     if (a == b) return Ok(!!(c & Relation.EQUAL));
@@ -97,43 +261,65 @@ const compareFn = (_: JebVM, { 0: a, 1: b, 2: c }: [any, any, Relation]) => {
     throw "unreachable";
 };
 const loadCompareProtocol = (vm: JebVM) => {
-    vm.addProtocol("cmp", { type: [["number", "bigint"], ["number", "bigint"], ["number"]], run: compareFn, doc: "Compares numbers" });
-    vm.addProtocol("cmp", { type: [["string"], ["string"], ["number"]], run: compareFn, doc: "Compares strings" });
+    vm.addProtocol("cmp", {
+        type: [["number", "bigint"], ["number", "bigint"], ["number"]],
+        run: compareFn,
+        doc: "Compares numbers",
+    });
+    vm.addProtocol("cmp", {
+        type: [["string"], ["string"], ["number"]],
+        run: compareFn,
+        doc: "Compares strings",
+    });
     vm.addProtocol("cmp", {
         type: [[true], [true], ["number"]],
         run(_, { 0: a, 1: b, 2: c }) {
             if (a === b) return Ok(!!(c & Relation.EQUAL));
-            if ((!!(c & Relation.GREATER)) !== (!!(c & Relation.LESS))) return Err(`No ordering defined for ${theTypeName(typeOf(a))} and ${theTypeName(typeOf(b))}`);
+            if (!!(c & Relation.GREATER) !== !!(c & Relation.LESS))
+                return Err(
+                    `No ordering defined for ${theTypeName(typeOf(a))} and ${theTypeName(typeOf(b))}`,
+                );
             return Ok(!!(c & Relation.LESS));
         },
-        doc: "Compares any items"
+        doc: "Compares any items",
     });
 };
 
 // MARK: booleans
-export const B_not = makeJSFun("not", ["value"], ({ value }) => !value,
+export const B_not = makeJSFun(
+    "not",
+    ["value"],
+    ({ value }) => !value,
     `.func (not value)
 ..param {any} value
 .pure
 .returns {boolean}
-. True if \`value\` is falsy (false, zero, undefined, null, or empty string), false otherwise.`);
+. True if \`value\` is falsy (false, zero, undefined, null, or empty string), false otherwise.`,
+);
 const booleanHelper = (name: string, shortCircuitOn: boolean) => {
-    return makeJSFun(name, ["a", [true, "b"]], ({ a, b }, vm, location) => {
-        if ((!!a) === shortCircuitOn) return a;
-        pushData(vm, b);
-        pushCommand(vm, OP_eval, location, true);
-        return NOTHING;
-    },
+    return makeJSFun(
+        name,
+        ["a", [true, "b"]],
+        ({ a, b }, vm, location) => {
+            if (!!a === shortCircuitOn) return a;
+            pushData(vm, b);
+            pushCommand(vm, OP_eval, location, true);
+            return NOTHING;
+        },
         `.macro (fn a b)
 ..param {any} values...
 .pure
 . Boolean ${name.toUpperCase()} (short-circuits).
-Evaluates \`a\`, if the result is ${shortCircuitOn ? "truthy" : "falsy"}, returns it, otherwise evaluates \`b\` and returns that.`);
-}
+Evaluates \`a\`, if the result is ${shortCircuitOn ? "truthy" : "falsy"}, returns it, otherwise evaluates \`b\` and returns that.`,
+    );
+};
 export const B_and_shortcircuit = booleanHelper("and", false);
 export const B_or_shortcircuit = booleanHelper("or", true);
 
-/** Registers this file's builtins in the VM's builtins scope, in the order listed. Called by {@link loadBuiltins}. */
+/**
+ * Registers this file's builtins in the VM's builtins scope, in the order
+ * listed. Called by {@link loadBuiltins}.
+ */
 export const loadOperatorsBuiltins = (vm: JebVM) => {
     define(vm, "add", B_plus);
     define(vm, "sub", B_minus);
@@ -156,7 +342,7 @@ export const loadOperatorsBuiltins = (vm: JebVM) => {
     define(vm, "not", B_not);
     define(vm, "and", B_and_shortcircuit);
     define(vm, "or", B_or_shortcircuit);
-    mathLoaders.forEach(f => f(vm));
+    mathLoaders.forEach((f) => f(vm));
     loadConcatProtocol(vm);
     loadRepeatProtocols(vm);
     loadCompareProtocol(vm);

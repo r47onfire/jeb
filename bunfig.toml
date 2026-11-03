@@ -1,2 +1,7 @@
 [run]
 bun = true
+[fmt]
+tabWidth = 4
+jsdoc = true
+ignorePatterns = ["test/**"]
+

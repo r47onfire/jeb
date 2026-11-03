@@ -3,7 +3,9 @@ import { NOTHING } from "./define";
 import { JebVM } from "./vm";
 
 /**
- * Sets up instructions to run all of the arguments in order and the result is the value of the last one.
+ * Sets up instructions to run all of the arguments in order and the result is
+ * the value of the last one.
+ *
  * @param vm VM to evaluate in
  * @param args List of things to evaluate
  * @returns - {@link NOTHING}

@@ -5,49 +5,88 @@ import { Fun } from "../callable";
 import { Continuation } from "../continuation";
 import { define, defineApplier, makeJSFun, makeOpcode } from "../define";
 import { withType } from "../protocol";
-import { createSignature, Laziness, Rest, ShorthandArgument } from "../signature";
+import {
+    createSignature,
+    Laziness,
+    Rest,
+    ShorthandArgument,
+} from "../signature";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { OP_block_invoke } from "./variables";
 
 // MARK: fn/block applier
 const loadFunBlockAppliers = (vm: JebVM) => {
-    defineApplier(vm, [Fun], (vm, { 0: fn }, { tail }) => pushCommand(vm, OP_fun_invoke, fn, tail),
+    defineApplier(
+        vm,
+        [Fun],
+        (vm, { 0: fn }, { tail }) => pushCommand(vm, OP_fun_invoke, fn, tail),
         (_, fn) => ({
-            name: fn.isImplicit ? undefined : fn.name ?? "[anonymous]",
+            name: fn.isImplicit ? undefined : (fn.name ?? "[anonymous]"),
             signature: fn.signature,
             closureEnv: fn.closureEnv,
         }),
-        "\"Compiled\" wrapper for a function or macro defined entirely out of JEB code (which is just JSON).");
+        '"Compiled" wrapper for a function or macro defined entirely out of JEB code (which is just JSON).',
+    );
 
-    defineApplier(vm, [Block], (vm, { 0: b }, { tail }) => pushCommand(vm, OP_block_invoke, b, tail),
+    defineApplier(
+        vm,
+        [Block],
+        (vm, { 0: b }, { tail }) => pushCommand(vm, OP_block_invoke, b, tail),
         (_, b) => ({
             name: undefined,
-            signature: [{ name: "_", required: false, defaultExpr: {}, lazy: Laziness.NONE, flags: [], rest: Rest.NONE, options: {} }],
+            signature: [
+                {
+                    name: "_",
+                    required: false,
+                    defaultExpr: {},
+                    lazy: Laziness.NONE,
+                    flags: [],
+                    rest: Rest.NONE,
+                    options: {},
+                },
+            ],
             closureEnv: b.closureEnv,
         }),
-        "Deferred block evaluation");
+        "Deferred block evaluation",
+    );
 };
-const OP_fun_invoke = makeOpcode(null, (vm: JebVM, { 0: fn, 1: tail }: [Fun<any>, boolean | undefined]) => {
-    const argvObject = popData(vm);
-    if (!fn.isImplicit) argvObject.return = vm.cc();
-    pushCommand(vm, OP_block_invoke, fn.body, tail);
-    pushData(vm, { _: argvObject });
-}, null);
+const OP_fun_invoke = makeOpcode(
+    null,
+    (vm: JebVM, { 0: fn, 1: tail }: [Fun<any>, boolean | undefined]) => {
+        const argvObject = popData(vm);
+        if (!fn.isImplicit) argvObject.return = vm.cc();
+        pushCommand(vm, OP_block_invoke, fn.body, tail);
+        pushData(vm, { _: argvObject });
+    },
+    null,
+);
 
-export const B_fn = makeJSFun("fn", [[true, "params"], [true, 0, "body"]], ({ params, body }, vm) => {
-    var isImplicit = false;
-    if (!isArray(params)) {
-        isImplicit = params as any;
-        params = withType(body![0], [Array], "fn.params");
-        body = body!.slice(1);
-    }
-    var docstring = "";
-    if (isString(body![0]) && body!.length > 1) {
-        docstring = body![0];
-        body = body!.slice(1);
-    }
-    return new Fun(isImplicit, undefined, createSignature(params as readonly ShorthandArgument<any, any>[]), new Block(vm.currentEnv, body!), docstring);
-},
+export const B_fn = makeJSFun(
+    "fn",
+    [
+        [true, "params"],
+        [true, 0, "body"],
+    ],
+    ({ params, body }, vm) => {
+        var isImplicit = false;
+        if (!isArray(params)) {
+            isImplicit = params as any;
+            params = withType(body![0], [Array], "fn.params");
+            body = body!.slice(1);
+        }
+        var docstring = "";
+        if (isString(body![0]) && body!.length > 1) {
+            docstring = body![0];
+            body = body!.slice(1);
+        }
+        return new Fun(
+            isImplicit,
+            undefined,
+            createSignature(params as readonly ShorthandArgument<any, any>[]),
+            new Block(vm.currentEnv, body!),
+            docstring,
+        );
+    },
     `.macro (fn (parameters...) body...) (fn true (parameters...) docstring body...)
 The form with \`true\` right after the \`fn\` defines it as an implicit function, where the special \`return\` continuation is not injected and the call will not show up in the traceback of an error (it would normally show as \`[anonymous]\` unless assigned to a name).
 ..param {...} parameters - list of parameter names and flags
@@ -65,20 +104,35 @@ There are many forms that the paremeter can take to control is behavior at call 
 ...injected {Continuation} return - if the first element after \`fn\` is not \`true\`, a continuation jumping back to where the function was called from is injected into the \`return\` variable.
 .pure
 .returns {Fun}
-. Returns a new anonymous function with the specified parameters, documentation string, and body.`);
+. Returns a new anonymous function with the specified parameters, documentation string, and body.`,
+);
 
 // MARK: continuation applier
-const loadContinuationApplier = (vm: JebVM) => defineApplier(vm, [Continuation], (vm, { 0: k }) => {
-    pushCommand(vm, OP_continuation_invoke, k);
-}, () => ({
-    name: "<continuation>",
-    macro: false,
-    signature: createSignature(["value"]),
-}),
-    "Reified GOTO which will jump back to the place it was captured from and return from there instead of returning from where it was called from like usual.");
-const OP_continuation_invoke = makeOpcode(null, <T extends JebVM>(vm: T, { 0: k }: [Continuation<T>]) => k.invoke(vm, popData(vm).value), null);
+const loadContinuationApplier = (vm: JebVM) =>
+    defineApplier(
+        vm,
+        [Continuation],
+        (vm, { 0: k }) => {
+            pushCommand(vm, OP_continuation_invoke, k);
+        },
+        () => ({
+            name: "<continuation>",
+            macro: false,
+            signature: createSignature(["value"]),
+        }),
+        "Reified GOTO which will jump back to the place it was captured from and return from there instead of returning from where it was called from like usual.",
+    );
+const OP_continuation_invoke = makeOpcode(
+    null,
+    <T extends JebVM>(vm: T, { 0: k }: [Continuation<T>]) =>
+        k.invoke(vm, popData(vm).value),
+    null,
+);
 
-/** Registers this file's builtins in the VM's builtins scope, in the order listed. Called by {@link loadBuiltins}. */
+/**
+ * Registers this file's builtins in the VM's builtins scope, in the order
+ * listed. Called by {@link loadBuiltins}.
+ */
 export const loadCallablesBuiltins = (vm: JebVM) => {
     define(vm, "fn", B_fn);
     loadFunBlockAppliers(vm);

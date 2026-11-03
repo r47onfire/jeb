@@ -6,14 +6,14 @@ import { JEBProtocols } from "./protocol";
 /**
  * Documentation tree markup node
  *
- * * i = italics
- * * b = bold
- * * p = paragraph
- * * c = inline code
- * * u = unordered list (bullets)
- * * o = ordered list (numbers)
- * * l = list item
- * * r = reference to another function/macro
+ * - I = italics
+ * - B = bold
+ * - P = paragraph
+ * - C = inline code
+ * - U = unordered list (bullets)
+ * - O = ordered list (numbers)
+ * - L = list item
+ * - R = reference to another function/macro
  */
 export type DocNode =
     | string
@@ -27,9 +27,7 @@ export type DocNode =
     | ["r", code: string]
     | ["r", display: string, group: string | undefined, path: string];
 
-/**
- * Documentation metadata tags, from header
- */
+/** Documentation metadata tags, from header */
 export interface DocMetadata {
     tag: string;
     type?: string;
@@ -43,116 +41,154 @@ export interface DocMetadata {
 // TODO: rewrite this so that the parser gets the subtags, and can look at / process them
 
 /**
- * Metadata parser that takes the lines on and after the tag and parses it into a {@link DocMetadata}
+ * Metadata parser that takes the lines on and after the tag and parses it into
+ * a {@link DocMetadata}
  */
-export type DocMetadataParser = (lines: string[], tag: string) => Omit<DocMetadata, "groups">;
+export type DocMetadataParser = (
+    lines: string[],
+    tag: string,
+) => Omit<DocMetadata, "groups">;
 
-/**
- * Parser for a blank tag that only serves as a flag and carries no content.
- */
+/** Parser for a blank tag that only serves as a flag and carries no content. */
 export const EmptyTag: DocMetadataParser = (lines, tag) => {
-    if (lines.length) throw new Error(`${stringify(tag)} tag is just a flag and should have no content (received ${stringify(lines)})`);
+    if (lines.length)
+        throw new Error(
+            `${stringify(tag)} tag is just a flag and should have no content (received ${stringify(lines)})`,
+        );
     return { tag };
-}
+};
 
 /**
- * Creates a {@link DocMetadataParser} that asserts that there is tag content, and that the first line matches the given regex.
- * The regex match is passed to the callback, and all remaining lines (including the rest of the first line if the
- * regex didn't match all of it) are passed to {@link parseParagraphs} to form the tag description.
- * @param regex Regex to match on the first line. It should be anchored to the start using `^`.
- * @param process The callback that will be called on a successful match and return the partial DocMetadata.
+ * Creates a {@link DocMetadataParser} that asserts that there is tag content,
+ * and that the first line matches the given regex. The regex match is passed to
+ * the callback, and all remaining lines (including the rest of the first line
+ * if the regex didn't match all of it) are passed to {@link parseParagraphs} to
+ * form the tag description.
+ *
+ * @param regex Regex to match on the first line. It should be anchored to the
+ *   start using `^`.
+ * @param process The callback that will be called on a successful match and
+ *   return the partial DocMetadata.
  * @returns The new parser
  */
-export const firstLineRegex = (regex: RegExp, process: (match: RegExpExecArray) => Omit<DocMetadata, "tag" | "groups" | "description">): DocMetadataParser => {
+export const firstLineRegex = (
+    regex: RegExp,
+    process: (
+        match: RegExpExecArray,
+    ) => Omit<DocMetadata, "tag" | "groups" | "description">,
+): DocMetadataParser => {
     return (lines, tag) => {
-        const firstLine = lines[0] ?? "", restLines = lines.slice(1);
+        const firstLine = lines[0] ?? "",
+            restLines = lines.slice(1);
         const match = regex.exec(firstLine);
-        if (!match) throw new Error(lines.length ? `Malformed ${stringify(tag)} tag: ${stringify(firstLine)}` : `${stringify(tag)} tag requires content`);
+        if (!match)
+            throw new Error(
+                lines.length
+                    ? `Malformed ${stringify(tag)} tag: ${stringify(firstLine)}`
+                    : `${stringify(tag)} tag requires content`,
+            );
         const e = firstLine.slice(match[0].length);
         return {
             tag,
-            description: parseParagraphs(e.length ? [e].concat(restLines) : restLines),
+            description: parseParagraphs(
+                e.length ? [e].concat(restLines) : restLines,
+            ),
             ...process(match),
         };
-    }
-}
+    };
+};
 
 /**
- * Wraps the parser to print a warning (`console.warn()`) that the tag name is not recommended or deprecated.
- * The behavior is the same as the given parser (the parameters are just passed directly).
+ * Wraps the parser to print a warning (`console.warn()`) that the tag name is
+ * not recommended or deprecated. The behavior is the same as the given parser
+ * (the parameters are just passed directly).
+ *
  * @param newName The preferred name that should be used instead
  * @param parser The implementation of the parser
- * @returns the wrapped parser
+ * @returns The wrapped parser
  */
-export const deprecateTag = (newName: string, parser: DocMetadataParser): DocMetadataParser => {
+export const deprecateTag = (
+    newName: string,
+    parser: DocMetadataParser,
+): DocMetadataParser => {
     return (lines, tag) => {
-        console.warn(`${stringify(tag)} is deprecated, use ${stringify(newName)} instead`);
+        console.warn(
+            `${stringify(tag)} is deprecated, use ${stringify(newName)} instead`,
+        );
         return parser(lines, tag);
     };
-}
+};
 
 /**
- * Parser for a param tag (pretty common) with the form `{type} name - description` or `{type} [name=default] - description`
+ * Parser for a param tag (pretty common) with the form `{type} name -
+ * description` or `{type} [name=default] - description`
  */
-export const ParamTag: DocMetadataParser = firstLineRegex(/^\s*(?:\{([^}]*)\}\s*)?(?:\[([^\]=]+)=([^\]]*)\]|([^\s-]+))\s*(-\s*)?/, match => {
-    const { 1: type, 2: name, 4: name2, 3: default_ } = match;
-    var fullName = name2 ?? name!;
-    const flags: string[] = [];
-    if (fullName.startsWith("@")) {
-        flags.push("lazy");
-        fullName = fullName.slice(1);
-    }
-    if (fullName.startsWith("^")) {
-        flags.push("macro");
-        fullName = fullName.slice(1);
-    }
-    if (fullName.startsWith("@") && !flags.includes("lazy")) {
-        flags.push("lazy");
-        fullName = fullName.slice(1);
-    }
-    if (fullName.endsWith("...")) {
-        flags.push("rest");
-        fullName = fullName.slice(0, -3);
-    }
-    return {
-        type,
-        name: fullName,
-        flags,
-        default: default_
-    };
-});
+export const ParamTag: DocMetadataParser = firstLineRegex(
+    /^\s*(?:\{([^}]*)\}\s*)?(?:\[([^\]=]+)=([^\]]*)\]|([^\s-]+))\s*(-\s*)?/,
+    (match) => {
+        const { 1: type, 2: name, 4: name2, 3: default_ } = match;
+        var fullName = name2 ?? name!;
+        const flags: string[] = [];
+        if (fullName.startsWith("@")) {
+            flags.push("lazy");
+            fullName = fullName.slice(1);
+        }
+        if (fullName.startsWith("^")) {
+            flags.push("macro");
+            fullName = fullName.slice(1);
+        }
+        if (fullName.startsWith("@") && !flags.includes("lazy")) {
+            flags.push("lazy");
+            fullName = fullName.slice(1);
+        }
+        if (fullName.endsWith("...")) {
+            flags.push("rest");
+            fullName = fullName.slice(0, -3);
+        }
+        return {
+            type,
+            name: fullName,
+            flags,
+            default: default_,
+        };
+    },
+);
 
-/**
- * Parser for a returns tag (pretty common) with the form `{type} - description`
- */
-export const ReturnsTag: DocMetadataParser = firstLineRegex(/^\s*(?:\{([^}]*)\}\s*)?\s*(-\s*)?/, match => {
-    return {
-        type: match[1],
-    };
-});
+/** Parser for a returns tag (pretty common) with the form `{type} - description` */
+export const ReturnsTag: DocMetadataParser = firstLineRegex(
+    /^\s*(?:\{([^}]*)\}\s*)?\s*(-\s*)?/,
+    (match) => {
+        return {
+            type: match[1],
+        };
+    },
+);
 
-/**
- * Parser for a throws tag for throwing errors
- */
-export const ThrowsTag: DocMetadataParser = firstLineRegex(/^\s*(\S+)\s*(-\s*)?/, match => {
-    return {
-        type: match[1],
-        flags: ["error"],
-    }
-});
+/** Parser for a throws tag for throwing errors */
+export const ThrowsTag: DocMetadataParser = firstLineRegex(
+    /^\s*(\S+)\s*(-\s*)?/,
+    (match) => {
+        return {
+            type: match[1],
+            flags: ["error"],
+        };
+    },
+);
 
 /**
  * Splits a parameter list fragment into documentation nodes: bare words become
  * inline code, while parenthesised groups become italics.
  */
-const parameterChunks = (s: string): DocNode[] => [...s.matchAll(/\w+|(\(.+?\))/g).map(part => ["i", part[1] ? part[0] : ["c", part[0]]] as DocNode)];
+const parameterChunks = (s: string): DocNode[] => [
+    ...s
+        .matchAll(/\w+|(\(.+?\))/g)
+        .map((part) => ["i", part[1] ? part[0] : ["c", part[0]]] as DocNode),
+];
 
-/**
- * Metadata parsers used for the JEB stack machine opcode docstrings
- */
+/** Metadata parsers used for the JEB stack machine opcode docstrings */
 export const OpcodeParsers: Record<string, DocMetadataParser> = {
     // Immediate arguments documentation names
-    imm: firstLineRegex(/^.*$/, match => {
+    imm: firstLineRegex(/^.*$/, (match) => {
         return { name: ["p", ...parameterChunks(match[0]! ?? "")] };
     }),
     // Param of immediate (should be level 2)
@@ -161,36 +197,45 @@ export const OpcodeParsers: Record<string, DocMetadataParser> = {
     prop: ParamTag,
     // Stack-effect diagram
     sed(lines, tag) {
-        if (lines.length !== 1) throw new Error("expected 1 line to sed tag for opcode");
+        if (lines.length !== 1)
+            throw new Error("expected 1 line to sed tag for opcode");
         const line = lines[0]!;
         const parts = line.split("--");
-        if (parts.length !== 2) throw new Error("expected -- to separate 2 halves in sed tag for opcode");
+        if (parts.length !== 2)
+            throw new Error(
+                "expected -- to separate 2 halves in sed tag for opcode",
+            );
         return {
             tag,
-            description: [...parameterChunks(parts[0]!), "--", ...parameterChunks(parts[1]!)],
+            description: [
+                ...parameterChunks(parts[0]!),
+                "--",
+                ...parameterChunks(parts[1]!),
+            ],
         };
     },
     // errors thrown
     throws: ThrowsTag,
-}
+};
 
-/**
- * Metadata parser for the func or macro tags
- */
+/** Metadata parser for the func or macro tags */
 export const FuncOrMacroTag: DocMetadataParser = (lines, tag) => {
     return {
         tag,
-        name: ["p", ...lines[0]!.split(/\s+\|\s+/).map(part => ["c", part] as DocNode)],
+        name: [
+            "p",
+            ...lines[0]!
+                .split(/\s+\|\s+/)
+                .map((part) => ["c", part] as DocNode),
+        ],
         description: parseParagraphs(lines.slice(1)),
-    }
+    };
 };
 
 const deprecatedFunction = /* @__PURE__ */ deprecateTag("func", FuncOrMacroTag);
 const deprecatedReturn = /* @__PURE__ */ deprecateTag("returns", ReturnsTag);
 
-/**
- * Metadata parsers used for the high(er)-level JEB function or macro docstrings
- */
+/** Metadata parsers used for the high(er)-level JEB function or macro docstrings */
 export const FunctionOrMacroParsers: Record<string, DocMetadataParser> = {
     func: FuncOrMacroTag,
     macro: FuncOrMacroTag,
@@ -210,10 +255,11 @@ export const FunctionOrMacroParsers: Record<string, DocMetadataParser> = {
     returns: ReturnsTag,
     // present if the function is marked as pure
     pure: EmptyTag,
-}
+};
 
 /**
- * Metadata parsers used for the {@link JEBProtocols.apply apply} protocol's docstring
+ * Metadata parsers used for the {@link JEBProtocols.apply apply} protocol's
+ * docstring
  */
 export const ApplierParsers: Record<string, DocMetadataParser> = {
     // errors thrown
@@ -221,26 +267,30 @@ export const ApplierParsers: Record<string, DocMetadataParser> = {
     // Returns value
     return: deprecatedReturn,
     returns: ReturnsTag,
-}
+};
 
 /**
- * Metadata parsers used for the {@link JEBProtocols.eval eval} protocol's docstring
+ * Metadata parsers used for the {@link JEBProtocols.eval eval} protocol's
+ * docstring
  */
-export const EvaluatorParsers: Record<string, DocMetadataParser> = ApplierParsers;
+export const EvaluatorParsers: Record<string, DocMetadataParser> =
+    ApplierParsers;
 
 /**
- * Metadata parsers used for the {@link JEBProtocols.access access} protocol's docstring
+ * Metadata parsers used for the {@link JEBProtocols.access access} protocol's
+ * docstring
  */
-export const AccessorParsers: Record<string, DocMetadataParser> = ApplierParsers;
+export const AccessorParsers: Record<string, DocMetadataParser> =
+    ApplierParsers;
 
 /**
- * Metadata parsers used for the {@link JEBProtocols.unwrap unwrap} protocol's docstring
+ * Metadata parsers used for the {@link JEBProtocols.unwrap unwrap} protocol's
+ * docstring
  */
-export const UnwrapperParsers: Record<string, DocMetadataParser> = ApplierParsers;
+export const UnwrapperParsers: Record<string, DocMetadataParser> =
+    ApplierParsers;
 
-/**
- * Parsed documentation data for something (e.g. builtin function, lambda)
- */
+/** Parsed documentation data for something (e.g. builtin function, lambda) */
 export interface Doc {
     /** Rendered header data */
     meta: DocMetadata[];
@@ -248,35 +298,40 @@ export interface Doc {
     body: DocNode[];
 }
 
-/**
- * interface for a thing that has a docstring.
- */
+/** Interface for a thing that has a docstring. */
 export interface HasDocstring {
     readonly doc: string;
 }
 
 /**
  * Parse the documentation string into {@link Doc} data
- * @returns the doc data, or undefined if it didn't parse right
+ *
+ * @returns The doc data, or undefined if it didn't parse right
  */
-export const parseDoc = (docstring: string, parsers: Record<string, DocMetadataParser>): Doc | undefined => {
-    docstring = docstring.split("\n").map(s => s.trimEnd()).join("\n");
+export const parseDoc = (
+    docstring: string,
+    parsers: Record<string, DocMetadataParser>,
+): Doc | undefined => {
+    docstring = docstring
+        .split("\n")
+        .map((s) => s.trimEnd())
+        .join("\n");
     if (!docstring) return undefined;
     const lines = docstring!.split("\n");
     const { 0: meta, 1: summaryLines } = parseHeaderAndSummary(lines, parsers);
     const body = parseParagraphs(summaryLines);
     return { meta, body };
-}
+};
 
 const enum ParagraphState {
     PARAGRAPH,
     NUMBERED_LIST,
-    BULLETED_LIST
+    BULLETED_LIST,
 }
 
 /**
- * Parses the lines and creates ordered and unordered lists for groups
- * of lines with bullets or number and creates paragraphs for all other lines
+ * Parses the lines and creates ordered and unordered lists for groups of lines
+ * with bullets or number and creates paragraphs for all other lines
  */
 export const parseParagraphs = (lines: string[]): DocNode[] => {
     var state: ParagraphState = ParagraphState.PARAGRAPH;
@@ -289,14 +344,22 @@ export const parseParagraphs = (lines: string[]): DocNode[] => {
                 currentList = ["u"];
                 items.push(currentList!);
             }
-            (currentList as DocNode[])!.push(["l", null, ...parseInline(line.slice(2))]);
+            (currentList as DocNode[])!.push([
+                "l",
+                null,
+                ...parseInline(line.slice(2)),
+            ]);
             state = ParagraphState.BULLETED_LIST;
         } else if ((match = /^\d*\.\s/.exec(line)) !== null) {
             if (state !== ParagraphState.NUMBERED_LIST) {
                 currentList = ["o"];
                 items.push(currentList!);
             }
-            (currentList as DocNode[])!.push(["l", parseInt(match[0]), ...parseInline(line.slice(match[0].length))]);
+            (currentList as DocNode[])!.push([
+                "l",
+                parseInt(match[0]),
+                ...parseInline(line.slice(match[0].length)),
+            ]);
             state = ParagraphState.NUMBERED_LIST;
         } else {
             items.push(["p", ...parseInline(line)]);
@@ -304,13 +367,17 @@ export const parseParagraphs = (lines: string[]): DocNode[] => {
         }
     }
     return items;
-}
+};
 
 /**
- * Parses the hiearchal metadata tags from the lines and returns the tree of {@link DocMetadata} nodes
- * as well as all the lines that were untagged or tagged with `""` as the global summary
+ * Parses the hiearchal metadata tags from the lines and returns the tree of
+ * {@link DocMetadata} nodes as well as all the lines that were untagged or
+ * tagged with `""` as the global summary
  */
-export const parseHeaderAndSummary = (lines: string[], parsers: Record<string, DocMetadataParser>): [DocMetadata[], string[]] => {
+export const parseHeaderAndSummary = (
+    lines: string[],
+    parsers: Record<string, DocMetadataParser>,
+): [DocMetadata[], string[]] => {
     var currentLevel = 1;
     const tags: DocMetadata[] = [];
     const summaryLines: string[] = [];
@@ -327,21 +394,25 @@ export const parseHeaderAndSummary = (lines: string[], parsers: Record<string, D
             return;
         }
         const parser = parsers[accumulatingTagName];
-        if (!parser) throw new Error("unknown tag " + stringify(accumulatingTagName));
+        if (!parser)
+            throw new Error("unknown tag " + stringify(accumulatingTagName));
         if (accumulatingTagLevel > currentLevel) {
             currentLevel++;
             if (accumulatingTagLevel !== currentLevel)
-                throw new Error(`can only go up one level at a time (was at level ${currentLevel - 1} but jumped up to level ${accumulatingTagLevel}): ${stringify(firstLine)}`);
+                throw new Error(
+                    `can only go up one level at a time (was at level ${currentLevel - 1} but jumped up to level ${accumulatingTagLevel}): ${stringify(firstLine)}`,
+                );
             const item = last(currentArray);
             stack.push(currentArray);
             currentArray = item.groups ??= [];
-        } else while (currentLevel > accumulatingTagLevel) {
-            currentArray = stack.pop()!;
-            currentLevel--;
-        }
+        } else
+            while (currentLevel > accumulatingTagLevel) {
+                currentArray = stack.pop()!;
+                currentLevel--;
+            }
         currentArray.push(parser(tagLinesBuffer, accumulatingTagName));
         tagLinesBuffer = [];
-    }
+    };
     for (var i = 0; i < lines.length; i++) {
         const line = lines[i]!;
         const match = /^(\.+)(\w*)(.*)$/.exec(line);
@@ -350,7 +421,9 @@ export const parseHeaderAndSummary = (lines: string[], parsers: Record<string, D
             continue;
         }
         flush();
-        const dots = match[1]!, tag = match[2]!, rest = match[3]!;
+        const dots = match[1]!,
+            tag = match[2]!,
+            rest = match[3]!;
         firstLine = line;
         accumulatingTagLevel = dots.length;
         accumulatingTagName = tag;
@@ -359,13 +432,13 @@ export const parseHeaderAndSummary = (lines: string[], parsers: Record<string, D
     }
     flush();
     return [tags, summaryLines];
-}
+};
 
 /**
- * Parses the inline markup of a single line into {@link DocNode}s.
- * Supports `**bold**`, `*italic*`, `` `code` ``, and `[[reference]]`s
- * (optionally `[[display#path]]` or `[[display#group:path]]`); a backslash
- * escapes the following character so it is treated as literal text.
+ * Parses the inline markup of a single line into {@link DocNode}s. Supports
+ * `**bold**`, `*italic*`, `` `code` ``, and `[[reference]]`s (optionally
+ * `[[display#path]]` or `[[display#group:path]]`); a backslash escapes the
+ * following character so it is treated as literal text.
  */
 export const parseInline = (s: string): DocNode[] => {
     const root = [0] as any as DocNode[];
@@ -443,4 +516,4 @@ export const parseInline = (s: string): DocNode[] => {
         i = end;
     }
     return root.slice(1) as DocNode[];
-}
+};

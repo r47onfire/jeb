@@ -11,15 +11,8 @@
         "strictNullChecks": true,
         "moduleResolution": "Bundler",
         "module": "ESNext",
-        "types": [
-            "bun"
-        ],
-        "lib": [
-            "esnext",
-            "dom"
-        ]
+        "types": ["bun"],
+        "lib": ["esnext", "dom"]
     },
-    "include": [
-        "./**/*.ts"
-    ]
+    "include": ["./**/*.ts"]
 }

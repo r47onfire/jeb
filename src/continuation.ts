@@ -3,9 +3,7 @@ import { OP_apply, OP_shuffle } from "./builtins";
 import { Env } from "./env";
 import { Command, JebVM, pushCommand, pushData, StackCount } from "./vm";
 
-/**
- * A continuation which holds all the VM state, and can restore it at any time
- */
+/** A continuation which holds all the VM state, and can restore it at any time */
 export class Continuation<T extends JebVM> {
     /** Closed-over environment */
     env: Env;
@@ -29,6 +27,7 @@ export class Continuation<T extends JebVM> {
     }
     /**
      * Call the continuation and restore the state of the VM
+     *
      * @param vm VM to restore state of
      * @param data Result of the continuation return value
      */
@@ -43,27 +42,29 @@ export class Continuation<T extends JebVM> {
     }
 }
 
-/**
- * Data holding a dynamic wind enter/exit handler pair
- */
+/** Data holding a dynamic wind enter/exit handler pair */
 export interface Windable {
     enter: any;
     exit: any;
 }
 
-/**
- * Node in a dynamic wind tree
- */
+/** Node in a dynamic wind tree */
 export class DynamicWind<T extends JebVM> {
-    /** The enter/exit handler pair for this node; null until {@link setHandler} is called */
+    /**
+     * The enter/exit handler pair for this node; null until {@link setHandler}
+     * is called
+     */
     handler: Windable | null = null;
-    /** current env at the point of the dynamic wind start */
+    /** Current env at the point of the dynamic wind start */
     envHere: Env;
-    /** The enclosing dynamic-wind node, forming the tree that jumps are resolved against */
+    /**
+     * The enclosing dynamic-wind node, forming the tree that jumps are resolved
+     * against
+     */
     parent: DynamicWind<T> | null = null;
-    /** closed-over command stack */
+    /** Closed-over command stack */
     commandsHere: LinkedList<Command<T>> = null;
-    /** closed-over data stack */
+    /** Closed-over data stack */
     dataHere: LinkedList<any> = null;
     /** Other saved state */
     stateHere: ReturnType<T["getState"]>;
@@ -74,14 +75,14 @@ export class DynamicWind<T extends JebVM> {
         this.dataHere = vm.dataStack;
         this.stateHere = vm.getState();
     }
-    /**
-     * sets the handler after it has been processed
-     */
+    /** Sets the handler after it has been processed */
     setHandler(handler: Windable) {
         this.handler = handler;
     }
     /**
-     * processes the jump here, and adds instructions to call the enter and exit handlers
+     * Processes the jump here, and adds instructions to call the enter and exit
+     * handlers
+     *
      * @param vm VM to process jump on
      */
     processJumpHere(vm: T) {
@@ -126,6 +127,7 @@ export class DynamicWind<T extends JebVM> {
     }
     /**
      * Restores the dynamic wind state when an error occurs
+     *
      * @param vm VM to restore to
      */
     restore(vm: T) {
