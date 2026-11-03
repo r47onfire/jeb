@@ -2,11 +2,8 @@ import { Fun, JSFun } from "../callable";
 import { defineAccessor, defineApplier, makeOpcode } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
-import {
-    DescriptorReference,
-    PROTOCOL_SYMBOLS,
-    protocolMethod,
-} from "../protocol";
+import { DescriptorReference, protocolMethod } from "../protocol";
+import { PROTOCOL_SYMBOLS } from "../well_known";
 import { ApplyMetadata } from "../protocol";
 import { predicateToClass, theTypeName, typeOf } from "../typecheck";
 import { Identifier } from "../utils";
