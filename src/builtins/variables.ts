@@ -22,7 +22,7 @@ import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap, OP_wrap } from "./unwrap";
 import { Identifier } from "../utils";
 import { JebVM, peekData, popData, pushCommand, pushData } from "../vm";
-import { DescriptorWrapper, ReferenceWrapper } from "../wrapper";
+import { ReferenceWrapper } from "../wrapper";
 import {
     OP_apply,
     OP_get,
@@ -306,7 +306,7 @@ export const B_deref = makeJSFun(
         if (args.ref instanceof Reference)
             return new ReferenceWrapper(args.ref);
         if (protocolMethod(args.ref, "get"))
-            return new DescriptorWrapper(args.ref);
+            return new ReferenceWrapper(args.ref);
         return new ReferenceWrapper(
             withType(args.ref, [Reference], "ref", args),
         );

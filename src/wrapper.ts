@@ -54,11 +54,16 @@ export class EmptyArg extends Wrapper {
     }
 }
 
-/** Wrapper for a variable reference */
+/**
+ * Wrapper for a variable reference. The wrapped value is usually a
+ * {@link Reference}, but a descriptor object (an object with `__get__` /
+ * `__set__` protocol methods) can be wrapped as-is too: the `get` and
+ * `assign` opcodes read and assign through its methods, so it behaves
+ * like a reference without being one.
+ */
 export class ReferenceWrapper extends Wrapper {
     flag = "ref" as const;
-    declare obj: Reference;
-    constructor(obj: Reference) {
+    constructor(obj: any) {
         super(obj);
     }
 }
@@ -66,13 +71,4 @@ export class ReferenceWrapper extends Wrapper {
 /** Wrapper for a macro result */
 export class MacroWrapper extends Wrapper {
     flag = "macro" as const;
-}
-
-/**
- * Wrapper for a descriptor object (an object with `__get__`/`__set__` protocol
- * methods) used in a value position: it unwraps by reading through the object,
- * like a {@link ReferenceWrapper} does for references.
- */
-export class DescriptorWrapper extends Wrapper {
-    flag = "descriptor" as const;
 }
