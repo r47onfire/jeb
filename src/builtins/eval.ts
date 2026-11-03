@@ -9,10 +9,15 @@ import {
     makeOpcode,
     NOTHING,
 } from "../define";
-import { OP_doargs } from "../doargs";
+import { ARGUMENT_LOCATIONS, OP_doargs } from "../doargs";
 import { ErrnoCode } from "../errno";
 import { checkNothingOrPush, JEBError, Location } from "../errors";
-import { AccessType, Reference } from "../protocol";
+import {
+    AccessType,
+    DescriptorReference,
+    protocolMethod,
+    Reference,
+} from "../protocol";
 import { CallableSignature, createSignature } from "../signature";
 import { theTypeName, typecheck, typeOf, withType } from "../typecheck";
 import { Identifier } from "../utils";
@@ -336,6 +341,56 @@ export const OP_apply = makeOpcode(
 . Pops the top value from the stack and calls it with the provided arguments.
 The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.`,
 );
+/** Pushes an already-computed value onto the data stack as a command. */
+const OP_push_const = makeOpcode(
+    null,
+    (vm: JebVM, { 0: value }: [any]) => pushData(vm, value),
+    null,
+);
+/**
+ * Schedules a call to a protocol method: a function stored on an object
+ * under a protocol symbol (see {@link PROTOCOL_SYMBOLS}). The arguments have
+ * already been computed, so instead of going through `OP_apply`'s argument
+ * expressions the bound-argument object is built directly, in the shape
+ * `OP_doargs` would have produced: each of the method's parameters is bound
+ * to the corresponding argument by name, and `_` holds the argument list.
+ * A parameter the method declares lazy therefore receives exactly the value
+ * it is given -- callers that want an expression to stay unevaluated pass
+ * its {@link Block} -- and a normal parameter receives the value itself.
+ * Protocol methods are called with exactly the given arguments; rest and
+ * keyword parameters are not filled in.
+ *
+ * @returns Whether the method was callable and the call was scheduled. If
+ *   `dropResult` is set, the value the method returns is discarded.
+ */
+export const pushMethodCall = (
+    vm: JebVM,
+    method: any,
+    args: any[],
+    dropResult = false,
+): boolean => {
+    if (
+        !(method instanceof Fun) &&
+        !(method instanceof JSFun) &&
+        typeof method !== "function"
+    )
+        return false;
+    const applier = vm.getProtocol(true, false, "apply", [method]);
+    if (!applier) return false;
+    const { signature } = applier.describe(vm, method);
+    const argsObj: Record<PropertyKey, any> = {
+        _: [...args],
+        [ARGUMENT_LOCATIONS]: {},
+    };
+    for (var i = 0; i < signature.length && i < args.length; i++) {
+        const name = signature[i]!.name;
+        if (name !== undefined) argsObj[name] = args[i];
+    }
+    if (dropResult) pushCommand(vm, OP_shuffle, 1, []);
+    applier.run(vm, [method], { tail: false, location: undefined });
+    pushCommand(vm, OP_push_const, argsObj);
+    return true;
+};
 export const B_atLocation = makeJSFun(
     "at",
     [
@@ -498,13 +553,50 @@ export const OP_index = makeOpcode(
 export const OP_get = makeOpcode(
     "get",
     (vm: JebVM, { 0: shouldBind }: [boolean]) => {
-        checkNothingOrPush(vm, (popData(vm) as Reference).get(vm, shouldBind));
+        const lvalue = popData(vm);
+        if (lvalue instanceof DescriptorReference) {
+            const get = protocolMethod(lvalue.obj, "get");
+            if (!get)
+                throw new JEBError(
+                    ErrnoCode.EINVAL,
+                    `${theTypeName(typeOf(lvalue.obj))} has no __get__ method`,
+                );
+            // The method's result is unwrapped like any other read value
+            // (its body may end in a reference-producing form).
+            pushCommand(vm, OP_unwrap, []);
+            if (!pushMethodCall(vm, get, [lvalue.obj, lvalue.field]))
+                throw new JEBError(
+                    ErrnoCode.EINVAL,
+                    `${theTypeName(typeOf(get))} __get__ method is not callable`,
+                );
+            return;
+        }
+        if (lvalue instanceof Reference) {
+            checkNothingOrPush(vm, lvalue.get(vm, shouldBind));
+            return;
+        }
+        const get = protocolMethod(lvalue, "get");
+        if (get) {
+            // A descriptor object used directly as an LValue: read through
+            // its __get__ method, which receives the object itself.
+            pushCommand(vm, OP_unwrap, []);
+            if (!pushMethodCall(vm, get, [lvalue]))
+                throw new JEBError(
+                    ErrnoCode.EINVAL,
+                    `${theTypeName(typeOf(get))} __get__ method is not callable`,
+                );
+            return;
+        }
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            `${theTypeName(typeOf(lvalue))} is not a reference`,
+        );
     },
     `.imm accessType shouldBind
 ..param {AccessType} accessType
 ..param {boolean?} [shouldBind=false]
 .sed lvalue -- value
-. Takes an LValue on the top of the stack and unwraps it by calling its get() method.`,
+. Takes an LValue on the top of the stack and unwraps it: a reference by calling its get() method, and a descriptor (an object with a \`__get__\` protocol method, or a reference to a field of one) by calling that method.`,
 );
 export const OP_assign = makeOpcode(
     "assign",
@@ -512,15 +604,49 @@ export const OP_assign = makeOpcode(
         vm: JebVM,
         { 0: create, 1: readonly }: [create?: boolean, readonly_?: boolean],
     ) => {
-        const lvalue = popData(vm) as Reference;
-        lvalue.set(vm, peekData(vm), create ?? false, readonly ?? false);
+        const lvalue = popData(vm);
+        if (
+            lvalue instanceof Reference &&
+            !(lvalue instanceof DescriptorReference)
+        ) {
+            lvalue.set(vm, peekData(vm), create ?? false, readonly ?? false);
+            return;
+        }
+        const isDescriptorRef = lvalue instanceof DescriptorReference;
+        const target = isDescriptorRef ? lvalue.obj : lvalue;
+        const set = protocolMethod(target, "set");
+        if (!set)
+            throw new JEBError(
+                ErrnoCode.EINVAL,
+                `cannot assign to ${theTypeName(typeOf(target))}`,
+            );
+        // A descriptor is assigned by calling its __set__ method. The
+        // method's result is discarded: like a reference assignment, the
+        // value being assigned stays on the stack. (The create/readonly
+        // flags only apply to references.)
+        const value = popData(vm);
+        pushData(vm, value);
+        if (
+            !pushMethodCall(
+                vm,
+                set,
+                isDescriptorRef
+                    ? [target, lvalue.field, value]
+                    : [target, value],
+                true,
+            )
+        )
+            throw new JEBError(
+                ErrnoCode.EINVAL,
+                `${theTypeName(typeOf(set))} __set__ method is not callable`,
+            );
     },
     `.imm accessType create readonly
 ..param {AccessType} accessType
 ..param {boolean?} [create=false]
 ..param {boolean?} [readonly=false]
 .sed value lvalue -- value
-. Takes an LValue on the top of the stack and calls the \`set()\` method with the next item in the stack as the value to set.`,
+. Takes an LValue on the top of the stack and assigns the next item in the stack to it: a reference by calling its \`set()\` method, and a descriptor (an object with a \`__set__\` protocol method, or a reference to a field of one) by calling that method with the value.`,
 );
 
 // MARK: logic
