@@ -52,10 +52,7 @@ const mathHelper = (
                     // No host implementation matches: fall back to the
                     // object's own protocol method (e.g. __neg__), if any.
                     const method = protocolMethod(a, op1);
-                    if (
-                        method !== undefined &&
-                        pushMethodCall(vm, method, [a])
-                    )
+                    if (method !== undefined && pushMethodCall(vm, method, [a]))
                         return NOTHING;
                     vm.getProtocol(false, true, op1, [a]); // throws the no-overload error
                 }

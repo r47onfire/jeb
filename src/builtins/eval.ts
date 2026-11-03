@@ -348,17 +348,16 @@ const OP_push_const = makeOpcode(
     null,
 );
 /**
- * Schedules a call to a protocol method: a function stored on an object
- * under a protocol symbol (see {@link PROTOCOL_SYMBOLS}). The arguments have
- * already been computed, so instead of going through `OP_apply`'s argument
- * expressions the bound-argument object is built directly, in the shape
- * `OP_doargs` would have produced: each of the method's parameters is bound
- * to the corresponding argument by name, and `_` holds the argument list.
- * A parameter the method declares lazy therefore receives exactly the value
- * it is given -- callers that want an expression to stay unevaluated pass
- * its {@link Block} -- and a normal parameter receives the value itself.
- * Protocol methods are called with exactly the given arguments; rest and
- * keyword parameters are not filled in.
+ * Schedules a call to a protocol method: a function stored on an object under a
+ * protocol symbol (see {@link PROTOCOL_SYMBOLS}). The arguments have already
+ * been computed, so instead of going through `OP_apply`'s argument expressions
+ * the bound-argument object is built directly, in the shape `OP_doargs` would
+ * have produced: each of the method's parameters is bound to the corresponding
+ * argument by name, and `_` holds the argument list. A parameter the method
+ * declares lazy therefore receives exactly the value it is given -- callers
+ * that want an expression to stay unevaluated pass its {@link Block} -- and a
+ * normal parameter receives the value itself. Protocol methods are called with
+ * exactly the given arguments; rest and keyword parameters are not filled in.
  *
  * @returns Whether the method was callable and the call was scheduled. If
  *   `dropResult` is set, the value the method returns is discarded.

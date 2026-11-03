@@ -140,10 +140,10 @@ const OP_desc_set = makeOpcode(
     null,
 );
 /**
- * The descriptor counterpart of {@link OP_assign_internal}: reads the old
- * value through the descriptor's `__get__` method (`undefined` if it has
- * none), evaluates the value block with `_` bound to it, and assigns the
- * result through `__set__`.
+ * The descriptor counterpart of {@link OP_assign_internal}: reads the old value
+ * through the descriptor's `__get__` method (`undefined` if it has none),
+ * evaluates the value block with `_` bound to it, and assigns the result
+ * through `__set__`.
  */
 const OP_assign_descriptor_internal = makeOpcode(
     null,
@@ -165,13 +165,7 @@ const OP_assign_descriptor_internal = makeOpcode(
         const get = protocolMethod(target, "get");
         if (get) {
             pushCommand(vm, OP_unwrap, []);
-            if (
-                !pushMethodCall(
-                    vm,
-                    get,
-                    hasField ? [target, field] : [target],
-                )
-            )
+            if (!pushMethodCall(vm, get, hasField ? [target, field] : [target]))
                 throw new JEBError(
                     ErrnoCode.EINVAL,
                     "__get__ method is not callable",
@@ -181,18 +175,17 @@ const OP_assign_descriptor_internal = makeOpcode(
     null,
 );
 /**
- * Schedules an assignment to a descriptor: an object with a `__set__`
- * protocol method, either the object itself (a cell, called as
- * `__set__(obj, value)`) or one of its fields through a
- * {@link DescriptorReference} (`__set__(obj, field, value)`).
+ * Schedules an assignment to a descriptor: an object with a `__set__` protocol
+ * method, either the object itself (a cell, called as `__set__(obj, value)`) or
+ * one of its fields through a {@link DescriptorReference} (`__set__(obj, field,
+ * value)`).
  *
  * If the method's value parameter is lazy, the unevaluated value block is
- * handed to the method as-is: if the method never evaluates it, the
- * right-hand side never runs, and the assignment returns the method's own
- * result (or the old value, read through `__get__` first, if that was
- * requested). Otherwise the value block is evaluated with `_` bound to the
- * old value, as for references, and the assignment returns the new or old
- * value.
+ * handed to the method as-is: if the method never evaluates it, the right-hand
+ * side never runs, and the assignment returns the method's own result (or the
+ * old value, read through `__get__` first, if that was requested). Otherwise
+ * the value block is evaluated with `_` bound to the old value, as for
+ * references, and the assignment returns the new or old value.
  */
 const assignDescriptor = (
     vm: JebVM,

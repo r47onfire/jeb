@@ -254,15 +254,15 @@ export interface JEBProtocols<V extends JebVM> {
  * The symbol under which each protocol's implementation lives when it is
  * provided by a value itself (as a method) rather than by a host-registered
  * implementation. The symbols are created with `Symbol.for`, so a Backolon
- * interned symbol with the same spelling (e.g. `:__add__`) is the same key,
- * and code written in JEB can install protocol methods on its own objects
- * with `(object (sym "__add__") (fn (self other) ...))`.
+ * interned symbol with the same spelling (e.g. `:__add__`) is the same key, and
+ * code written in JEB can install protocol methods on its own objects with
+ * `(object (sym "__add__") (fn (self other) ...))`.
  *
- * `eval` has no symbol: evaluation is the VM's own business and values do
- * not get to override it. `get` and `set` are not registry protocols (they
- * are the two halves of the reference model), but they have symbols because
- * any object with `__get__`/`__set__` methods acts as a descriptor: it can
- * be dereferenced and assigned to without being a {@link Reference} (see
+ * `eval` has no symbol: evaluation is the VM's own business and values do not
+ * get to override it. `get` and `set` are not registry protocols (they are the
+ * two halves of the reference model), but they have symbols because any object
+ * with `__get__`/`__set__` methods acts as a descriptor: it can be dereferenced
+ * and assigned to without being a {@link Reference} (see
  * {@link DescriptorReference}). `access`'s symbol is reserved; indexing a
  * descriptor object goes through its `__get__`/`__set__` methods instead.
  */
@@ -315,16 +315,15 @@ export const protocolMethod = (
 
 /**
  * A reference to one field of a descriptor object: an object that provides
- * `__get__` and/or `__set__` protocol methods. Reading through this
- * reference calls the object's `__get__` method with the object and the
- * field; assigning through it calls `__set__` with the object, the field,
- * and the value.
+ * `__get__` and/or `__set__` protocol methods. Reading through this reference
+ * calls the object's `__get__` method with the object and the field; assigning
+ * through it calls `__set__` with the object, the field, and the value.
  *
- * Unlike other references, a descriptor's methods are JEB code and cannot
- * be run synchronously, so {@link Reference#get} and {@link Reference#set}
- * cannot be implemented here: the `get` and `assign` opcodes intercept this
- * class and schedule the method calls themselves. The stubs below exist
- * only to fail loudly if some other code path tries to use one directly.
+ * Unlike other references, a descriptor's methods are JEB code and cannot be
+ * run synchronously, so {@link Reference#get} and {@link Reference#set} cannot
+ * be implemented here: the `get` and `assign` opcodes intercept this class and
+ * schedule the method calls themselves. The stubs below exist only to fail
+ * loudly if some other code path tries to use one directly.
  */
 export class DescriptorReference extends Reference {
     constructor(

@@ -57,14 +57,14 @@ An implementation MUST NOT allow user code to access or modify existing protocol
 
 ### 1.3 Protocol methods (extension)
 
-This implementation additionally lets a plain object provide protocol implementations as *methods*: functions stored on the object under well-known symbols. Each protocol (except `eval`) has such a symbol, spelled like Python's "dunder" names and created with `Symbol.for`, so an interned symbol of the same spelling in user code (e.g. `:__add__`) is the same key:
+This implementation additionally lets a plain object provide protocol implementations as _methods_: functions stored on the object under well-known symbols. Each protocol (except `eval`) has such a symbol, spelled like Python's "dunder" names and created with `Symbol.for`, so an interned symbol of the same spelling in user code (e.g. `:__add__`) is the same key:
 
 - `apply` is `__call__`, `access` is `__access__` (reserved), `unwrap` is `__unwrap__`, `name` is `__name__`
 - the math protocols are `__add__`, `__sub__`, `__mul__`, `__div__`, `__mod__`, `__pow__`, `__matMul__`, `__abs__`, `__neg__`, `__inv__`, `__bitAnd__`, `__bitOr__`, `__bitXor__`, `__shl__`, `__shr__`, `__bitNot__`, and `__cmp__`
 
 A protocol method is called with the object it was found on as its first argument, followed by the operation's own arguments (for `__cmp__`, the other operand and the relation bitset being tested). Host-registered implementations take precedence over methods, except for `cmp`, whose catch-all identity implementation would shadow every method: an object with a `__cmp__` method takes over its own comparisons entirely. Providing a method does not modify the protocol itself; dispatch for other values is unaffected.
 
-Separately, an object with `__get__` and/or `__set__` methods is a *descriptor*: it can be read and assigned like a reference without being one (see 6.4). A `__set__` method whose value parameter is lazy receives the assigned value unevaluated, so a descriptor can decline to evaluate it (this is what lets a null-chaining sentinel absorb an assignment without running its right-hand side).
+Separately, an object with `__get__` and/or `__set__` methods is a _descriptor_: it can be read and assigned like a reference without being one (see 6.4). A `__set__` method whose value parameter is lazy receives the assigned value unevaluated, so a descriptor can decline to evaluate it (this is what lets a null-chaining sentinel absorb an assignment without running its right-hand side).
 
 ## 2. Evaluation
 
@@ -247,7 +247,7 @@ A reference used as an ordinary value MUST be unwrapped by getting its current v
 
 ### 6.4 Descriptor references (extension)
 
-Indexing a descriptor object (see 1.3) does not produce an ordinary property reference. It produces a *descriptor reference*, which the `get` and `assign` operations consume by calling the object's `__get__` / `__set__` methods with the object, the field, and (for `__set__`) the value, instead of reading or writing a property. A descriptor object used directly where a reference is expected (e.g. as the target of `assign`, or through `deref`) is likewise read and assigned through its own `__get__` / `__set__` methods, with no field. Descriptors are not required to live on a class; any object carrying the methods is one.
+Indexing a descriptor object (see 1.3) does not produce an ordinary property reference. It produces a _descriptor reference_, which the `get` and `assign` operations consume by calling the object's `__get__` / `__set__` methods with the object, the field, and (for `__set__`) the value, instead of reading or writing a property. A descriptor object used directly where a reference is expected (e.g. as the target of `assign`, or through `deref`) is likewise read and assigned through its own `__get__` / `__set__` methods, with no field. Descriptors are not required to live on a class; any object carrying the methods is one.
 
 ## 7. Blocks and Sequencing
 

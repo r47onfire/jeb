@@ -69,9 +69,9 @@ export class MacroWrapper extends Wrapper {
 }
 
 /**
- * Wrapper for a descriptor object (an object with `__get__`/`__set__`
- * protocol methods) used in a value position: it unwraps by reading
- * through the object, like a {@link ReferenceWrapper} does for references.
+ * Wrapper for a descriptor object (an object with `__get__`/`__set__` protocol
+ * methods) used in a value position: it unwraps by reading through the object,
+ * like a {@link ReferenceWrapper} does for references.
  */
 export class DescriptorWrapper extends Wrapper {
     flag = "descriptor" as const;
