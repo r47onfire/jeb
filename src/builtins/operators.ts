@@ -10,6 +10,8 @@ import { theTypeName, typeOf, withType } from "../typecheck";
 import { JebVM, pushCommand, pushData } from "../vm";
 import { OP_eval } from "./eval";
 
+const None = Symbol("__none__");
+
 // MARK: Operators
 const mathLoaders: ((vm: JebVM) => void)[] = [];
 const mathHelper = (
@@ -34,10 +36,10 @@ const mathHelper = (
 ) => {
     const b = makeJSFun(
         operator,
-        ["a", ["b", NOTHING]],
+        ["a", ["b", None]],
         ({ a, b }, vm) => {
             var f: () => Result<any, any>;
-            if (b === NOTHING) {
+            if (b === None) {
                 if (op1 === undefined) {
                     throw new JEBError(
                         ErrnoCode.EINVAL,
