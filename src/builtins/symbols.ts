@@ -1,6 +1,6 @@
 import { define, makeJSFun } from "../define";
 import { gensym } from "../env";
-import { withType } from "../protocol";
+import { withType } from "../typecheck";
 import { JebVM } from "../vm";
 
 export const B_sym = makeJSFun(
@@ -17,7 +17,7 @@ export const B_sym = makeJSFun(
 ..param {string} name
 ..param {boolean?} [unique=false]
 . Returns a Javascript \`Symbol\` with the specified name.
-If \`unique\` is true, the symbol will be non-interned (created using \`Symbol(name)\`) and will only be equal to itself.
+If \`unique\` is true, the symbol will be non-interned (created using \`[[gensym]](name)\`) and will only be equal to itself.
 If \`unique\` is false, the symbol will be interned (created using \`Symbol.for(name)\`) and will only be equal to other symbols created with the same name and \`unique=false\`.
 `,
 );

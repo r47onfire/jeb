@@ -12,15 +12,9 @@ import {
 import { OP_doargs } from "../doargs";
 import { ErrnoCode } from "../errno";
 import { checkNothingOrPush, JEBError, Location } from "../errors";
-import {
-    AccessType,
-    Reference,
-    theTypeName,
-    typecheck,
-    typeOf,
-    withType,
-} from "../protocol";
+import { AccessType, Reference } from "../protocol";
 import { CallableSignature, createSignature } from "../signature";
+import { theTypeName, typecheck, typeOf, withType } from "../typecheck";
 import { Identifier } from "../utils";
 import {
     Command,

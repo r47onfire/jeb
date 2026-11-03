@@ -58,8 +58,10 @@ export {
     B_pow,
 } from "./operators";
 export { B_quasiquote, B_quote, B_unquote, B_unquoteSplicing } from "./quote";
+export * from "./reference";
 export { B_begin, B_define, B_if, B_let, B_let_in } from "./scheme";
 export { B_sym } from "./symbols";
+export * from "./unwrap";
 export {
     B_always,
     B_deref,

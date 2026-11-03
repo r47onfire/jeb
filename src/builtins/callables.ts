@@ -4,7 +4,7 @@ import { Block } from "../block";
 import { Fun } from "../callable";
 import { Continuation } from "../continuation";
 import { define, defineApplier, makeJSFun, makeOpcode } from "../define";
-import { withType } from "../protocol";
+import { withType } from "../typecheck";
 import {
     createSignature,
     Laziness,

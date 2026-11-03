@@ -7,8 +7,8 @@ import {
     EvalFlags,
     ProtocolObj,
     Reference,
-    Type,
 } from "./protocol";
+import { Type } from "./typecheck";
 import {
     CallableSignatureFromShorthand,
     createSignature,

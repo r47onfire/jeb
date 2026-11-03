@@ -22,13 +22,8 @@ import {
     locationsEqual,
     StackTreeNode,
 } from "./errors";
-import {
-    ArgcForName,
-    getProtocolHandler,
-    JEBProtocols,
-    theTypeName,
-    typeOf,
-} from "./protocol";
+import { ArgcForName, getProtocolHandler, JEBProtocols } from "./protocol";
+import { theTypeName, typeOf } from "./typecheck";
 import { Identifier, Tuple } from "./utils";
 
 /** Data for the command */

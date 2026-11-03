@@ -1,7 +1,7 @@
 import { define, makeJSFun } from "../define";
 import { ErrnoCode } from "../errno";
 import { wrapThrowToError } from "../errors";
-import { withType } from "../protocol";
+import { withType } from "../typecheck";
 import { JebVM } from "../vm";
 
 export const B_list = makeJSFun(

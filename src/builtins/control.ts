@@ -3,7 +3,7 @@ import { DynamicWind, Windable } from "../continuation";
 import { define, makeJSFun, makeOpcode, NOTHING } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
-import { withType } from "../protocol";
+import { withType } from "../typecheck";
 import { Identifier, isIdentifier } from "../utils";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { OP_apply, OP_if, OP_shuffle } from "./eval";

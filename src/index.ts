@@ -12,11 +12,11 @@ export * from "./errors";
 export * from "./implicitBegin";
 export * from "./math";
 export * from "./protocol";
-export * from "./builtins/reference";
 export * from "./signature";
-export * from "./builtins/unwrap";
+export * from "./typecheck";
 export * from "./utils";
 export * from "./vm";
+export * from "./well_known";
 export * from "./wrapper";
 
 // purely for jsdoc purposes

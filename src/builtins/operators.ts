@@ -6,7 +6,7 @@ import { define, makeJSFun, NOTHING } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError, wrapThrowToError } from "../errors";
 import { float, numberOp, Relation } from "../math";
-import { theTypeName, typeOf, withType } from "../protocol";
+import { theTypeName, typeOf, withType } from "../typecheck";
 import { JebVM, pushCommand, pushData } from "../vm";
 import { OP_eval } from "./eval";
 

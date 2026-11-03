@@ -10,13 +10,8 @@ import { Env } from "../env";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { implicitBegin } from "../implicitBegin";
-import {
-    AccessType,
-    Reference,
-    theTypeName,
-    typeOf,
-    withType,
-} from "../protocol";
+import { AccessType, Reference } from "../protocol";
+import { theTypeName, typeOf, withType } from "../typecheck";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_wrap } from "./unwrap";
 import { Identifier } from "../utils";
