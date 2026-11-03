@@ -53,6 +53,19 @@ export function typeMatches(obj: any, type: Type): number {
     }
 }
 
+/**
+ * Transforms a type predicate into something that can be used in an instanceof check.
+ * @param predicate Type predicate that checks if an object is a particular type.
+ * @returns A synthetic class that when used in an instanceof check, calls the predicate and reports that value.
+ */
+export const predicateToClass = <T>(
+    predicate: (x: unknown) => x is T,
+): abstract new (...args: unknown[]) => T => {
+    return class {
+        static [Symbol.hasInstance] = predicate;
+    } as any;
+};
+
 /** Human-readable name of a {@link Type} specifier, for error messages. */
 export const theTypeName = (type: Type) =>
     type === true ? "any" : isString(type) ? type : type.name;
@@ -78,10 +91,9 @@ export const typecheck: <T extends Type[]>(
 ) => asserts x is TypeValue<T[number]> = (x, t, paramName, args) => {
     if (!t.some((t2) => typeMatches(x, t2))) {
         const msg = `expected ${t.map((t2) => theTypeName(t2)).join(" | ")} but got ${theTypeName(typeOf(x))}: ${x}`;
-        if (paramName)
-            throw paramName
-                ? parameterError(args!, paramName, ErrnoCode.EINVAL, msg)
-                : new JEBError(ErrnoCode.EINVAL, msg);
+        throw paramName
+            ? parameterError(args!, paramName, ErrnoCode.EINVAL, msg)
+            : new JEBError(ErrnoCode.EINVAL, msg);
     }
 };
 /**
