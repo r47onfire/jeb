@@ -1,11 +1,12 @@
 import { define, makeJSFun } from "../define";
+import { gensym } from "../env";
 import { withType } from "../protocol";
 import { JebVM } from "../vm";
 
 export const B_sym = makeJSFun("sym", ["name", ["unique", false]], args => {
     const { name, unique } = args;
     const name2 = withType(name, ["string"], "name", args);
-    return withType(unique, ["boolean"], "unique", args) ? Symbol(name2) : Symbol.for(name2);
+    return withType(unique, ["boolean"], "unique", args) ? gensym(name2) : Symbol.for(name2);
 },
     `.func (sym name [unique])
 ..param {string} name
