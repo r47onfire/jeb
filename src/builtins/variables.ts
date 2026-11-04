@@ -296,6 +296,7 @@ export const B_ref = makeJSFun(
     "ref",
     [[["ref"], "ref"]],
     ({ ref }) => {
+        if (ref instanceof ReferenceWrapper) return ref.obj;
         if (protocolMethod(ref, "get") ?? protocolMethod(ref, "set"))
             // A descriptor object is its own reference.
             return ref;
