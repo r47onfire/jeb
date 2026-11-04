@@ -124,7 +124,7 @@ describe("parse builtins docstrings", () => {
         });
     });
 
-    describe("unwrapers", () => {
+    describe("unwrappers", () => {
         test.each<[string, string]>(new JebVM().protocols.unwrap!.map(t2p))("%s", (_, doc) => {
             const parsed = parseDoc(doc, UnwrapperParsers);
             expect(parsed).toBeDefined();
