@@ -176,6 +176,20 @@ export interface AccessFlags {
     type: AccessType;
 }
 
+/** Flags passed to a `get` protocol implementation for a single read. */
+export interface GetFlags {
+    /** Whether a lazy binding is bound (evaluated) by the read. */
+    shouldBind: boolean;
+}
+
+/** Flags passed to a `set` protocol implementation for a single assignment. */
+export interface SetFlags {
+    /** Whether the slot is created if it doesn't exist yet. */
+    create: boolean;
+    /** Whether the slot becomes read-only. */
+    readonly: boolean;
+}
+
 /** The capacity in which a {@link Reference} is accessed. */
 export const enum AccessType {
     VARIABLE,
@@ -206,8 +220,8 @@ export abstract class Reference {
 /**
  * The protocol registry of a VM: maps each protocol name to the list of its
  * registered implementations. The runtime protocols (`apply`, `eval`, `access`,
- * `unwrap`, `name`) drive evaluation; the rest implement the overloadable math
- * operations.
+ * `get`, `set`, `unwrap`, `name`) drive evaluation; the rest implement the
+ * overloadable math operations.
  */
 export interface JEBProtocols<V extends JebVM> {
     [x: PropertyKey]: ProtocolsList<V, unknown, any, any, any, any>;
@@ -222,6 +236,8 @@ export interface JEBProtocols<V extends JebVM> {
         void,
         AccessFlags
     >;
+    get: ProtocolsList<V, any, [Type[]], {}, void, GetFlags>;
+    set: ProtocolsList<V, void, [Type[], Type[]], {}, void, SetFlags>;
     unwrap: ProtocolsList<V, void, [(typeof Wrapper)[]], {}, void, void>;
     name: ProtocolsList<V, void, [Type[]], {}, void, { name: Identifier }>;
     // Math protocols
@@ -254,19 +270,19 @@ export interface JEBProtocols<V extends JebVM> {
 /**
  * Returns the protocol method that `obj` itself provides for the protocol
  * `name`: the callable stored on the object under the protocol's symbol, or
- * `undefined` if the object doesn't provide one. Primitives and `null` provide
- * none, and {@link Wrapper}s are not consulted (they are VM machinery; the
- * value they wrap is what carries methods). Everything else is read directly --
- * plain objects and arrays carrying methods of their own, and
- * {@link AccessReference}s, which provide `__get__` / `__set__` handlers (see
- * builtins/methods.ts).
+ * `undefined` if the object doesn't provide one. Only plain objects (and
+ * arrays) can carry protocol methods; primitives, `null`, and host class
+ * instances that are part of the VM's own machinery ({@link Reference}s and
+ * {@link Wrapper}s) are not consulted. (An {@link AccessReference} is read
+ * and assigned through the `get` / `set` protocols, not by consulting it
+ * for methods.)
  */
 export const protocolMethod = (
     obj: any,
     name: ProtocolSymbolName,
 ): any | undefined => {
     if (typeof obj !== "object" || obj === null) return undefined;
-    if (obj instanceof Wrapper) return undefined;
+    if (obj instanceof Reference || obj instanceof Wrapper) return undefined;
     return obj[PROTOCOL_SYMBOLS[name]];
 };
 

@@ -236,6 +236,14 @@ export const B_assign = makeJSFun(
             pushCommand(vm, OP_assign_internal, value as Block, wantOld);
             return ref.obj;
         }
+        if (ref instanceof AccessReference) {
+            // A bare access reference (e.g. out of (ref (index obj k))):
+            // the same access step as for a wrapped one.
+            pushCommand(vm, OP_assign_accessed, value as Block, wantOld);
+            pushCommand(vm, OP_unwrap, []);
+            pushAccessCall(vm, ref);
+            return NOTHING;
+        }
         if (protocolMethod(ref, "set")) {
             assignDescriptor(vm, ref, value as Block, wantOld);
             return NOTHING;
@@ -261,6 +269,7 @@ export const B_ref = makeJSFun(
     [[["ref"], "ref"]],
     (args) => {
         if (args.ref instanceof ReferenceWrapper) return args.ref.obj;
+        if (args.ref instanceof AccessReference) return args.ref;
         if (protocolMethod(args.ref, "get") ?? protocolMethod(args.ref, "set"))
             // A descriptor object is its own reference.
             return args.ref;

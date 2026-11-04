@@ -19,7 +19,12 @@ import {
     protocolMethod,
     Reference,
 } from "../protocol";
-import { CallableSignature, createSignature } from "../signature";
+import {
+    CallableSignature,
+    createSignature,
+    LonghandArgument,
+    Rest,
+} from "../signature";
 import { theTypeName, typecheck, typeOf, withType } from "../typecheck";
 import { Identifier } from "../utils";
 import {
@@ -359,63 +364,67 @@ export const pushMethodApply = (
     pushCommand(vm, OP_apply, args, undefined, false, true);
 };
 /**
- * Partially applies a callable to its first parameter: returns a callable that
- * calls `callee` with `value` filled in for that parameter. For a {@link Fun},
- * the result is a synthetic copy with the parameter dropped, whose body closes
- * over a child environment of the function's own in which the parameter is
- * already bound to `value`; for a {@link JSFun}, the copy's implementation
- * fills the parameter in before delegating to the original. A callable object
- * (one with a `__call__` method) is curried through its method: the method is
- * first curried with the object itself, then with `value`. The remaining
- * parameters keep their declared laziness, so arguments later given to the
- * result as expressions are evaluated (or not) exactly as the signature
- * dictates. This is how protocol methods are bound to their receivers: a method
- * is just a callable curried with the object it was found on.
+ * Partially applies a callable to its first parameter: returns a callable
+ * that calls `callee` with `value` filled in for that parameter. The
+ * callee's signature and closure environment come from the `apply`
+ * protocol's metadata, so how the callee is implemented doesn't matter:
+ * whatever it is, the result is a single {@link Fun} with the first
+ * parameter dropped, whose body is a call to the callee -- the parameter
+ * is bound to `value` (and the callee to a generated name) in a child
+ * environment of the callee's own, and each remaining parameter is
+ * forwarded with a `local` reference (a rest parameter with a `splat`),
+ * so the callee's signature decides how each argument is evaluated,
+ * exactly as if it had been called directly. This is how protocol
+ * methods are bound to their receivers: a method is just a callable
+ * curried with the object it was found on.
  */
-export const curry = (callee: any, value: any): any => {
-    if (callee instanceof Fun || callee instanceof JSFun) {
-        const first = callee.signature[0];
-        if (!first) return callee;
-        if (first.rest)
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                "a callable's first parameter can't be a rest parameter",
-            );
-        if (callee instanceof Fun)
-            return new Fun(
-                callee.isImplicit,
-                callee.name,
-                callee.signature.slice(1),
-                new Block(
-                    new Env({ [first.name]: value }, [callee.closureEnv]),
-                    callee.body.body,
-                ),
-                callee.doc,
-            );
-        return new JSFun(
-            callee.name,
-            callee.signature.slice(1),
-            (args: any, vm: JebVM, location: Location | undefined) => {
-                args[first.name] = value;
-                return callee.impl(args, vm, location);
-            },
-            callee.doc,
+export const curry = (vm: JebVM, callee: any, value: any): any => {
+    const { name, signature, closureEnv } = vm
+        .getProtocol(true, true, "apply", [callee])
+        .describe(vm, callee);
+    const first = signature[0];
+    if (!first) return callee;
+    if (first.rest)
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            "a callable's first parameter can't be a rest parameter",
         );
-    }
-    const method = protocolMethod(callee, "apply");
-    if (method) return curry(curry(method, callee), value);
-    throw new JEBError(
-        ErrnoCode.EINVAL,
-        `${theTypeName(typeOf(callee))} is not callable`,
+    const taken = new Set(signature.map((p) => p.name as string));
+    let calleeName = "__callee__";
+    while (taken.has(calleeName)) calleeName += "_";
+    const forward = (p: LonghandArgument<any, any>): any =>
+        p.rest === Rest.POSITIONAL
+            ? ["splat", ["local", p.name]]
+            : p.rest === Rest.KEYWORD
+              ? ["splat", ["local", p.name], true]
+              : ["local", p.name];
+    return new Fun(
+        false,
+        name,
+        signature.slice(1),
+        new Block(
+            new Env(
+                { [first.name]: value, [calleeName]: callee },
+                closureEnv ? [closureEnv] : [],
+            ),
+            [
+                [
+                    ["local", calleeName],
+                    ["local", first.name],
+                    ...signature.slice(1).map(forward),
+                ],
+            ],
+        ),
+        "",
     );
 };
 /**
- * Schedules a call to `callee` with `value` curried into its first parameter
- * (see {@link curry}), so the remaining arguments can be given as unevaluated
- * expressions: `OP_apply` runs without `noEval`, and the signature decides
- * whether each expression is evaluated. Used when an argument must stay
- * unevaluated -- a protocol method's receiver is a computed value and could not
- * be passed as an argument expression.
+ * Schedules a call to `callee` with `value` curried into its first
+ * parameter (see {@link curry}), so the remaining arguments can be given
+ * as unevaluated expressions: `OP_apply` runs without `noEval`, and the
+ * signature decides whether each expression is evaluated. Used when an
+ * argument must stay unevaluated -- a protocol method's receiver is a
+ * computed value and could not be passed as an argument expression.
  */
 export const pushCurriedApply = (
     vm: JebVM,
@@ -423,15 +432,9 @@ export const pushCurriedApply = (
     value: any,
     argv: any[],
 ) => {
-    pushData(vm, curry(callee, value));
+    pushData(vm, curry(vm, callee, value));
     pushCommand(vm, OP_apply, argv, undefined, false, false);
 };
-/**
- * Schedules the `__access__` call for an {@link AccessReference}: the key
- * expression is passed verbatim, so whether it is evaluated is up to the
- * method's signature. The descriptor object the method returns is left on the
- * data stack for the next command to consume.
- */
 export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
     pushCurriedApply(vm, protocolMethod(ref.obj, "access")!, ref.obj, [
         ref.key.body[0],
@@ -640,22 +643,13 @@ export const OP_get = makeOpcode(
     "get",
     (vm: JebVM, { 0: shouldBind }: [boolean]) => {
         const lvalue = popData(vm);
-        const get = protocolMethod(lvalue, "get");
-        if (get) {
-            // A descriptor: read through its __get__ method, which
-            // receives the descriptor itself.
-            pushCommand(vm, OP_unwrap, []);
-            pushMethodApply(vm, get, [lvalue]);
-            return;
-        }
-        if (lvalue instanceof Reference) {
-            checkNothingOrPush(vm, lvalue.get(vm, shouldBind));
-            return;
-        }
-        throw new JEBError(
-            ErrnoCode.EINVAL,
-            `${theTypeName(typeOf(lvalue))} is not a reference`,
-        );
+        const getter = vm.getProtocol(true, false, "get", [lvalue]);
+        if (!getter)
+            throw new JEBError(
+                ErrnoCode.EINVAL,
+                `${theTypeName(typeOf(lvalue))} is not a reference`,
+            );
+        checkNothingOrPush(vm, getter.run(vm, [lvalue], { shouldBind }));
     },
     `.imm accessType shouldBind
 ..param {AccessType} accessType
@@ -670,25 +664,17 @@ export const OP_assign = makeOpcode(
         { 0: create, 1: readonly }: [create?: boolean, readonly_?: boolean],
     ) => {
         const lvalue = popData(vm);
-        const set = protocolMethod(lvalue, "set");
-        if (set) {
-            // A descriptor: assign by calling its __set__ method. The
-            // method's result is discarded: like a reference assignment,
-            // the value being assigned stays on the stack. (The
-            // create/readonly flags only apply to references.)
-            const value = popData(vm);
-            pushData(vm, value);
-            pushMethodApply(vm, set, [lvalue, value], true);
-            return;
-        }
-        if (lvalue instanceof Reference) {
-            lvalue.set(vm, peekData(vm), create ?? false, readonly ?? false);
-            return;
-        }
-        throw new JEBError(
-            ErrnoCode.EINVAL,
-            `cannot assign to ${theTypeName(typeOf(lvalue))}`,
-        );
+        const value = peekData(vm);
+        const setter = vm.getProtocol(true, false, "set", [lvalue, value]);
+        if (!setter)
+            throw new JEBError(
+                ErrnoCode.EINVAL,
+                `cannot assign to ${theTypeName(typeOf(lvalue))}`,
+            );
+        setter.run(vm, [lvalue, value], {
+            create: create ?? false,
+            readonly: readonly ?? false,
+        });
     },
     `.imm accessType create readonly
 ..param {AccessType} accessType

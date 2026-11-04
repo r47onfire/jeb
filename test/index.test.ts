@@ -1527,6 +1527,34 @@ describe("protocol methods", () => {
         expect(run(vm, [["local", "doubler"], 21])).toBeTrue();
         expect(popData(vm)).toBe(42);
     });
+    testTest(test, "curried methods forward defaults and rest arguments", vm => {
+        // y's default mentions the receiver: it must still find it after
+        // the receiver is curried away
+        expect(run(vm, ["define", "o", ["object",
+            "inc", 10,
+            ["sym", "__call__"], ["fn",
+                ["self", "x", ["y", ["index", ["local", "self"], "inc"]]],
+                ["local", "y"]],
+        ]])).toBeTrue();
+        expect(run(vm, [["local", "o"], 1])).toBeTrue();
+        expect(popData(vm)).toBe(10);
+        expect(run(vm, [["local", "o"], 1, 5])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        // a positional rest parameter forwards through a splat
+        expect(run(vm, ["define", "o2", ["object",
+            ["sym", "__call__"], ["fn", ["self", "x", [0, "rest"]],
+                ["index", ["local", "rest"], 1]],
+        ]])).toBeTrue();
+        expect(run(vm, [["local", "o2"], 0, 20, 30])).toBeTrue();
+        expect(popData(vm)).toBe(30);
+        // and a keyword rest parameter forwards as keyword arguments
+        expect(run(vm, ["define", "o3", ["object",
+            ["sym", "__call__"], ["fn", ["self", [1, "kw"]],
+                ["index", ["local", "kw"], "bonus"]],
+        ]])).toBeTrue();
+        expect(run(vm, [["local", "o3"], ["kw", "bonus", 7]])).toBeTrue();
+        expect(popData(vm)).toBe(7);
+    });
     testTest(test, "__name__ method is told the variable's name", vm => {
         vm.currentEnv.add("seen", null);
         expect(run(vm, ["define", "thing", {

@@ -5,8 +5,10 @@ import {
     ApplyFlags,
     ApplyMetadata,
     EvalFlags,
+    GetFlags,
     ProtocolObj,
     Reference,
+    SetFlags,
 } from "./protocol";
 import { Type } from "./typecheck";
 import {
@@ -129,6 +131,36 @@ export const defineAccessor = <V extends JebVM, const T extends Type[]>(
     doc: string,
 ) => {
     vm.addProtocol("access", { type: [type], run: fn, doc });
+};
+
+/**
+ * Defines a new getter: an implementation of the `get` protocol, used by
+ * the `jeb:get` opcode to read a value out of an LValue. The implementation
+ * returns the value read, or `NOTHING` if it scheduled opcodes to produce
+ * the value (or an error is already in flight).
+ */
+export const defineGetter = <V extends JebVM, const T extends Type[]>(
+    vm: V,
+    type: T,
+    fn: ProtocolObj<V, any, [T], {}, void, GetFlags>["run"],
+    doc: string,
+) => {
+    vm.addProtocol("get", { type: [type], run: fn, doc });
+};
+
+/**
+ * Defines a new setter: an implementation of the `set` protocol, used by
+ * the `jeb:assign` opcode to assign a value to an LValue. (The value to
+ * assign is the second argument; the LValue's stack slot is not the
+ * implementation's concern.)
+ */
+export const defineSetter = <V extends JebVM, const T extends Type[]>(
+    vm: V,
+    type: T,
+    fn: ProtocolObj<V, void, [T, Type[]], {}, void, SetFlags>["run"],
+    doc: string,
+) => {
+    vm.addProtocol("set", { type: [type, [true]], run: fn, doc });
 };
 
 /** Defines a new unwrapper to define how a special wrapper should be unwrapped. */

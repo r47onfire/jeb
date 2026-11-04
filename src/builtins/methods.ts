@@ -1,7 +1,13 @@
-import { defineApplier, defineUnwrapper, makeJSFun, NOTHING } from "../define";
+import {
+    defineApplier,
+    defineGetter,
+    defineSetter,
+    defineUnwrapper,
+    NOTHING,
+} from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
-import { AccessReference, protocolMethod } from "../protocol";
+import { AccessReference, protocolMethod, Reference } from "../protocol";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
 import { ApplyMetadata } from "../protocol";
 import { predicateToClass, theTypeName, typeOf } from "../typecheck";
@@ -20,9 +26,10 @@ import { OP_unwrap } from "./unwrap";
  * Fallback protocol implementations for plain objects that provide their own
  * protocol methods: functions stored on the object under the protocols' symbols
  * (see {@link PROTOCOL_SYMBOLS}). These are what let code written in JEB itself
- * overload calls, indexing, naming, and unwrapping, and (through the operator
- * builtins) the math operations, instead of only host code being able to
- * register protocol implementations.
+ * overload calls, indexing, naming, unwrapping, and reading and assignment,
+ * and (through the operator builtins) the math operations, instead of only
+ * host code being able to register protocol implementations. The `get` / `set`
+ * implementations for references and access references also live here.
  *
  * Each fallback is registered for a pseudoclass matching exactly the values
  * that provide that protocol's method, so a fallback is only ever selected when
@@ -79,14 +86,14 @@ const loadMethodApplier = (vm: JebVM) =>
         vm,
         [hasMethod("apply")],
         (vm, { 0: obj }, { tail, location }) => {
-            const bound = curry(protocolMethod(obj, "apply")!, obj);
+            const bound = curry(vm, protocolMethod(obj, "apply")!, obj);
             vm.getProtocol(true, true, "apply", [bound]).run(vm, [bound], {
                 tail,
                 location,
             });
         },
         (vm, obj) =>
-            methodMetadata(vm, curry(protocolMethod(obj, "apply")!, obj)),
+            methodMetadata(vm, curry(vm, protocolMethod(obj, "apply")!, obj)),
         "An object with a __call__ protocol method is callable through that method, with the object as the method's first argument.",
     );
 
@@ -157,43 +164,90 @@ const scheduleAccess = (vm: JebVM, ref: AccessReference) => {
 };
 
 /**
- * An {@link AccessReference} reads and assigns through the descriptor its
- * object's `__access__` method returns, so the reference itself provides
- * `__get__` / `__set__` handlers: the `get` and `assign` opcodes handle it
- * through their ordinary descriptor paths, with no special case. The handlers
- * are host functions like the other fallbacks in this file, installed on the
- * class prototype.
+ * Reading a reference goes through its `get()`; assigning to one goes
+ * through its `set()`, with the assignment flags.
  */
-const loadAccessReferenceMethods = () => {
-    Object.assign(AccessReference.prototype, {
-        [PROTOCOL_SYMBOLS.get]: makeJSFun(
-            "AccessReference.__get__",
-            ["self"],
-            ({ self }: any, vm: JebVM) => {
-                pushCommand(vm, OP_accessed_get);
-                pushCommand(vm, OP_unwrap, []);
-                scheduleAccess(vm, self);
-                return NOTHING;
-            },
-            "Reads an access reference through the descriptor its object's __access__ method returns.",
-        ),
-        [PROTOCOL_SYMBOLS.set]: makeJSFun(
-            "AccessReference.__set__",
-            ["self", "value"],
-            ({ self, value }: any, vm: JebVM) => {
-                pushCommand(vm, OP_accessed_set);
-                pushCommand(vm, OP_unwrap, []);
-                scheduleAccess(vm, self);
-                return value;
-            },
-            "Assigns an access reference through the descriptor its object's __access__ method returns.",
-        ),
-    });
+const loadReferenceGetSet = (vm: JebVM) => {
+    defineGetter(
+        vm,
+        [Reference],
+        (vm, { 0: ref }, { shouldBind }) => ref.get(vm, shouldBind),
+        "Reads a reference by calling its get() method.",
+    );
+    defineSetter(
+        vm,
+        [Reference],
+        (vm, { 0: ref, 1: value }, { create, readonly }) => {
+            ref.set(vm, value, create, readonly);
+        },
+        "Assigns to a reference by calling its set() method.",
+    );
+};
+
+/**
+ * A descriptor (an object with `__get__` / `__set__` methods) is read and
+ * assigned through those methods, which receive the descriptor itself.
+ * (The assignment flags only apply to references, so the `__set__`
+ * implementation doesn't see them.)
+ */
+const loadMethodGetSet = (vm: JebVM) => {
+    defineGetter(
+        vm,
+        [hasMethod("get")],
+        (vm, { 0: obj }) => {
+            pushCommand(vm, OP_unwrap, []);
+            pushMethodApply(vm, protocolMethod(obj, "get")!, [obj]);
+            return NOTHING;
+        },
+        "Reads a descriptor by calling its __get__ protocol method.",
+    );
+    defineSetter(
+        vm,
+        [hasMethod("set")],
+        (vm, { 0: obj, 1: value }) => {
+            pushMethodApply(vm, protocolMethod(obj, "set")!, [obj, value], true);
+        },
+        "Assigns to a descriptor by calling its __set__ protocol method.",
+    );
+};
+
+/**
+ * An {@link AccessReference} reads and assigns through the descriptor its
+ * object's `__access__` method returns: the handlers schedule the access
+ * call and then read or assign through the returned descriptor.
+ * (Registered last of the `get` / `set` implementations: an access
+ * reference is also a {@link Reference}, and its own implementation must
+ * win over the reference one.)
+ */
+const loadAccessReferenceGetSet = (vm: JebVM) => {
+    defineGetter(
+        vm,
+        [AccessReference],
+        (vm, { 0: ref }) => {
+            pushCommand(vm, OP_accessed_get);
+            pushCommand(vm, OP_unwrap, []);
+            scheduleAccess(vm, ref);
+            return NOTHING;
+        },
+        "Reads an access reference through the descriptor its object's __access__ method returns.",
+    );
+    defineSetter(
+        vm,
+        [AccessReference],
+        (vm, { 0: ref }) => {
+            pushCommand(vm, OP_accessed_set);
+            pushCommand(vm, OP_unwrap, []);
+            scheduleAccess(vm, ref);
+        },
+        "Assigns an access reference through the descriptor its object's __access__ method returns.",
+    );
 };
 
 export const loadProtocolMethods = (vm: JebVM) => {
     loadMethodApplier(vm);
     loadNameMethod(vm);
     loadUnwrapMethod(vm);
-    loadAccessReferenceMethods();
+    loadReferenceGetSet(vm);
+    loadMethodGetSet(vm);
+    loadAccessReferenceGetSet(vm);
 };
