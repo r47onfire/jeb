@@ -10,12 +10,7 @@ import { Env } from "../env";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { implicitBegin } from "../implicitBegin";
-import {
-    AccessReference,
-    AccessType,
-    protocolMethod,
-    Reference,
-} from "../protocol";
+import { AccessReference, AccessType, protocolMethod } from "../protocol";
 import { Laziness } from "../signature";
 import { theTypeName, typeOf, withType } from "../typecheck";
 import { Identifier } from "../utils";
@@ -257,20 +252,6 @@ export const B_assign = makeJSFun(
             pushCommand(vm, OP_assign_internal, value as Block, wantOld);
             return ref.obj;
         }
-        if (ref instanceof AccessReference) {
-            // A bare access reference (e.g. out of (ref (index obj k))):
-            // the same access step as for a wrapped one.
-            pushCommand(
-                vm,
-                OP_assign_accessed,
-                value as Block,
-                wantOld,
-                ref.propertyName,
-            );
-            pushCommand(vm, OP_unwrap, []);
-            pushAccessCall(vm, ref);
-            return NOTHING;
-        }
         const set = protocolMethod(ref, "set");
         if (set) {
             assignDescriptor(vm, ref, set, value as Block, wantOld);
@@ -337,7 +318,7 @@ export const B_always = makeJSFun(
             );
         for (var i = 0; i < refs!.length; i++) {
             const ref = refs![i]!;
-            // TODO: how to reference the bad parameter in traceback?
+            // TODO: how to reference a bad rest parameter in traceback?
             if (!(ref instanceof ReferenceWrapper)) {
                 throw new JEBError(ErrnoCode.EINVAL, "not a reference");
             }
