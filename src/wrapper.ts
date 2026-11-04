@@ -1,7 +1,5 @@
 import { Reference } from "./protocol";
 
-const TAG: unique symbol = Symbol.for("__tag__");
-
 /**
  * Represents a wrapped value that only appears as a directly-usable value under
  * certain circumstances
@@ -12,10 +10,6 @@ export abstract class Wrapper {
      * wrapper whose flag appears in its `dontUnwrap` list.
      */
     abstract flag: string;
-    /** The wrapper's tag, said through the `__tag__` protocol property. */
-    get [TAG](): string {
-        return this.flag;
-    }
     /** @param obj The wrapped value */
     constructor(readonly obj: any) {}
 }

@@ -171,8 +171,13 @@ export const defineUnwrapper = <
 >(
     vm: JebVM,
     type: T,
-    fn: ProtocolObj<V, void, [T], {}, void, void>["run"],
+    fn: ProtocolObj<V, void, [T], {}, string, void>["run"],
     doc: string,
 ) => {
-    vm.addProtocol("unwrap", { type: [type], run: fn, doc });
+    vm.addProtocol("unwrap", {
+        type: [type],
+        run: fn,
+        describe: (vm, wrapper) => wrapper.flag,
+        doc,
+    });
 };

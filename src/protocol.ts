@@ -7,7 +7,12 @@ import { ErrnoCode } from "./errno";
 import { JEBError, Location } from "./errors";
 import { Relation } from "./math";
 import { CallableSignature } from "./signature";
-import { Type, TypeMap, typeMatches } from "./typecheck";
+import {
+    predicateToClass,
+    Type,
+    TypeMap,
+    typeMatches,
+} from "./typecheck";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "./well_known";
@@ -238,7 +243,7 @@ export interface JEBProtocols<V extends JebVM> {
     >;
     get: ProtocolsList<V, any, [Type[]], {}, void, GetFlags>;
     set: ProtocolsList<V, void, [Type[], Type[]], {}, void, SetFlags>;
-    unwrap: ProtocolsList<V, void, [(typeof Wrapper)[]], {}, void, void>;
+    unwrap: ProtocolsList<V, void, [(typeof Wrapper)[]], {}, string, void>;
     name: ProtocolsList<V, void, [Type[]], {}, void, { name: Identifier }>;
     // Math protocols
     add: BinaryProtocolToResult<V>;
@@ -340,6 +345,22 @@ export class AccessReference extends Reference {
 }
 
 /** The number of arguments the protocol `N` takes. */
+/**
+ * Pseudoclass matching the values that are wrappers by providing the two
+ * wrapper properties: a `__tag__` (their tag, as a plain property -- a tag
+ * is never computed, so reading it is synchronous) and a `__unwrap__`
+ * method. References are read and assigned, never unwrapped, so they do
+ * not match.
+ */
+export const Unwrappable = predicateToClass(
+    (x): x is Record<PropertyKey, any> =>
+        typeof x === "object" &&
+        x !== null &&
+        !(x instanceof Reference) &&
+        (x as any)[PROTOCOL_SYMBOLS.tag] !== undefined &&
+        (x as any)[PROTOCOL_SYMBOLS.unwrap] !== undefined,
+);
+
 export type ArgcForName<V extends JebVM, N extends keyof JEBProtocols<V>> =
     JEBProtocols<V>[N] extends ProtocolsList<V, any, infer N, any, any>
         ? N["length"]

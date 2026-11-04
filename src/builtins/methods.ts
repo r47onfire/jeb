@@ -2,12 +2,16 @@ import {
     defineApplier,
     defineGetter,
     defineSetter,
-    defineUnwrapper,
     NOTHING,
 } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
-import { AccessReference, protocolMethod, Reference } from "../protocol";
+import {
+    AccessReference,
+    protocolMethod,
+    Reference,
+    Unwrappable,
+} from "../protocol";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
 import { ApplyMetadata } from "../protocol";
 import { predicateToClass, theTypeName, typeOf } from "../typecheck";
@@ -122,36 +126,25 @@ const loadNameMethod = (vm: JebVM) =>
     });
 
 /**
- * Pseudoclass matching the values that provide a `__unwrap__` method: a
- * value with a `__tag__` and no dedicated unwrapper is unwrapped by
- * calling the method and using its result. (Unlike the other method
- * fallbacks this one also matches host class instances: saying a tag is
- * not limited to plain objects. `OP_unwrap` only dispatches here after
- * the value's tag has passed its flag lists, and references are read and
- * assigned, never unwrapped, so they are excluded.)
+ * A value that is a wrapper by providing the wrapper properties
+ * ({@link Unwrappable}) is unwrapped by calling its `__unwrap__` method
+ * and using the result; its tag, for the `unwrap` protocol's describe,
+ * is its `__tag__` property.
  */
-const HasUnwrapMethod = predicateToClass(
-    (x): x is Record<PropertyKey, any> =>
-        typeof x === "object" &&
-        x !== null &&
-        !(x instanceof Reference) &&
-        (x as any)[PROTOCOL_SYMBOLS.unwrap] !== undefined,
-);
-
 const loadUnwrapMethod = (vm: JebVM) =>
-    defineUnwrapper(
-        vm,
-        // The pseudoclass matches any value carrying the method, not
-        // just Wrapper subclasses, so it does not fit defineUnwrapper's
-        // Wrapper-typed signature.
-        [HasUnwrapMethod] as any,
-        (vm, { 0: wrapper }) => {
+    vm.addProtocol("unwrap", {
+        // The pseudoclass matches any value carrying the properties,
+        // not just Wrapper subclasses, so it does not fit the unwrap
+        // protocol's Wrapper-typed signature.
+        type: [[Unwrappable]] as any,
+        run: (vm, { 0: wrapper }) => {
             pushMethodApply(vm, (wrapper as any)[PROTOCOL_SYMBOLS.unwrap], [
                 wrapper,
             ]);
         },
-        "Unwraps a wrapper by calling its __unwrap__ protocol method.",
-    );
+        describe: (vm, wrapper) => (wrapper as any)[PROTOCOL_SYMBOLS.tag],
+        doc: "Unwraps a wrapper by calling its __unwrap__ protocol method.",
+    });
 
 /**
  * Reading a reference goes through its `get()`; assigning to one goes through

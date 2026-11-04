@@ -1629,23 +1629,23 @@ describe("protocol methods", () => {
         expect(unwrapAll(new ForeignWrapper(42), ["foreign"])).toBeInstanceOf(ForeignWrapper);
         // otherwise OP_unwrap unwraps it like any other wrapper
         expect(unwrapAll(new ForeignWrapper(42))).toBe(42);
-        // the tag may sit behind a descriptor
+        // a tag is a plain property, never computed: a __tag__ held by a
+        // descriptor object is not a tag at all, so this is not a wrapper
         const descriptorTagged = {
             [Symbol.for("__tag__")]: {
                 [Symbol.for("__get__")]: makeJSFun("getTag", ["self"], () => "described", "test tag descriptor"),
             },
             [Symbol.for("__unwrap__")]: makeJSFun("unwrapDescribed", ["self"], () => 42, "test unwrapper"),
         };
-        expect(unwrapAll(descriptorTagged, ["described"])).toBe(descriptorTagged);
-        expect(unwrapAll(descriptorTagged)).toBe(42);
-        // and with no direct __tag__ at all, it is read through __access__
+        expect(unwrapAll(descriptorTagged)).toBe(descriptorTagged);
+        // and a tag that only exists behind __access__ does not count
+        // either: OP_unwrap never probes an accessed object for one
         const accessedTagged = {
             [Symbol.for("__access__")]: makeJSFun("accessTag", ["self", "k"], () => ({
                 [Symbol.for("__get__")]: makeJSFun("getAccessedTag", ["self"], () => "accessed", "test tag descriptor"),
             }), "test access"),
             [Symbol.for("__unwrap__")]: makeJSFun("unwrapAccessed", ["self"], () => 42, "test unwrapper"),
         };
-        expect(unwrapAll(accessedTagged, ["accessed"])).toBe(accessedTagged);
-        expect(unwrapAll(accessedTagged)).toBe(42);
+        expect(unwrapAll(accessedTagged)).toBe(accessedTagged);
     });
 });

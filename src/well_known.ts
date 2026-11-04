@@ -8,8 +8,8 @@
  *
  * `eval` has no symbol: evaluation is the VM's own business and values do not
  * get to override it. `__tag__` is not a protocol of its own: it is the
- * property by which a wrapper says its tag, which `OP_unwrap` reads (through
- * `__access__` / `__get__` if necessary) before dispatching `unwrap`. `get` and `set` are registry protocols (the two halves of
+ * plain property by which a wrapper object says its tag, which the
+ * `unwrap` protocol's describe reads synchronously. `get` and `set` are registry protocols (the two halves of
  * the reference model, generalized): their symbols are the keys under which a
  * descriptor object provides them as methods, so any object with
  * `__get__`/`__set__` methods can be dereferenced and assigned to without being
