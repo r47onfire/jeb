@@ -1401,6 +1401,77 @@ describe("protocol methods", () => {
         expect(run(vm, ["index", ["local", "c"], "x"])).toBeTrue();
         expect(popData(vm)).toBe(5);
     });
+    testTest(test, "__access__ returns a descriptor for the property", vm => {
+        expect(run(vm, ["define", "makeAccessed", ["fn", [], ["begin",
+            ["define", "data", ["object"]],
+            ["object",
+                ["sym", "__access__"], ["fn", ["self", "k"], ["object",
+                    ["sym", "__get__"], ["fn", ["s"], ["index", ["local", "data"], ["local", "k"]]],
+                    ["sym", "__set__"], ["fn", ["s", "v"], ["assign", ["index", ["local", "data"], ["local", "k"]], ["local", "v"]]],
+                ]],
+            ],
+        ]]])).toBeTrue();
+        expect(run(vm, ["define", "c", ["makeAccessed"]])).toBeTrue();
+        expect(run(vm, ["assign", ["index", ["local", "c"], "x"], 5])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        expect(run(vm, ["index", ["local", "c"], "x"])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        // a stored reference accesses through __access__ when it is used
+        expect(run(vm, ["define", "r", ["ref", ["index", ["local", "c"], "x"]]])).toBeTrue();
+        popData(vm);
+        expect(run(vm, ["deref", ["local", "r"]])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        // a descriptor without __get__ cannot be read
+        expect(run(vm, ["define", "bad", {
+            [Symbol.for("__access__")]: ["fn", ["self", "k"], ["object"]],
+        }])).toBeTrue();
+        expect(() => run(vm, ["index", ["local", "bad"], "x"])).toThrow(/has no __get__ method/);
+    });
+    testTest(test, "__access__ decides whether the key is evaluated", vm => {
+        vm.currentEnv.add("count", 0);
+        expect(run(vm, ["define", "bump", ["fn", [], ["begin",
+            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
+            99,
+        ]]])).toBeTrue();
+        // a lazy key parameter: the key expression never runs
+        expect(run(vm, ["define", "lazyTracker", {
+            [Symbol.for("__access__")]: ["fn", ["self", [false, "k"]], ["object",
+                ["sym", "__get__"], ["fn", ["s"], "seen"],
+            ]],
+        }])).toBeTrue();
+        expect(run(vm, ["index", ["local", "lazyTracker"], ["bump"]])).toBeTrue();
+        expect(popData(vm)).toBe("seen");
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+        // a normal key parameter: the key is evaluated and passed in
+        expect(run(vm, ["define", "eagerTracker", {
+            [Symbol.for("__access__")]: ["fn", ["self", "k"], ["object",
+                ["sym", "__get__"], ["fn", ["s"], ["local", "k"]],
+            ]],
+        }])).toBeTrue();
+        expect(run(vm, ["index", ["local", "eagerTracker"], ["bump"]])).toBeTrue();
+        expect(popData(vm)).toBe(99);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(1);
+    });
+    testTest(test, "__access__ descriptor's __set__ decides whether the value is evaluated", vm => {
+        vm.currentEnv.add("count", 0);
+        expect(run(vm, ["define", "bump", ["fn", [], ["begin",
+            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
+            99,
+        ]]])).toBeTrue();
+        expect(run(vm, ["define", "sink", {
+            [Symbol.for("__access__")]: ["fn", ["self", "k"], ["object",
+                ["sym", "__set__"], ["fn", ["s", [false, "v"]], 12345],
+            ]],
+        }])).toBeTrue();
+        // the lazy __set__ never evaluates the right-hand side, and the
+        // assignment returns the method's own result
+        expect(run(vm, ["assign", ["index", ["local", "sink"], "k"], ["bump"]])).toBeTrue();
+        expect(popData(vm)).toBe(12345);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+    });
     testTest(test, "lazy __set__ and __call__: the hole never evaluates what it ignores", vm => {
         vm.currentEnv.add("count", 0);
         expect(run(vm, ["define", "bump", ["fn", [], ["begin",
