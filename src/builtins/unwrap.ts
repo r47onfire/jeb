@@ -45,8 +45,8 @@ export const OP_unwrap = makeOpcode(
     "unwrap",
     (vm, { 0: flags, 1: only }: [string[], only?: boolean]) => {
         const top = peekData(vm);
-        // TODO: check protocol compatibility here?
-        if (top instanceof Wrapper && !flags.includes(top.flag) === !only) {
+        const wrapper = vm.getProtocol(true, false, "wrapper", [top]);
+        if (wrapper && !flags.includes(wrapper.run(vm, [top])) === !only) {
             popData(vm);
             pushCommand(vm, OP_unwrap, flags, only);
             vm.getProtocol(false, true, "unwrap", [top]).run(vm, [top]);
@@ -56,10 +56,17 @@ export const OP_unwrap = makeOpcode(
 .param {string[]} flags
 .param {boolean?} [only=false]
 .sed value -- unwrapped
-. Unwraps all wrappers from the value, when the value's wrapper has a tag in the given list of \`flags\` (when \`only\` is true) or when the value's wrapper has a flag *not* in the list of \`flags\` (when \`only\` is false).`,
+. Unwraps all wrappers from the value, when the value's wrapper has a tag in the given list of \`flags\` (when \`only\` is true) or when the value's wrapper has a flag *not* in the list of \`flags\` (when \`only\` is false). Whether the value is a wrapper at all, and what its tag is, is determined by the \`wrapper\` protocol.`,
 );
 
 export const loadUnwrappingBuiltins = (vm: JebVM) => {
+    // A Wrapper says its tag with its flag; host classes that do not
+    // extend Wrapper can register their own tag with defineWrapper.
+    vm.addProtocol("wrapper", {
+        type: [[Wrapper]],
+        run: (vm, { 0: wrapper }) => wrapper.flag,
+        doc: "A wrapper's tag is its flag.",
+    });
     defineUnwrapper(
         vm,
         [ReferenceWrapper],

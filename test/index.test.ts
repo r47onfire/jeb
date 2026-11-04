@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_get, OP_set, OP_shuffle, OP_unwrap, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typecheck, typeMatches, withType, Wrapper } from "../src";
+import { argumentLocation, define, defineUnwrapper, defineWrapper, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_get, OP_set, OP_shuffle, OP_unwrap, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typecheck, typeMatches, withType, Wrapper } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -1585,5 +1585,22 @@ describe("protocol methods", () => {
         pushCommand(vm, OP_unwrap, []);
         while (vm.step());
         expect(popData(vm)).toBe(123);
+    });
+    testTest(test, "OP_unwrap goes by the wrapper protocol, not the Wrapper class", vm => {
+        class ForeignWrapper {
+            constructor(readonly obj: any) {}
+        }
+        defineWrapper(vm, [ForeignWrapper], "foreign", "A test wrapper that does not extend Wrapper.");
+        defineUnwrapper(vm, [ForeignWrapper as any], (vm, { 0: w }) => pushData(vm, (w as any).obj), "Unwraps a foreign wrapper.");
+        // a flag list naming its tag leaves it alone
+        pushData(vm, new ForeignWrapper(42));
+        pushCommand(vm, OP_unwrap, ["foreign"]);
+        while (vm.step());
+        expect(popData(vm)).toBeInstanceOf(ForeignWrapper);
+        // otherwise OP_unwrap unwraps it like any other wrapper
+        pushData(vm, new ForeignWrapper(42));
+        pushCommand(vm, OP_unwrap, []);
+        while (vm.step());
+        expect(popData(vm)).toBe(42);
     });
 });

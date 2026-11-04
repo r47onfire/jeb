@@ -52,6 +52,7 @@ The standard protocols are:
 - `get`
 - `set`
 - `unwrap`
+- `wrapper`
 
 When multiple protocol implementations match, dispatch SHOULD choose the most specific applicable implementation. If no implementation matches, the operation MUST throw an appropriate type error or return the documented no-handler result.
 
