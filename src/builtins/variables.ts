@@ -289,25 +289,26 @@ export const B_assign = makeJSFun(
 .throws ENAME - if the value is not defined anywhere
 .returns {old ? U : T}
 . Changes the value of the slot, and returns the new or old value as determined by \`old\`.
-. The slot may also be a descriptor (an object with a \`__set__\` protocol method, or a descriptor returned by an \`__access__\` method): the assignment then calls that method instead. If the method's value parameter is lazy it receives the value unevaluated, and the assignment returns the method's result instead.`,
+The slot may also be a descriptor (an object with a \`__set__\` protocol method, or a descriptor returned by an \`__access__\` method): the assignment then calls that method instead. If the method's value parameter is lazy it receives the value unevaluated, and the assignment returns the method's result instead.`,
 );
 
 export const B_ref = makeJSFun(
     "ref",
     [[["ref"], "ref"]],
-    (args) => {
-        if (args.ref instanceof ReferenceWrapper) return args.ref.obj;
-        if (args.ref instanceof AccessReference) return args.ref;
-        if (protocolMethod(args.ref, "get") ?? protocolMethod(args.ref, "set"))
+    ({ ref }) => {
+        if (protocolMethod(ref, "get") ?? protocolMethod(ref, "set"))
             // A descriptor object is its own reference.
-            return args.ref;
-        return withType(args.ref, [ReferenceWrapper], "ref", args).obj;
+            return ref;
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            `${theTypeName(typeOf(ref))} is not assignable`,
+        );
     },
     `.macro (ref x)
 ..param {[assignable location]} x
 .pure
 . Asserts that \`x\` is a valid assignable, and then returns a reference to it, which can be assigned to or read with [[deref]].
-. A descriptor (an object with \`__get__\`/\`__set__\` protocol methods) is its own reference, and is returned as-is.`,
+A descriptor (an object with \`__get__\`/\`__set__\` protocol methods) is its own reference, and is returned as-is.`,
 );
 
 export const B_deref = makeJSFun(
@@ -318,7 +319,7 @@ export const B_deref = makeJSFun(
 ..param {Reference | descriptor} x
 .pure
 . Asserts that \`x\` is a valid reference value created by [[ref]], and then returns the value stored in the reference.
-. A descriptor (an object with a \`__get__\` protocol method) may be given instead of a reference; the value read through it is returned.
+A descriptor (an object with a \`__get__\` protocol method) may be given instead of a reference; the value read through it is returned.
 This function works with [[assign]] to be able to change the value of the reference as well.`,
 );
 
