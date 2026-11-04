@@ -4,8 +4,8 @@ import { loadControlBuiltins } from "./control";
 import { loadEvalBuiltins } from "./eval";
 import { loadFFIBuiltins } from "./ffi";
 import { loadJsonBuiltins } from "./json";
-import { loadProtocolMethods } from "./methods";
 import { loadDataBuiltins } from "./lists";
+import { loadProtocolMethods } from "./methods";
 import { loadOperatorsBuiltins } from "./operators";
 import { loadQuoteBuiltins } from "./quote";
 import { loadVarNamingBuiltins } from "./reference";
@@ -67,11 +67,12 @@ export { B_sym } from "./symbols";
 export * from "./unwrap";
 export {
     B_always,
+    B_assign,
     B_deref,
     B_index,
     B_local,
     B_ref,
-    B_assign as B_set,
+    OP_push_value,
     OP_set_env,
 } from "./variables";
 

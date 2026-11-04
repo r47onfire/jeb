@@ -18,21 +18,21 @@ import {
 } from "../protocol";
 import { Laziness } from "../signature";
 import { theTypeName, typeOf, withType } from "../typecheck";
-import { ObjectPropertyReference, VariableReference } from "./reference";
-import { OP_unwrap, OP_wrap } from "./unwrap";
 import { Identifier } from "../utils";
 import { JebVM, peekData, popData, pushCommand, pushData } from "../vm";
 import { ReferenceWrapper } from "../wrapper";
 import {
     accessedSetter,
     OP_apply,
+    OP_assign,
     OP_get,
     OP_index,
-    OP_assign,
     OP_shuffle,
     pushAccessCall,
     pushMethodApply,
 } from "./eval";
+import { ObjectPropertyReference, VariableReference } from "./reference";
+import { OP_unwrap, OP_wrap } from "./unwrap";
 
 // MARK: variables
 const accessorInit = (vm: JebVM) => {
@@ -121,7 +121,7 @@ const OP_assign_internal = makeOpcode(
     null,
 );
 /** Pushes an already-computed value onto the data stack as a command. */
-const OP_push_value = makeOpcode(
+export const OP_push_value = makeOpcode(
     null,
     (vm: JebVM, { 0: value }: [any]) => pushData(vm, value),
     null,
@@ -207,18 +207,22 @@ const assignDescriptor = (
 };
 /**
  * Continuation of an assignment through an {@link AccessReference} from the
- * `assign` builtin: the descriptor object returned by `__access__` is on top
- * of the data stack; assign to it as a bare descriptor (see
+ * `assign` builtin: the descriptor object returned by `__access__` is on top of
+ * the data stack; assign to it as a bare descriptor (see
  * {@link assignDescriptor}). Unlike `OP_accessed_set` (the `assign` opcode's
- * continuation in eval.ts), the value here is still the unevaluated
- * right-hand side expression, so the descriptor's `__set__` signature
- * decides whether it is evaluated.
+ * continuation in eval.ts), the value here is still the unevaluated right-hand
+ * side expression, so the descriptor's `__set__` signature decides whether it
+ * is evaluated.
  */
 const OP_assign_accessed = makeOpcode(
     null,
     (
         vm: JebVM,
-        { 0: value, 1: wantOld, 2: property }: [Block, boolean, string | undefined],
+        {
+            0: value,
+            1: wantOld,
+            2: property,
+        }: [Block, boolean, string | undefined],
     ) => {
         const descriptor = popData(vm);
         assignDescriptor(

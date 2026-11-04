@@ -435,11 +435,14 @@ export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
     ]);
 };
 /**
- * The `__get__` method of a descriptor returned by `__access__`; throws if
- * the property cannot be read through it. `property` is the accessed
- * property's name, when it is statically known.
+ * The `__get__` method of a descriptor returned by `__access__`; throws if the
+ * property cannot be read through it. `property` is the accessed property's
+ * name, when it is statically known.
  */
-export const accessedGetter = (descriptor: any, property: string | undefined) => {
+export const accessedGetter = (
+    descriptor: any,
+    property: string | undefined,
+) => {
     const get = protocolMethod(descriptor, "get");
     if (!get)
         throw new JEBError(
@@ -451,11 +454,14 @@ export const accessedGetter = (descriptor: any, property: string | undefined) =>
     return get;
 };
 /**
- * The `__set__` method of a descriptor returned by `__access__`; throws if
- * the property cannot be assigned through it. `property` is the accessed
- * property's name, when it is statically known.
+ * The `__set__` method of a descriptor returned by `__access__`; throws if the
+ * property cannot be assigned through it. `property` is the accessed property's
+ * name, when it is statically known.
  */
-export const accessedSetter = (descriptor: any, property: string | undefined) => {
+export const accessedSetter = (
+    descriptor: any,
+    property: string | undefined,
+) => {
     const set = protocolMethod(descriptor, "set");
     if (!set)
         throw new JEBError(
@@ -492,10 +498,12 @@ export const OP_accessed_set = makeOpcode(
     null,
     (vm: JebVM, { 0: property }: [string | undefined]) => {
         const descriptor = popData(vm);
-        pushMethodApply(vm, accessedSetter(descriptor, property), [
-            descriptor,
-            peekData(vm),
-        ], true);
+        pushMethodApply(
+            vm,
+            accessedSetter(descriptor, property),
+            [descriptor, peekData(vm)],
+            true,
+        );
     },
     null,
 );

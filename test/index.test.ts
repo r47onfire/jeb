@@ -1443,7 +1443,7 @@ describe("protocol methods", () => {
         vm.error = undefined;
         expect(() => run(vm, ["assign", ["index", ["local", "bad"], ["add", "x", ""]], 1])).toThrow("property is not writable");
     });
-    testTest(test, "__access__ decides whether the key is evaluated", vm => {
+    testTest(test, "__access__ can be lazy", vm => {
         vm.currentEnv.add("count", 0);
         expect(run(vm, ["define", ["bump"], ["begin",
             ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
@@ -1470,7 +1470,7 @@ describe("protocol methods", () => {
         expect(run(vm, ["local", "count"])).toBeTrue();
         expect(popData(vm)).toBe(1);
     });
-    testTest(test, "__access__ descriptor's __set__ decides whether the value is evaluated", vm => {
+    testTest(test, "__set__ can be lazy", vm => {
         vm.currentEnv.add("count", 0);
         expect(run(vm, ["define", ["bump"], ["begin",
             ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
@@ -1488,7 +1488,7 @@ describe("protocol methods", () => {
         expect(run(vm, ["local", "count"])).toBeTrue();
         expect(popData(vm)).toBe(0);
     });
-    testTest(test, "lazy __set__ and __call__: the hole never evaluates what it ignores", vm => {
+    testTest(test, "__call__ can be lazy", vm => {
         vm.currentEnv.add("count", 0);
         expect(run(vm, ["define", ["bump"], ["begin",
             ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
@@ -1514,7 +1514,7 @@ describe("protocol methods", () => {
         expect(run(vm, ["local", "count"])).toBeTrue();
         expect(popData(vm)).toBe(0);
     });
-    testTest(test, "a callable object can serve as a protocol method", vm => {
+    testTest(test, "other methods can be a thing with a __call__", vm => {
         // the __access__ "method" stored on this object is itself an
         // object, callable through its own __call__ (whose parameters are
         // the method object, then the indexed object, then the key)
@@ -1537,7 +1537,7 @@ describe("protocol methods", () => {
         expect(run(vm, [["local", "doubler"], 21])).toBeTrue();
         expect(popData(vm)).toBe(42);
     });
-    testTest(test, "curried methods forward defaults and rest arguments", vm => {
+    testTest(test, "currying works", vm => {
         // y's default mentions the receiver: it must still find it after
         // the receiver is curried away
         expect(run(vm, ["define", "o", ["object",
@@ -1565,7 +1565,7 @@ describe("protocol methods", () => {
         expect(run(vm, [["local", "o3"], ["kw", "bonus", 7]])).toBeTrue();
         expect(popData(vm)).toBe(7);
     });
-    testTest(test, "__name__ method is told the variable's name", vm => {
+    testTest(test, "__name__ method", vm => {
         vm.currentEnv.add("seen", null);
         expect(run(vm, ["define", "thing", {
             [Symbol.for("__name__")]: ["fn", ["self", "n"], ["assign", ["local", "seen"], ["local", "n"]]],
@@ -1573,11 +1573,10 @@ describe("protocol methods", () => {
         expect(run(vm, ["local", "seen"])).toBeTrue();
         expect(popData(vm)).toBe("thing");
     });
-    testTest(test, "__unwrap__ method unwraps a wrapper with no dedicated unwrapper", vm => {
-        class TestWrapper extends Wrapper {
-            flag = "test";
-            constructor(obj: any) {
-                super(obj);
+    testTest(test, "__unwrap__ method", vm => {
+        class TestWrapper {
+            constructor(public obj: any) {
+                (this as any)[Symbol.for("__tag__")] = "test";
                 (this as any)[Symbol.for("__unwrap__")] = makeJSFun("unwrapTest", ["self"], () => 123, "test unwrapper");
             }
         }
@@ -1586,7 +1585,7 @@ describe("protocol methods", () => {
         while (vm.step());
         expect(popData(vm)).toBe(123);
     });
-    testTest(test, "OP_unwrap goes by the wrapper protocol, not the Wrapper class", vm => {
+    testTest(test, "externally defined unwrap protocol", vm => {
         class ForeignWrapper {
             constructor(readonly obj: any) {}
         }

@@ -164,10 +164,10 @@ export const defineSetter = <V extends JebVM, const T extends Type[]>(
 };
 
 /**
- * Defines a new kind of wrapper: values of the given type are wrappers
- * whose tag is the given string. `OP_unwrap` decides whether a value is a
- * wrapper (and whether to unwrap it) by looking for an implementation of
- * the `wrapper` protocol, matching the tag against its flag lists.
+ * Defines a new kind of wrapper: values of the given type are wrappers whose
+ * tag is the given string. `OP_unwrap` decides whether a value is a wrapper
+ * (and whether to unwrap it) by looking for an implementation of the `wrapper`
+ * protocol, matching the tag against its flag lists.
  */
 export const defineWrapper = <V extends JebVM, const T extends Type[]>(
     vm: V,

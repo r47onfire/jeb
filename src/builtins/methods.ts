@@ -150,26 +150,6 @@ const loadUnwrapMethod = (vm: JebVM) =>
     );
 
 /**
- * Registers the object protocol-method fallbacks in the VM. The fallbacks only
- * match values that provide the relevant method (see the pseudoclasses above),
- * so they compose with the dedicated protocol implementations in any
- * registration order.
- */
-/**
- * Asserts that the object an {@link AccessReference} refers to provides
- * `__access__`, and schedules the call: the descriptor object it returns is
- * left on the data stack for the next command to consume.
- */
-const scheduleAccess = (vm: JebVM, ref: AccessReference) => {
-    if (!protocolMethod(ref.obj, "access"))
-        throw new JEBError(
-            ErrnoCode.EINVAL,
-            `${theTypeName(typeOf(ref.obj))} has no __access__ method`,
-        );
-    pushAccessCall(vm, ref);
-};
-
-/**
  * Reading a reference goes through its `get()`; assigning to one goes through
  * its `set()`, with the assignment flags.
  */
@@ -237,7 +217,7 @@ const loadAccessReferenceGetSet = (vm: JebVM) => {
         (vm, { 0: ref }) => {
             pushCommand(vm, OP_accessed_get, ref.propertyName);
             pushCommand(vm, OP_unwrap, []);
-            scheduleAccess(vm, ref);
+            pushAccessCall(vm, ref);
             return NOTHING;
         },
         "Reads an access reference through the descriptor its object's __access__ method returns.",
@@ -248,7 +228,7 @@ const loadAccessReferenceGetSet = (vm: JebVM) => {
         (vm, { 0: ref }) => {
             pushCommand(vm, OP_accessed_set, ref.propertyName);
             pushCommand(vm, OP_unwrap, []);
-            scheduleAccess(vm, ref);
+            pushAccessCall(vm, ref);
         },
         "Assigns an access reference through the descriptor its object's __access__ method returns.",
     );
