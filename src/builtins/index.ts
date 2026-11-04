@@ -33,7 +33,10 @@ export {
     OP_shuffle,
     OP_tbPop,
     OP_tbPush,
-    pushMethodCall,
+    isCallableValue,
+    pushAccessCall,
+    pushBoundApply,
+    pushMethodApply,
 } from "./eval";
 export { B_is_nil } from "./ffi";
 export { B_jsonparse, B_jsonstringify } from "./json";

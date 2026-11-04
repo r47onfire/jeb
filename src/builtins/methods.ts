@@ -1,15 +1,20 @@
+import { Block } from "../block";
 import { Fun, JSFun } from "../callable";
 import { defineAccessor, defineApplier, makeOpcode } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
-import { DescriptorReference, protocolMethod } from "../protocol";
+import {
+    AccessReference,
+    DescriptorReference,
+    protocolMethod,
+} from "../protocol";
 import { PROTOCOL_SYMBOLS } from "../well_known";
 import { ApplyMetadata } from "../protocol";
 import { predicateToClass, theTypeName, typeOf } from "../typecheck";
 import { Identifier } from "../utils";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
-import { Wrapper } from "../wrapper";
-import { pushMethodCall } from "./eval";
+import { BoundMethod, Wrapper } from "../wrapper";
+import { isCallableValue, pushMethodApply } from "./eval";
 import { ObjectPropertyReference } from "./reference";
 
 /**
@@ -104,6 +109,42 @@ const loadMethodApplier = (vm: JebVM) =>
     );
 
 /**
+ * A {@link BoundMethod} applies its wrapped protocol method with the
+ * receiver bound to the method's first parameter -- the same arrangement
+ * as the `__call__` fallback above, packaged as a callable of its own so
+ * the VM's own machinery (the `get` / `assign` opcodes, the `assign`
+ * builtin) can call a method through `OP_apply` even when some arguments
+ * must stay unevaluated expressions.
+ */
+const loadBoundMethodApplier = (vm: JebVM) =>
+    defineApplier(
+        vm,
+        [BoundMethod],
+        (vm, { 0: bound }, { tail, location }) => {
+            const method = bound.obj;
+            const { signature } = methodMetadata(vm, method);
+            vm.getProtocol(true, true, "apply", [method]).run(vm, [method], {
+                tail,
+                location,
+            });
+            pushCommand(vm, OP_insert_self, bound.self, signature[0]?.name);
+        },
+        (vm, bound) => {
+            const { name, signature, closureEnv } = methodMetadata(
+                vm,
+                bound.obj,
+            );
+            if (signature[0]?.rest)
+                throw new JEBError(
+                    ErrnoCode.EINVAL,
+                    "a protocol method's first parameter (the receiver) can't be a rest parameter",
+                );
+            return { name, signature: signature.slice(1), closureEnv };
+        },
+        "Calls a protocol method with its receiver bound to the method's first parameter.",
+    );
+
+/**
  * Indexing a plain object goes through its `__get__`/`__set__` methods if it
  * provides them (the object is a descriptor for its fields); otherwise the
  * field is a plain Javascript property, as before. Because this accessor is
@@ -115,11 +156,20 @@ const loadDescriptorAccessor = (vm: JebVM) =>
     defineAccessor(
         vm,
         [PlainObject],
-        (_, { 0: obj }, { field, type }) =>
-            (protocolMethod(obj, "get") ?? protocolMethod(obj, "set"))
+        (vm, { 0: obj }, { field, type }) => {
+            if (protocolMethod(obj, "access"))
+                // The key has already been evaluated on this path, so it
+                // is quoted: __access__ receives it as the value it is.
+                return new AccessReference(
+                    type,
+                    obj,
+                    new Block(vm.currentEnv, [["quote", field]]),
+                );
+            return (protocolMethod(obj, "get") ?? protocolMethod(obj, "set"))
                 ? new DescriptorReference(type, obj, field)
-                : new ObjectPropertyReference(type, obj, field),
-        "Accessor for plain objects: objects with __get__/__set__ protocol methods are indexed through those methods, other objects' properties are read and written directly.",
+                : new ObjectPropertyReference(type, obj, field);
+        },
+        "Accessor for plain objects: objects with an __access__ protocol method are indexed through the descriptors it returns, objects with __get__/__set__ protocol methods are indexed through those methods, and other objects' properties are read and written directly.",
     );
 
 /**
@@ -133,7 +183,8 @@ const loadNameMethod = (vm: JebVM) =>
         type: [[PlainObject]],
         run(vm, { 0: value }, { name }) {
             const method = protocolMethod(value, "name");
-            if (method) pushMethodCall(vm, method, [value, name], true);
+            if (method && isCallableValue(method))
+                pushMethodApply(vm, method, [value, name], true);
         },
         doc: "Calls the value's __name__ protocol method with the name it was assigned to.",
     });
@@ -158,7 +209,7 @@ const loadUnwrapMethod = (vm: JebVM) =>
                     ErrnoCode.ERANGE,
                     `No overload of unwrap exists for type ${theTypeName(typeOf(wrapper))}`,
                 );
-            pushMethodCall(vm, method, [wrapper]);
+            pushMethodApply(vm, method, [wrapper]);
         },
         doc: "Unwraps a wrapper by calling its __unwrap__ protocol method.",
     });
@@ -173,6 +224,7 @@ const loadUnwrapMethod = (vm: JebVM) =>
  */
 export const loadProtocolMethods = (vm: JebVM) => {
     loadMethodApplier(vm);
+    loadBoundMethodApplier(vm);
     loadDescriptorAccessor(vm);
     loadNameMethod(vm);
     loadUnwrapMethod(vm);

@@ -11,8 +11,10 @@
  * are the two halves of the reference model), but they have symbols because
  * any object with `__get__`/`__set__` methods acts as a descriptor: it can
  * be dereferenced and assigned to without being a `Reference` (see
- * `DescriptorReference`). `access`'s symbol is reserved; indexing a
- * descriptor object goes through its `__get__`/`__set__` methods instead.
+ * `DescriptorReference`). An object with an `__access__` method instead
+ * controls indexing itself: the method is called with the index key and
+ * returns a descriptor object (with `__get__`/`__set__` methods) for that
+ * property (see `AccessReference`).
  */
 export const PROTOCOL_SYMBOLS = {
     apply: Symbol.for("__call__"),

@@ -9,7 +9,7 @@ import { float, numberOp, Relation } from "../math";
 import { theTypeName, typeOf, withType } from "../typecheck";
 import { protocolMethod } from "../protocol";
 import { JebVM, pushCommand, pushData } from "../vm";
-import { OP_eval, pushMethodCall } from "./eval";
+import { OP_eval, isCallableValue, pushMethodApply } from "./eval";
 
 const None = Symbol("__none__");
 
@@ -52,8 +52,10 @@ const mathHelper = (
                     // No host implementation matches: fall back to the
                     // object's own protocol method (e.g. __neg__), if any.
                     const method = protocolMethod(a, op1);
-                    if (method !== undefined && pushMethodCall(vm, method, [a]))
+                    if (method !== undefined && isCallableValue(method)) {
+                        pushMethodApply(vm, method, [a]);
                         return NOTHING;
+                    }
                     vm.getProtocol(false, true, op1, [a]); // throws the no-overload error
                 }
                 f = () => handler!.run(vm, [a]);
@@ -61,11 +63,10 @@ const mathHelper = (
                 const handler = vm.getProtocol(false, false, op2, [a, b]);
                 if (!handler) {
                     const method = protocolMethod(a, op2);
-                    if (
-                        method !== undefined &&
-                        pushMethodCall(vm, method, [a, b])
-                    )
+                    if (method !== undefined && isCallableValue(method)) {
+                        pushMethodApply(vm, method, [a, b]);
                         return NOTHING;
+                    }
                     vm.getProtocol(false, true, op2, [a, b]); // throws the no-overload error
                 }
                 f = () => handler!.run(vm, [a, b]);
@@ -231,8 +232,10 @@ export const B_bitInv = makeJSFun(
                 throw new JEBError(ErrnoCode.ERANGE, String(e));
             });
         const method = protocolMethod(a, "bitNot");
-        if (method !== undefined && pushMethodCall(vm, method, [a]))
+        if (method !== undefined && isCallableValue(method)) {
+            pushMethodApply(vm, method, [a]);
             return NOTHING;
+        }
         return ~withType(a, ["number", "bigint"], "a", args);
     },
     `.func (bitInv number)
@@ -253,11 +256,10 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
             // receives the object, the other operand, and the Relation
             // bitset being tested, and returns whether the relation holds.
             const method = protocolMethod(a, "cmp");
-            if (
-                method !== undefined &&
-                pushMethodCall(vm, method, [a, b, bits])
-            )
+            if (method !== undefined && isCallableValue(method)) {
+                pushMethodApply(vm, method, [a, b, bits]);
                 return NOTHING;
+            }
             return vm
                 .getProtocol(false, true, "cmp", [a, b, bits])
                 .run(vm, [a, b, bits])

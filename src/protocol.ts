@@ -1,6 +1,7 @@
 import { stringify } from "lib0/json";
 import { pow } from "lib0/math";
 import { Result } from "ts-res";
+import { Block } from "./block";
 import { NOTHING } from "./define";
 import { Env } from "./env";
 import { ErrnoCode } from "./errno";
@@ -298,6 +299,40 @@ export class DescriptorReference extends Reference {
         throw new JEBError(
             ErrnoCode.EPANIC,
             "a descriptor reference can only be assigned by the assign opcode",
+        );
+    }
+}
+
+/**
+ * A reference to a property of an object that provides an `__access__`
+ * protocol method. The method has not been called yet: the key is kept as
+ * the unevaluated {@link Block} it arrived as, so when the reference is
+ * read or assigned, the `get` / `assign` opcodes can pass the key
+ * expression straight to `__access__` and let the method's signature
+ * decide whether it is evaluated. The method returns a descriptor object
+ * whose own `__get__` / `__set__` methods the access then goes through.
+ *
+ * Like {@link DescriptorReference}, the synchronous accessors throw: all
+ * real access goes through the opcodes, which call the methods.
+ */
+export class AccessReference extends Reference {
+    constructor(
+        type: AccessType,
+        readonly obj: any,
+        readonly key: Block,
+    ) {
+        super(type);
+    }
+    get(): never {
+        throw new JEBError(
+            ErrnoCode.EPANIC,
+            "an access reference can only be read by the get opcode",
+        );
+    }
+    set(): never {
+        throw new JEBError(
+            ErrnoCode.EPANIC,
+            "an access reference can only be assigned by the assign opcode",
         );
     }
 }

@@ -11,6 +11,7 @@ import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { implicitBegin } from "../implicitBegin";
 import {
+    AccessReference,
     AccessType,
     DescriptorReference,
     protocolMethod,
@@ -29,7 +30,9 @@ import {
     OP_index,
     OP_assign,
     OP_shuffle,
-    pushMethodCall,
+    pushAccessCall,
+    pushBoundApply,
+    pushMethodApply,
 } from "./eval";
 
 // MARK: variables
@@ -67,18 +70,36 @@ export const B_local = makeJSFun(
 );
 export const B_index = makeJSFun(
     "index",
-    ["obj", "name"],
+    ["obj", [false, "name"]],
     ({ obj, name }, vm) => {
+        const key = name as Block;
+        if (protocolMethod(obj, "access")) {
+            // The object controls indexing itself through __access__:
+            // keep the key unevaluated, so the method's signature
+            // decides whether it is evaluated (see AccessReference).
+            pushCommand(vm, OP_wrap, ReferenceWrapper);
+            pushCommand(
+                vm,
+                OP_push_value,
+                new AccessReference(AccessType.PROPERTY, obj, key),
+            );
+            return NOTHING;
+        }
         pushCommand(vm, OP_wrap, ReferenceWrapper);
         pushCommand(vm, OP_index, AccessType.PROPERTY);
+        // The key is evaluated like a call argument: its result is
+        // unwrapped (an inner index's reference reads through).
+        pushCommand(vm, OP_unwrap, ["splat", "keyword", "empty", "option"]);
+        pushCommand(vm, OP_block_invoke, key, false);
+        pushCommand(vm, OP_push_value, { _: {} });
         pushData(vm, obj);
-        return name;
+        return NOTHING;
     },
     `.func (index obj name)
 ..param {any} obj
 ..param {PropertyKey} name
 .pure
-. Returns a reference to \`obj[name]\`.`,
+. Returns a reference to \`obj[name]\`. If \`obj\` has an \`__access__\` protocol method, the key is passed to it unevaluated and the method's signature decides whether it is evaluated.`,
 );
 const OP_assign_internal_nested = makeOpcode(
     null,
@@ -122,20 +143,14 @@ const OP_desc_set = makeOpcode(
         }: [any, PropertyKey | undefined, boolean],
     ) => {
         const set = protocolMethod(target, "set")!;
-        if (
-            !pushMethodCall(
-                vm,
-                set,
-                hasField
-                    ? [target, field, peekData(vm)]
-                    : [target, peekData(vm)],
-                true,
-            )
-        )
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                "__set__ method is not callable",
-            );
+        pushMethodApply(
+            vm,
+            set,
+            hasField
+                ? [target, field, peekData(vm)]
+                : [target, peekData(vm)],
+            true,
+        );
     },
     null,
 );
@@ -165,11 +180,7 @@ const OP_assign_descriptor_internal = makeOpcode(
         const get = protocolMethod(target, "get");
         if (get) {
             pushCommand(vm, OP_unwrap, []);
-            if (!pushMethodCall(vm, get, hasField ? [target, field] : [target]))
-                throw new JEBError(
-                    ErrnoCode.EINVAL,
-                    "__get__ method is not callable",
-                );
+            pushMethodApply(vm, get, hasField ? [target, field] : [target]);
         } else pushCommand(vm, OP_push_value, undefined);
     },
     null,
@@ -180,12 +191,14 @@ const OP_assign_descriptor_internal = makeOpcode(
  * one of its fields through a {@link DescriptorReference} (`__set__(obj, field,
  * value)`).
  *
- * If the method's value parameter is lazy, the unevaluated value block is
- * handed to the method as-is: if the method never evaluates it, the right-hand
- * side never runs, and the assignment returns the method's own result (or the
- * old value, read through `__get__` first, if that was requested). Otherwise
- * the value block is evaluated with `_` bound to the old value, as for
- * references, and the assignment returns the new or old value.
+ * If the method's value parameter is lazy, the unevaluated right-hand side
+ * expression is passed straight to the method (through `OP_apply`, so its
+ * signature does the binding): if the method never evaluates it, the
+ * right-hand side never runs, and the assignment returns the method's own
+ * result (or the old value, read through `__get__` first, if that was
+ * requested). Otherwise the value block is evaluated with `_` bound to the
+ * old value, as for references, and the assignment returns the new or old
+ * value.
  */
 const assignDescriptor = (
     vm: JebVM,
@@ -201,21 +214,22 @@ const assignDescriptor = (
         .describe(vm, set);
     const valueParam = signature[hasField ? 2 : 1];
     if (valueParam && valueParam.lazy !== Laziness.NONE) {
-        const selfAndField = hasField ? [target, field] : [target];
-        if (!pushMethodCall(vm, set, [...selfAndField, value], wantOld))
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                "__set__ method is not callable",
-            );
+        if (wantOld) pushCommand(vm, OP_shuffle, 1, []); // the __set__ result is dropped
+        pushBoundApply(
+            vm,
+            target,
+            set,
+            hasField ? [field, value.body[0]] : [value.body[0]],
+        );
         if (wantOld) {
             const get = protocolMethod(target, "get");
             if (get) {
                 pushCommand(vm, OP_unwrap, []);
-                if (!pushMethodCall(vm, get, selfAndField))
-                    throw new JEBError(
-                        ErrnoCode.EINVAL,
-                        "__get__ method is not callable",
-                    );
+                pushMethodApply(
+                    vm,
+                    get,
+                    hasField ? [target, field] : [target],
+                );
             } else pushCommand(vm, OP_push_value, undefined);
         }
         return;
@@ -230,6 +244,27 @@ const assignDescriptor = (
         wantOld,
     );
 };
+/**
+ * Continuation of an assignment through an {@link AccessReference}: the
+ * descriptor object returned by `__access__` is on top of the data stack;
+ * assign to it as a bare descriptor (see {@link assignDescriptor}).
+ */
+const OP_assign_accessed = makeOpcode(
+    null,
+    (
+        vm: JebVM,
+        { 0: value, 1: wantOld }: [Block, boolean],
+    ) => {
+        const descriptor = popData(vm);
+        if (!protocolMethod(descriptor, "set"))
+            throw new JEBError(
+                ErrnoCode.EINVAL,
+                `${theTypeName(typeOf(descriptor))} returned by __access__ has no __set__ method`,
+            );
+        assignDescriptor(vm, descriptor, undefined, false, value, wantOld);
+    },
+    null,
+);
 export const B_assign = makeJSFun(
     "assign",
     [
@@ -241,6 +276,16 @@ export const B_assign = makeJSFun(
         const { ref, value, old } = args;
         const wantOld = withType(old, ["boolean"], "old", args);
         if (ref instanceof ReferenceWrapper) {
+            if (ref.obj instanceof AccessReference) {
+                pushCommand(
+                    vm,
+                    OP_assign_accessed,
+                    value as Block,
+                    wantOld,
+                );
+                pushAccessCall(vm, ref.obj);
+                return NOTHING;
+            }
             if (ref.obj instanceof DescriptorReference) {
                 assignDescriptor(
                     vm,
