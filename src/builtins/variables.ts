@@ -15,13 +15,7 @@ import { theTypeName, typeOf, withType } from "../typecheck";
 import { Identifier } from "../utils";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { ReferenceWrapper } from "../wrapper";
-import {
-    OP_apply,
-    OP_assign,
-    OP_index,
-    OP_shuffle,
-    runSetter,
-} from "./eval";
+import { OP_apply, OP_assign, OP_index, OP_shuffle, runSetter } from "./eval";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap, OP_wrap } from "./unwrap";
 

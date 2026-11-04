@@ -468,13 +468,9 @@ export class DoargsState {
         return this.#storePositional(argValue, false, 1, 1, loc);
     }
     /**
-     * Throws if a splat being unpacked contains a nested keyword/splat wrapper,
-     * which cannot be unpacked further.
-     */
-    /**
-     * Throws if a splat argument is being unpacked into a lazy rest
-     * parameter: the splat's values are already computed, and a lazy
-     * parameter cannot take computed values.
+     * Throws if a splat argument is being unpacked into a lazy rest parameter:
+     * the splat's values are already computed, and a lazy parameter cannot take
+     * computed values.
      */
     #assertNotLazySplat(
         param: CallableSignature[number],
@@ -488,6 +484,10 @@ export class DoargsState {
         }
     }
 
+    /**
+     * Throws if a splat being unpacked contains a nested keyword/splat wrapper,
+     * which cannot be unpacked further.
+     */
     #assertNotSpecial(value: any) {
         if (value instanceof KeywordArg || value instanceof SplatArg) {
             throw new JEBError(

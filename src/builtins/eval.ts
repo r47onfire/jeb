@@ -686,10 +686,9 @@ export const OP_get = makeOpcode(
 . Takes an LValue on the top of the stack and unwraps it: a reference by calling its get() method, and a descriptor (an object with a \`__get__\` protocol method) by calling that method.`,
 );
 /**
- * Runs the `set` protocol implementation for an lvalue, or throws if
- * there is none: the one place "cannot assign" is decided, shared by
- * the `assign` opcode, the `assign` builtin, and the accessed-descriptor
- * continuation.
+ * Runs the `set` protocol implementation for an lvalue, or throws if there is
+ * none: the one place "cannot assign" is decided, shared by the `assign`
+ * opcode, the `assign` builtin, and the accessed-descriptor continuation.
  */
 export const runSetter = (
     vm: JebVM,
