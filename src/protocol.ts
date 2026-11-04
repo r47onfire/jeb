@@ -1,4 +1,3 @@
-import { stringify } from "lib0/json";
 import { pow } from "lib0/math";
 import { Result } from "ts-res";
 import { Block } from "./block";
@@ -270,50 +269,22 @@ export const protocolMethod = (
 };
 
 /**
- * A reference to one field of a descriptor object: an object that provides
- * `__get__` and/or `__set__` protocol methods. Reading through this reference
- * calls the object's `__get__` method with the object and the field; assigning
- * through it calls `__set__` with the object, the field, and the value.
- *
- * Unlike other references, a descriptor's methods are JEB code and cannot be
- * run synchronously, so {@link Reference#get} and {@link Reference#set} cannot
- * be implemented here: the `get` and `assign` opcodes intercept this class and
- * schedule the method calls themselves. The stubs below exist only to fail
- * loudly if some other code path tries to use one directly.
- */
-export class DescriptorReference extends Reference {
-    constructor(
-        type: AccessType,
-        readonly obj: any,
-        readonly field: PropertyKey,
-    ) {
-        super(type);
-    }
-    get(): never {
-        throw new JEBError(
-            ErrnoCode.EPANIC,
-            "a descriptor reference can only be read by the get opcode",
-        );
-    }
-    set(): never {
-        throw new JEBError(
-            ErrnoCode.EPANIC,
-            "a descriptor reference can only be assigned by the assign opcode",
-        );
-    }
-}
-
-/**
- * A reference to a property of an object that provides an `__access__`
- * protocol method. The method has not been called yet: the key is kept as
+ * A reference to a property of an object that provides descriptor
+ * protocol methods. The access has not happened yet: the key is kept as
  * the unevaluated {@link Block} it arrived as, so when the reference is
- * read or assigned, the `get` / `assign` opcodes can pass the key
- * expression straight to `__access__` and let the method's signature
- * decide whether it is evaluated. The method returns a descriptor object
- * whose own `__get__` / `__set__` methods the access then goes through.
+ * read or assigned, the `get` / `assign` opcodes can hand the key
+ * expression to the object's methods and let their signatures decide
+ * whether it is evaluated.
  *
- * Like {@link DescriptorReference}, the synchronous accessors throw: all
- * real access goes through the opcodes, which call the methods.
+ * If the object provides an `__access__` method, the access goes through
+ * it: the method is called with the key and returns a descriptor object
+ * whose own `__get__` / `__set__` methods the access then goes through.
+ * Otherwise the object is its own descriptor (like Python's iterators
+ * returning themselves from `__iter__`): the access goes through its
+ * `__get__` / `__set__` methods directly, with the key as an argument.
+ *
+ * The synchronous accessors throw: all real access goes through the
+ * opcodes, which call the methods.
  */
 export class AccessReference extends Reference {
     constructor(
@@ -372,7 +343,7 @@ export type FnTypeForName<
  * matches at all is used instead of searching for the best-scoring one.
  *
  * @returns The chosen implementation, or `undefined` if none of them matches
- * @throws A {@link JEBError} (`ENOSYS`) if the protocol itself doesn't exist
+ * (or if the protocol has no implementations registered at all)
  */
 export const getProtocolHandler = <V extends JebVM>(
     protocols: Partial<JEBProtocols<V>>,
@@ -381,11 +352,7 @@ export const getProtocolHandler = <V extends JebVM>(
     args: any[],
 ): ProtocolObj<V, any, any[], {}, any, any> | undefined => {
     const implList = protocols[name];
-    if (!implList)
-        throw new JEBError(
-            ErrnoCode.ENOSYS,
-            `protocol ${stringify(name)} doesn't exist`,
-        );
+    if (!implList) return undefined;
     var bestScore = 0,
         bestHandler = undefined;
     handlers: for (var i = implList.length - 1; i >= 0; i--) {

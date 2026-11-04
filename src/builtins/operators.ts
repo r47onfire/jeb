@@ -9,7 +9,7 @@ import { float, numberOp, Relation } from "../math";
 import { theTypeName, typeOf, withType } from "../typecheck";
 import { protocolMethod } from "../protocol";
 import { JebVM, pushCommand, pushData } from "../vm";
-import { OP_eval, isCallableValue, pushMethodApply } from "./eval";
+import { OP_eval, pushMethodApply } from "./eval";
 
 const None = Symbol("__none__");
 
@@ -47,29 +47,23 @@ const mathHelper = (
                         `${stringify(op2)} is not defined for one argument`,
                     );
                 }
-                const handler = vm.getProtocol(false, false, op1, [a]);
-                if (!handler) {
-                    // No host implementation matches: fall back to the
-                    // object's own protocol method (e.g. __neg__), if any.
-                    const method = protocolMethod(a, op1);
-                    if (method !== undefined && isCallableValue(method)) {
-                        pushMethodApply(vm, method, [a]);
-                        return NOTHING;
-                    }
-                    vm.getProtocol(false, true, op1, [a]); // throws the no-overload error
+                // The object's own protocol method (e.g. __neg__) comes
+                // first; host implementations are the fallback.
+                const method = protocolMethod(a, op1);
+                if (method !== undefined) {
+                    pushMethodApply(vm, method, [a]);
+                    return NOTHING;
                 }
-                f = () => handler!.run(vm, [a]);
+                const handler = vm.getProtocol(false, true, op1, [a]);
+                f = () => handler.run(vm, [a]);
             } else {
-                const handler = vm.getProtocol(false, false, op2, [a, b]);
-                if (!handler) {
-                    const method = protocolMethod(a, op2);
-                    if (method !== undefined && isCallableValue(method)) {
-                        pushMethodApply(vm, method, [a, b]);
-                        return NOTHING;
-                    }
-                    vm.getProtocol(false, true, op2, [a, b]); // throws the no-overload error
+                const method = protocolMethod(a, op2);
+                if (method !== undefined) {
+                    pushMethodApply(vm, method, [a, b]);
+                    return NOTHING;
                 }
-                f = () => handler!.run(vm, [a, b]);
+                const handler = vm.getProtocol(false, true, op2, [a, b]);
+                f = () => handler.run(vm, [a, b]);
             }
             return wrapThrowToError(ErrnoCode.EINVAL, f).else((e) => {
                 throw new JEBError(ErrnoCode.ERANGE, String(e));
@@ -221,21 +215,18 @@ export const B_bitInv = makeJSFun(
     (args, vm) => {
         const { a } = args;
         if (typeof a === "number" || typeof a === "bigint") return ~a;
-        // (the bitNot protocol may not exist at all if nothing registered it)
-        const handler = vm.protocols.bitNot
-            ? vm.getProtocol(false, false, "bitNot", [a])
-            : undefined;
+        const method = protocolMethod(a, "bitNot");
+        if (method !== undefined) {
+            pushMethodApply(vm, method, [a]);
+            return NOTHING;
+        }
+        const handler = vm.getProtocol(false, false, "bitNot", [a]);
         if (handler)
             return wrapThrowToError(ErrnoCode.EINVAL, () =>
                 handler.run(vm, [a], undefined),
             ).else((e) => {
                 throw new JEBError(ErrnoCode.ERANGE, String(e));
             });
-        const method = protocolMethod(a, "bitNot");
-        if (method !== undefined && isCallableValue(method)) {
-            pushMethodApply(vm, method, [a]);
-            return NOTHING;
-        }
         return ~withType(a, ["number", "bigint"], "a", args);
     },
     `.func (bitInv number)
@@ -256,7 +247,7 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
             // receives the object, the other operand, and the Relation
             // bitset being tested, and returns whether the relation holds.
             const method = protocolMethod(a, "cmp");
-            if (method !== undefined && isCallableValue(method)) {
+            if (method !== undefined) {
                 pushMethodApply(vm, method, [a, b, bits]);
                 return NOTHING;
             }
