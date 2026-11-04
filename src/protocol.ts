@@ -269,19 +269,18 @@ export const protocolMethod = (
 };
 
 /**
- * A reference to a property of an object that provides an `__access__`
- * protocol method. The method has not been called yet: the key is kept
- * as the unevaluated {@link Block} it arrived as, so when the reference
- * is read or assigned, the `get` / `assign` opcodes can pass the key
- * expression straight to `__access__` and let the method's signature
- * decide whether it is evaluated. The method returns a descriptor
- * object whose own `__get__` / `__set__` methods the access then goes
- * through. (An object that wants to be its own descriptor returns
- * itself from `__access__`; `__get__` / `__set__` methods alone do not
- * make an object indexable.)
+ * A reference to a property of an object that provides an `__access__` protocol
+ * method. The method has not been called yet: the key is kept as the
+ * unevaluated {@link Block} it arrived as, so when the reference is read or
+ * assigned, the `get` / `assign` opcodes can pass the key expression straight
+ * to `__access__` and let the method's signature decide whether it is
+ * evaluated. The method returns a descriptor object whose own `__get__` /
+ * `__set__` methods the access then goes through. (An object that wants to be
+ * its own descriptor returns itself from `__access__`; `__get__` / `__set__`
+ * methods alone do not make an object indexable.)
  *
- * The synchronous accessors throw: all real access goes through the
- * opcodes, which call the methods.
+ * The synchronous accessors throw: all real access goes through the opcodes,
+ * which call the methods.
  */
 export class AccessReference extends Reference {
     constructor(
@@ -340,7 +339,7 @@ export type FnTypeForName<
  * matches at all is used instead of searching for the best-scoring one.
  *
  * @returns The chosen implementation, or `undefined` if none of them matches
- * (or if the protocol has no implementations registered at all)
+ *   (or if the protocol has no implementations registered at all)
  */
 export const getProtocolHandler = <V extends JebVM>(
     protocols: Partial<JEBProtocols<V>>,

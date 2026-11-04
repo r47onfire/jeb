@@ -343,10 +343,10 @@ export const OP_apply = makeOpcode(
 The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.`,
 );
 /**
- * Schedules a call to a protocol method with already-computed argument
- * values: the method is applied through `OP_apply` with `noEval` set, so
- * `OP_doargs` binds the values as they are. If `dropResult` is set, the
- * value the method returns is discarded.
+ * Schedules a call to a protocol method with already-computed argument values:
+ * the method is applied through `OP_apply` with `noEval` set, so `OP_doargs`
+ * binds the values as they are. If `dropResult` is set, the value the method
+ * returns is discarded.
  */
 export const pushMethodApply = (
     vm: JebVM,
@@ -359,15 +359,14 @@ export const pushMethodApply = (
     pushCommand(vm, OP_apply, args, undefined, false, true);
 };
 /**
- * Binds a protocol method to its receiver, producing the callable to
- * actually apply: a synthetic copy of the method with the receiver
- * parameter dropped. For a {@link Fun}, the copy's body closes over a
- * child environment of the method's own in which the receiver parameter
- * is already bound to the receiver; for a {@link JSFun}, the copy's
- * implementation fills the receiver parameter in before delegating to
- * the original. The remaining parameters keep their declared laziness,
- * so arguments later given to the copy as expressions are evaluated (or
- * not) exactly as the method's signature dictates.
+ * Binds a protocol method to its receiver, producing the callable to actually
+ * apply: a synthetic copy of the method with the receiver parameter dropped.
+ * For a {@link Fun}, the copy's body closes over a child environment of the
+ * method's own in which the receiver parameter is already bound to the
+ * receiver; for a {@link JSFun}, the copy's implementation fills the receiver
+ * parameter in before delegating to the original. The remaining parameters keep
+ * their declared laziness, so arguments later given to the copy as expressions
+ * are evaluated (or not) exactly as the method's signature dictates.
  */
 export const bindMethod = (self: any, method: any): any => {
     if (method instanceof Fun || method instanceof JSFun) {
@@ -405,13 +404,12 @@ export const bindMethod = (self: any, method: any): any => {
     );
 };
 /**
- * Schedules a call to a protocol method with the receiver `self` bound to
- * the method's first parameter (see {@link bindMethod}), so the remaining
- * arguments can be given as unevaluated expressions: `OP_apply` runs
- * without `noEval`, and the method's signature decides whether each
- * expression is evaluated. Used when an argument must stay unevaluated --
- * the receiver itself is a computed value and could not be passed as an
- * argument expression.
+ * Schedules a call to a protocol method with the receiver `self` bound to the
+ * method's first parameter (see {@link bindMethod}), so the remaining arguments
+ * can be given as unevaluated expressions: `OP_apply` runs without `noEval`,
+ * and the method's signature decides whether each expression is evaluated. Used
+ * when an argument must stay unevaluated -- the receiver itself is a computed
+ * value and could not be passed as an argument expression.
  */
 export const pushBoundApply = (
     vm: JebVM,
@@ -425,8 +423,8 @@ export const pushBoundApply = (
 /**
  * Schedules the `__access__` call for an {@link AccessReference}: the key
  * expression is passed verbatim, so whether it is evaluated is up to the
- * method's signature. The descriptor object the method returns is left on
- * the data stack for the next command to consume.
+ * method's signature. The descriptor object the method returns is left on the
+ * data stack for the next command to consume.
  */
 export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
     pushBoundApply(vm, ref.obj, protocolMethod(ref.obj, "access")!, [
@@ -434,9 +432,9 @@ export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
     ]);
 };
 /**
- * Continuation of a read through an {@link AccessReference}: the
- * descriptor object returned by `__access__` is on top of the data stack;
- * read through its `__get__` method.
+ * Continuation of a read through an {@link AccessReference}: the descriptor
+ * object returned by `__access__` is on top of the data stack; read through its
+ * `__get__` method.
  */
 const OP_accessed_get = makeOpcode(
     null,
@@ -454,10 +452,10 @@ const OP_accessed_get = makeOpcode(
 );
 /**
  * Continuation of an assignment through an {@link AccessReference}: the
- * descriptor object returned by `__access__` is on top of the data stack
- * and the value being assigned is below it; assign through the
- * descriptor's `__set__` method, leaving the value on the stack (like the
- * `assign` opcode does).
+ * descriptor object returned by `__access__` is on top of the data stack and
+ * the value being assigned is below it; assign through the descriptor's
+ * `__set__` method, leaving the value on the stack (like the `assign` opcode
+ * does).
  */
 const OP_accessed_set = makeOpcode(
     null,

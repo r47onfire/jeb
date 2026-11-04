@@ -19,15 +19,15 @@ import { bindMethod, pushMethodApply } from "./eval";
  * register protocol implementations.
  *
  * Each fallback is registered for a pseudoclass matching exactly the values
- * that provide that protocol's method, so a fallback is only ever selected
- * when the method exists -- the handlers never check for it themselves, they
- * just call it and let whatever errors fall out of the call.
+ * that provide that protocol's method, so a fallback is only ever selected when
+ * the method exists -- the handlers never check for it themselves, they just
+ * call it and let whatever errors fall out of the call.
  */
 
 /**
  * Whether a value is a plain object (or array): the values that can carry
- * protocol methods. Host class instances (functions, environments, blocks,
- * ...) never match, so these fallbacks can't shadow their dedicated protocol
+ * protocol methods. Host class instances (functions, environments, blocks, ...)
+ * never match, so these fallbacks can't shadow their dedicated protocol
  * implementations.
  */
 const isPlainObject = (x: unknown): x is Record<PropertyKey, any> =>
@@ -37,7 +37,10 @@ const isPlainObject = (x: unknown): x is Record<PropertyKey, any> =>
         Object.getPrototypeOf(x) === Object.prototype ||
         Object.getPrototypeOf(x) === null);
 
-/** Pseudoclass matching the plain objects that provide the named protocol method. */
+/**
+ * Pseudoclass matching the plain objects that provide the named protocol
+ * method.
+ */
 const hasMethod = (name: ProtocolSymbolName) =>
     predicateToClass(
         (x): x is Record<PropertyKey, any> =>
@@ -45,8 +48,8 @@ const hasMethod = (name: ProtocolSymbolName) =>
     );
 
 /**
- * Pseudoclass matching the plain objects that provide any descriptor
- * protocol method (`__access__`, `__get__`, or `__set__`).
+ * Pseudoclass matching the plain objects that provide any descriptor protocol
+ * method (`__access__`, `__get__`, or `__set__`).
  */
 const HasDescriptorMethods = predicateToClass(
     (x): x is Record<PropertyKey, any> =>
@@ -58,8 +61,8 @@ const HasDescriptorMethods = predicateToClass(
 
 /**
  * Pseudoclass matching the wrappers that provide a `__unwrap__` method.
- * (Wrappers are VM machinery and don't go through {@link protocolMethod},
- * so the symbol is read directly.)
+ * (Wrappers are VM machinery and don't go through {@link protocolMethod}, so
+ * the symbol is read directly.)
  */
 const HasUnwrapMethod = predicateToClass(
     (x): x is Wrapper =>
@@ -68,22 +71,21 @@ const HasUnwrapMethod = predicateToClass(
 );
 
 /**
- * Metadata of a protocol method: its signature, name, and closure
- * environment, from the `apply` protocol. If the value stored as the
- * method can't be called at all, looking up its applier throws.
+ * Metadata of a protocol method: its signature, name, and closure environment,
+ * from the `apply` protocol. If the value stored as the method can't be called
+ * at all, looking up its applier throws.
  */
 const methodMetadata = (vm: JebVM, method: any): ApplyMetadata =>
     vm.getProtocol(true, true, "apply", [method]).describe(vm, method);
 
 /**
- * Any plain object with a `__call__` method is callable: the method is
- * applied with the object bound to its first parameter (see
- * {@link bindMethod}), followed by the call's own arguments. The
- * signature the call is checked against is the method's signature
- * without that first (receiver) parameter, so the method's lazy and
- * quoted parameters keep their usual meaning -- in particular a method
- * whose parameters are all lazy (like the null-chaining sentinel's) is
- * called without any of its arguments being evaluated.
+ * Any plain object with a `__call__` method is callable: the method is applied
+ * with the object bound to its first parameter (see {@link bindMethod}),
+ * followed by the call's own arguments. The signature the call is checked
+ * against is the method's signature without that first (receiver) parameter, so
+ * the method's lazy and quoted parameters keep their usual meaning -- in
+ * particular a method whose parameters are all lazy (like the null-chaining
+ * sentinel's) is called without any of its arguments being evaluated.
  */
 const loadMethodApplier = (vm: JebVM) =>
     defineApplier(
@@ -104,11 +106,11 @@ const loadMethodApplier = (vm: JebVM) =>
 /**
  * Indexing a plain object that provides descriptor protocol methods goes
  * through its `__access__` method only: the result is an
- * {@link AccessReference} (the key has already been evaluated on this
- * path, so it is quoted -- the access step receives it as the value it
- * is). An object with `__get__`/`__set__` methods but no `__access__` is
- * a descriptor, not indexable, and indexing it is an error. Objects
- * without descriptor methods keep the default accessor.
+ * {@link AccessReference} (the key has already been evaluated on this path, so
+ * it is quoted -- the access step receives it as the value it is). An object
+ * with `__get__`/`__set__` methods but no `__access__` is a descriptor, not
+ * indexable, and indexing it is an error. Objects without descriptor methods
+ * keep the default accessor.
  */
 const loadDescriptorAccessor = (vm: JebVM) =>
     defineAccessor(
@@ -130,8 +132,8 @@ const loadDescriptorAccessor = (vm: JebVM) =>
     );
 
 /**
- * When a value with a `__name__` method is assigned to a variable, the
- * method is called with the value and the name.
+ * When a value with a `__name__` method is assigned to a variable, the method
+ * is called with the value and the name.
  */
 const loadNameMethod = (vm: JebVM) =>
     vm.addProtocol("name", {
@@ -149,27 +151,25 @@ const loadNameMethod = (vm: JebVM) =>
 
 /**
  * A wrapper class with no dedicated unwrapper can still be unwrapped if
- * instances provide a `__unwrap__` method: unwrapping calls it and uses
- * its result.
+ * instances provide a `__unwrap__` method: unwrapping calls it and uses its
+ * result.
  */
 const loadUnwrapMethod = (vm: JebVM) =>
     vm.addProtocol("unwrap", {
         type: [[HasUnwrapMethod]],
         run(vm, { 0: wrapper }) {
-            pushMethodApply(
-                vm,
-                (wrapper as any)[PROTOCOL_SYMBOLS.unwrap],
-                [wrapper],
-            );
+            pushMethodApply(vm, (wrapper as any)[PROTOCOL_SYMBOLS.unwrap], [
+                wrapper,
+            ]);
         },
         doc: "Unwraps a wrapper by calling its __unwrap__ protocol method.",
     });
 
 /**
- * Registers the object protocol-method fallbacks in the VM. The fallbacks
- * only match values that provide the relevant method (see the pseudoclasses
- * above), so they compose with the dedicated protocol implementations in
- * any registration order.
+ * Registers the object protocol-method fallbacks in the VM. The fallbacks only
+ * match values that provide the relevant method (see the pseudoclasses above),
+ * so they compose with the dedicated protocol implementations in any
+ * registration order.
  */
 export const loadProtocolMethods = (vm: JebVM) => {
     loadMethodApplier(vm);

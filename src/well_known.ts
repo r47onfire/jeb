@@ -2,20 +2,20 @@
  * The symbol under which each protocol's implementation lives when it is
  * provided by a value itself (as a method) rather than by a host-registered
  * implementation. The symbols are created with `Symbol.for`, so a Backolon
- * interned symbol with the same spelling (e.g. `:__add__`) is the same key,
- * and code written in JEB can install protocol methods on its own objects
- * with `(object (sym "__add__") (fn (self other) ...))`.
+ * interned symbol with the same spelling (e.g. `:__add__`) is the same key, and
+ * code written in JEB can install protocol methods on its own objects with
+ * `(object (sym "__add__") (fn (self other) ...))`.
  *
- * `eval` has no symbol: evaluation is the VM's own business and values do
- * not get to override it. `get` and `set` are not registry protocols (they
- * are the two halves of the reference model), but they have symbols because
- * any object with `__get__`/`__set__` methods acts as a descriptor: it can
- * be dereferenced and assigned to without being a `Reference`. Indexing
- * goes through `__access__` only: an object with an `__access__` method
- * controls indexing itself -- the method is called with the index key
- * and returns a descriptor object (with `__get__`/`__set__` methods) for
- * that property (see `AccessReference`) -- and an object that wants to
- * be its own descriptor returns itself from `__access__`.
+ * `eval` has no symbol: evaluation is the VM's own business and values do not
+ * get to override it. `get` and `set` are not registry protocols (they are the
+ * two halves of the reference model), but they have symbols because any object
+ * with `__get__`/`__set__` methods acts as a descriptor: it can be dereferenced
+ * and assigned to without being a `Reference`. Indexing goes through
+ * `__access__` only: an object with an `__access__` method controls indexing
+ * itself -- the method is called with the index key and returns a descriptor
+ * object (with `__get__`/`__set__` methods) for that property (see
+ * `AccessReference`) -- and an object that wants to be its own descriptor
+ * returns itself from `__access__`.
  */
 export const PROTOCOL_SYMBOLS = {
     apply: Symbol.for("__call__"),

@@ -57,9 +57,9 @@ export class EmptyArg extends Wrapper {
 /**
  * Wrapper for a variable reference. The wrapped value is usually a
  * {@link Reference}, but a descriptor object (an object with `__get__` /
- * `__set__` protocol methods) can be wrapped as-is too: the `get` and
- * `assign` opcodes read and assign through its methods, so it behaves
- * like a reference without being one.
+ * `__set__` protocol methods) can be wrapped as-is too: the `get` and `assign`
+ * opcodes read and assign through its methods, so it behaves like a reference
+ * without being one.
  */
 export class ReferenceWrapper extends Wrapper {
     flag = "ref" as const;

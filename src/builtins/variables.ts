@@ -170,17 +170,16 @@ const OP_assign_descriptor_internal = makeOpcode(
     null,
 );
 /**
- * Schedules an assignment to a descriptor: an object with a `__set__`
- * protocol method, called as `__set__(obj, value)`.
+ * Schedules an assignment to a descriptor: an object with a `__set__` protocol
+ * method, called as `__set__(obj, value)`.
  *
  * If the method's value parameter is lazy, the unevaluated right-hand side
  * expression is passed straight to the method (through `OP_apply`, so its
- * signature does the binding): if the method never evaluates it, the
- * right-hand side never runs, and the assignment returns the method's own
- * result (or the old value, read through `__get__` first, if that was
- * requested). Otherwise the value block is evaluated with `_` bound to the
- * old value, as for references, and the assignment returns the new or old
- * value.
+ * signature does the binding): if the method never evaluates it, the right-hand
+ * side never runs, and the assignment returns the method's own result (or the
+ * old value, read through `__get__` first, if that was requested). Otherwise
+ * the value block is evaluated with `_` bound to the old value, as for
+ * references, and the assignment returns the new or old value.
  */
 const assignDescriptor = (
     vm: JebVM,
@@ -214,10 +213,7 @@ const assignDescriptor = (
  */
 const OP_assign_accessed = makeOpcode(
     null,
-    (
-        vm: JebVM,
-        { 0: value, 1: wantOld }: [Block, boolean],
-    ) => {
+    (vm: JebVM, { 0: value, 1: wantOld }: [Block, boolean]) => {
         const descriptor = popData(vm);
         if (!protocolMethod(descriptor, "set"))
             throw new JEBError(
@@ -240,12 +236,7 @@ export const B_assign = makeJSFun(
         const wantOld = withType(old, ["boolean"], "old", args);
         if (ref instanceof ReferenceWrapper) {
             if (ref.obj instanceof AccessReference) {
-                pushCommand(
-                    vm,
-                    OP_assign_accessed,
-                    value as Block,
-                    wantOld,
-                );
+                pushCommand(vm, OP_assign_accessed, value as Block, wantOld);
                 pushCommand(vm, OP_unwrap, []);
                 pushAccessCall(vm, ref.obj);
                 return NOTHING;
