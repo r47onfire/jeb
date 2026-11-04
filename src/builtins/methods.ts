@@ -1,59 +1,80 @@
 import { Block } from "../block";
-import { Fun, JSFun } from "../callable";
 import { defineAccessor, defineApplier, makeOpcode } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
-import {
-    AccessReference,
-    DescriptorReference,
-    protocolMethod,
-} from "../protocol";
-import { PROTOCOL_SYMBOLS } from "../well_known";
+import { AccessReference, protocolMethod } from "../protocol";
+import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
 import { ApplyMetadata } from "../protocol";
-import { predicateToClass, theTypeName, typeOf } from "../typecheck";
+import { predicateToClass } from "../typecheck";
 import { Identifier } from "../utils";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { BoundMethod, Wrapper } from "../wrapper";
-import { isCallableValue, pushMethodApply } from "./eval";
-import { ObjectPropertyReference } from "./reference";
+import { pushMethodApply } from "./eval";
 
 /**
  * Fallback protocol implementations for plain objects that provide their own
  * protocol methods: functions stored on the object under the protocols' symbols
  * (see {@link PROTOCOL_SYMBOLS}). These are what let code written in JEB itself
- * overload calls, indexing, naming, unwrapping, and (through the operator
+ * overload calls, indexing, naming, and unwrapping, and (through the operator
  * builtins) the math operations, instead of only host code being able to
  * register protocol implementations.
+ *
+ * Each fallback is registered for a pseudoclass matching exactly the values
+ * that provide that protocol's method, so a fallback is only ever selected
+ * when the method exists -- the handlers never check for it themselves, they
+ * just call it and let whatever errors fall out of the call.
  */
 
 /**
- * Matches only plain objects (and arrays): the values that can carry protocol
- * methods. Host class instances (functions, environments, blocks, ...) never
- * match, so these fallbacks can't shadow their dedicated protocol
+ * Whether a value is a plain object (or array): the values that can carry
+ * protocol methods. Host class instances (functions, environments, blocks,
+ * ...) never match, so these fallbacks can't shadow their dedicated protocol
  * implementations.
  */
-const PlainObject = predicateToClass(
+const isPlainObject = (x: unknown): x is Record<PropertyKey, any> =>
+    typeof x === "object" &&
+    x !== null &&
+    (Array.isArray(x) ||
+        Object.getPrototypeOf(x) === Object.prototype ||
+        Object.getPrototypeOf(x) === null);
+
+/** Pseudoclass matching the plain objects that provide the named protocol method. */
+const hasMethod = (name: ProtocolSymbolName) =>
+    predicateToClass(
+        (x): x is Record<PropertyKey, any> =>
+            isPlainObject(x) && x[PROTOCOL_SYMBOLS[name]] !== undefined,
+    );
+
+/**
+ * Pseudoclass matching the plain objects that provide any descriptor
+ * protocol method (`__access__`, `__get__`, or `__set__`).
+ */
+const HasDescriptorMethods = predicateToClass(
     (x): x is Record<PropertyKey, any> =>
-        typeof x === "object" &&
-        x !== null &&
-        (Array.isArray(x) ||
-            Object.getPrototypeOf(x) === Object.prototype ||
-            Object.getPrototypeOf(x) === null),
+        isPlainObject(x) &&
+        (x[PROTOCOL_SYMBOLS.access] !== undefined ||
+            x[PROTOCOL_SYMBOLS.get] !== undefined ||
+            x[PROTOCOL_SYMBOLS.set] !== undefined),
 );
 
 /**
- * Metadata of a protocol method, which must be an ordinary callable (a
- * {@link Fun} or a {@link JSFun}); other callables (blocks, continuations) can't
- * take a receiver and are rejected.
+ * Pseudoclass matching the wrappers that provide a `__unwrap__` method.
+ * (Wrappers are VM machinery and don't go through {@link protocolMethod},
+ * so the symbol is read directly.)
  */
-const methodMetadata = (vm: JebVM, method: any): ApplyMetadata => {
-    if (!(method instanceof Fun) && !(method instanceof JSFun))
-        throw new JEBError(
-            ErrnoCode.EINVAL,
-            `${theTypeName(typeOf(method))} can't be used as a protocol method`,
-        );
-    return vm.getProtocol(true, true, "apply", [method]).describe(vm, method);
-};
+const HasUnwrapMethod = predicateToClass(
+    (x): x is Wrapper =>
+        x instanceof Wrapper &&
+        (x as any)[PROTOCOL_SYMBOLS.unwrap] !== undefined,
+);
+
+/**
+ * Metadata of a protocol method: its signature, name, and closure
+ * environment, from the `apply` protocol. If the value stored as the
+ * method can't be called at all, looking up its applier throws.
+ */
+const methodMetadata = (vm: JebVM, method: any): ApplyMetadata =>
+    vm.getProtocol(true, true, "apply", [method]).describe(vm, method);
 
 /** Binds the receiver to the first parameter of a method call's bound arguments. */
 const OP_insert_self = makeOpcode(
@@ -78,7 +99,7 @@ const OP_insert_self = makeOpcode(
 const loadMethodApplier = (vm: JebVM) =>
     defineApplier(
         vm,
-        [PlainObject],
+        [hasMethod("apply")],
         (vm, { 0: obj }, { tail, location }) => {
             const method = protocolMethod(obj, "apply")!;
             const { signature } = methodMetadata(vm, method);
@@ -89,14 +110,7 @@ const loadMethodApplier = (vm: JebVM) =>
             pushCommand(vm, OP_insert_self, obj, signature[0]?.name);
         },
         (vm, obj) => {
-            const method = protocolMethod(obj, "apply");
-            if (!method)
-                throw new JEBError(
-                    ErrnoCode.EINVAL,
-                    `can't call ${theTypeName(typeOf(obj))}`,
-                    {},
-                    { return: vm.cc() },
-                );
+            const method = protocolMethod(obj, "apply")!;
             const { name, signature, closureEnv } = methodMetadata(vm, method);
             if (signature[0]?.rest)
                 throw new JEBError(
@@ -145,82 +159,65 @@ const loadBoundMethodApplier = (vm: JebVM) =>
     );
 
 /**
- * Indexing a plain object goes through its `__get__`/`__set__` methods if it
- * provides them (the object is a descriptor for its fields); otherwise the
- * field is a plain Javascript property, as before. Because this accessor is
- * registered after the default object accessor and matches it in specificity,
- * it wins for plain objects and delegates to exactly the default behavior for
- * non-descriptors.
+ * Indexing a plain object that provides descriptor protocol methods goes
+ * through an {@link AccessReference}: the key has already been evaluated
+ * on this path, so it is quoted (the access step receives it as the value
+ * it is). Objects without descriptor methods keep the default accessor.
  */
 const loadDescriptorAccessor = (vm: JebVM) =>
     defineAccessor(
         vm,
-        [PlainObject],
-        (vm, { 0: obj }, { field, type }) => {
-            if (protocolMethod(obj, "access"))
-                // The key has already been evaluated on this path, so it
-                // is quoted: __access__ receives it as the value it is.
-                return new AccessReference(
-                    type,
-                    obj,
-                    new Block(vm.currentEnv, [["quote", field]]),
-                );
-            return (protocolMethod(obj, "get") ?? protocolMethod(obj, "set"))
-                ? new DescriptorReference(type, obj, field)
-                : new ObjectPropertyReference(type, obj, field);
-        },
-        "Accessor for plain objects: objects with an __access__ protocol method are indexed through the descriptors it returns, objects with __get__/__set__ protocol methods are indexed through those methods, and other objects' properties are read and written directly.",
+        [HasDescriptorMethods],
+        (vm, { 0: obj }, { field, type }) =>
+            new AccessReference(
+                type,
+                obj,
+                new Block(vm.currentEnv, [["quote", field]]),
+            ),
+        "Accessor for plain objects with descriptor protocol methods: indexing goes through the object's __access__ method if it has one, and through its __get__/__set__ methods otherwise.",
     );
 
 /**
- * When a value with a `__name__` method is assigned to a variable, the method
- * is called with the value and the name (the host `name` protocol for
- * functions, which renames them, is registered after this and so wins for
- * functions).
+ * When a value with a `__name__` method is assigned to a variable, the
+ * method is called with the value and the name.
  */
 const loadNameMethod = (vm: JebVM) =>
     vm.addProtocol("name", {
-        type: [[PlainObject]],
+        type: [[hasMethod("name")]],
         run(vm, { 0: value }, { name }) {
-            const method = protocolMethod(value, "name");
-            if (method && isCallableValue(method))
-                pushMethodApply(vm, method, [value, name], true);
+            pushMethodApply(
+                vm,
+                protocolMethod(value, "name")!,
+                [value, name],
+                true,
+            );
         },
         doc: "Calls the value's __name__ protocol method with the name it was assigned to.",
     });
 
 /**
  * A wrapper class with no dedicated unwrapper can still be unwrapped if
- * instances provide a `__unwrap__` method: unwrapping calls it and uses its
- * result. (Wrappers are VM machinery and don't go through
- * {@link protocolMethod}, so the symbol is read directly.)
+ * instances provide a `__unwrap__` method: unwrapping calls it and uses
+ * its result.
  */
 const loadUnwrapMethod = (vm: JebVM) =>
     vm.addProtocol("unwrap", {
-        type: [[Wrapper]],
+        type: [[HasUnwrapMethod]],
         run(vm, { 0: wrapper }) {
-            const method = (wrapper as any)[PROTOCOL_SYMBOLS.unwrap];
-            if (
-                !(method instanceof Fun) &&
-                !(method instanceof JSFun) &&
-                typeof method !== "function"
-            )
-                throw new JEBError(
-                    ErrnoCode.ERANGE,
-                    `No overload of unwrap exists for type ${theTypeName(typeOf(wrapper))}`,
-                );
-            pushMethodApply(vm, method, [wrapper]);
+            pushMethodApply(
+                vm,
+                (wrapper as any)[PROTOCOL_SYMBOLS.unwrap],
+                [wrapper],
+            );
         },
         doc: "Unwraps a wrapper by calling its __unwrap__ protocol method.",
     });
 
 /**
- * Registers the object protocol-method fallbacks in the VM. The fallbacks only
- * match plain objects (see {@link PlainObject}), so they compose with the
- * dedicated protocol implementations in any registration order; the one
- * exception is the descriptor accessor, which is registered after the default
- * object accessor so that it wins for plain objects and delegates to exactly
- * the default behavior for non-descriptors.
+ * Registers the object protocol-method fallbacks in the VM. The fallbacks
+ * only match values that provide the relevant method (see the pseudoclasses
+ * above), so they compose with the dedicated protocol implementations in
+ * any registration order.
  */
 export const loadProtocolMethods = (vm: JebVM) => {
     loadMethodApplier(vm);

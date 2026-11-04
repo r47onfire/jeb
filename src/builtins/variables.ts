@@ -13,7 +13,6 @@ import { implicitBegin } from "../implicitBegin";
 import {
     AccessReference,
     AccessType,
-    DescriptorReference,
     protocolMethod,
     Reference,
 } from "../protocol";
@@ -73,10 +72,15 @@ export const B_index = makeJSFun(
     ["obj", [false, "name"]],
     ({ obj, name }, vm) => {
         const key = name as Block;
-        if (protocolMethod(obj, "access")) {
-            // The object controls indexing itself through __access__:
-            // keep the key unevaluated, so the method's signature
-            // decides whether it is evaluated (see AccessReference).
+        if (
+            protocolMethod(obj, "access") ??
+            protocolMethod(obj, "get") ??
+            protocolMethod(obj, "set")
+        ) {
+            // The object is indexed through its descriptor protocol
+            // methods: keep the key unevaluated, so the methods'
+            // signatures decide whether it is evaluated (see
+            // AccessReference).
             pushCommand(vm, OP_wrap, ReferenceWrapper);
             pushCommand(
                 vm,
@@ -99,7 +103,7 @@ export const B_index = makeJSFun(
 ..param {any} obj
 ..param {PropertyKey} name
 .pure
-. Returns a reference to \`obj[name]\`. If \`obj\` has an \`__access__\` protocol method, the key is passed to it unevaluated and the method's signature decides whether it is evaluated.`,
+. Returns a reference to \`obj[name]\`. If \`obj\` has descriptor protocol methods (\`__access__\`, or \`__get__\`/\`__set__\`), the key is passed to them unevaluated and their signatures decide whether it is evaluated.`,
 );
 const OP_assign_internal_nested = makeOpcode(
     null,
@@ -188,8 +192,7 @@ const OP_assign_descriptor_internal = makeOpcode(
 /**
  * Schedules an assignment to a descriptor: an object with a `__set__` protocol
  * method, either the object itself (a cell, called as `__set__(obj, value)`) or
- * one of its fields through a {@link DescriptorReference} (`__set__(obj, field,
- * value)`).
+ * one of its fields (`__set__(obj, field, value)`).
  *
  * If the method's value parameter is lazy, the unevaluated right-hand side
  * expression is passed straight to the method (through `OP_apply`, so its
@@ -265,6 +268,18 @@ const OP_assign_accessed = makeOpcode(
     },
     null,
 );
+/**
+ * Continuation of an assignment through an {@link AccessReference} whose
+ * object is its own descriptor: the key has been evaluated and is on top
+ * of the data stack; assign to that field through `assignDescriptor`.
+ */
+const OP_assign_direct = makeOpcode(
+    null,
+    (vm: JebVM, { 0: obj, 1: value, 2: wantOld }: [any, Block, boolean]) => {
+        assignDescriptor(vm, obj, popData(vm), true, value, wantOld);
+    },
+    null,
+);
 export const B_assign = makeJSFun(
     "assign",
     [
@@ -277,24 +292,33 @@ export const B_assign = makeJSFun(
         const wantOld = withType(old, ["boolean"], "old", args);
         if (ref instanceof ReferenceWrapper) {
             if (ref.obj instanceof AccessReference) {
+                if (protocolMethod(ref.obj.obj, "access")) {
+                    pushCommand(
+                        vm,
+                        OP_assign_accessed,
+                        value as Block,
+                        wantOld,
+                    );
+                    pushAccessCall(vm, ref.obj);
+                    return NOTHING;
+                }
+                // The object is its own descriptor: force the key,
+                // then assign to that field through assignDescriptor.
                 pushCommand(
                     vm,
-                    OP_assign_accessed,
-                    value as Block,
-                    wantOld,
-                );
-                pushAccessCall(vm, ref.obj);
-                return NOTHING;
-            }
-            if (ref.obj instanceof DescriptorReference) {
-                assignDescriptor(
-                    vm,
+                    OP_assign_direct,
                     ref.obj.obj,
-                    ref.obj.field,
-                    true,
                     value as Block,
                     wantOld,
                 );
+                pushCommand(vm, OP_unwrap, [
+                    "splat",
+                    "keyword",
+                    "empty",
+                    "option",
+                ]);
+                pushCommand(vm, OP_block_invoke, ref.obj.key, false);
+                pushCommand(vm, OP_push_value, { _: {} });
                 return NOTHING;
             }
             pushCommand(vm, OP_assign_internal, value as Block, wantOld);

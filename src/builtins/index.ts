@@ -33,7 +33,6 @@ export {
     OP_shuffle,
     OP_tbPop,
     OP_tbPush,
-    isCallableValue,
     pushAccessCall,
     pushBoundApply,
     pushMethodApply,
