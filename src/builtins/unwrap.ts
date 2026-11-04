@@ -1,5 +1,15 @@
-import { OP_eval, OP_get, OP_tbPop, OP_tbPush } from ".";
+import {
+    OP_eval,
+    OP_get,
+    OP_tbPop,
+    OP_tbPush,
+    pushAccessCall,
+    pushMethodApply,
+} from ".";
+import { Block } from "../block";
 import { defineUnwrapper, makeOpcode } from "../define";
+import { AccessReference, AccessType, protocolMethod } from "../protocol";
+import { PROTOCOL_SYMBOLS } from "../well_known";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { DropFirst } from "../utils";
@@ -41,32 +51,123 @@ export const OP_wrap = makeOpcode(
 .sed obj -- wrapped
 . Wraps the object in the given wrapper class.`,
 );
+/**
+ * Decides from a resolved tag whether the value on top of the data stack
+ * (which `value` is) gets unwrapped: if the tag passes the flag lists, the
+ * value is popped and its `unwrap` protocol implementation runs, with
+ * another `OP_unwrap` queued behind it for the result.
+ */
+const unwrapIfTagged = (
+    vm: JebVM,
+    value: any,
+    tag: any,
+    flags: string[],
+    only?: boolean,
+) => {
+    if (!flags.includes(tag) === !only) {
+        // The tag says the value may be unwrapped here; an unwrapper
+        // (a dedicated one, or the value's __unwrap__ method) must also
+        // exist -- an accessed object whose __tag__ happens to read as
+        // some string is not thereby a wrapper.
+        const unwrapper = vm.getProtocol(false, false, "unwrap", [value]);
+        if (!unwrapper) return;
+        popData(vm);
+        pushCommand(vm, OP_unwrap, flags, only);
+        unwrapper.run(vm, [value]);
+    }
+};
+/**
+ * Continuation of {@link OP_unwrap}'s `__access__` path: the descriptor the
+ * access returned is on top of the data stack, over the value it was read
+ * from (which is also passed as an immediate). If the descriptor has no
+ * `__get__`, the tag simply reads as undefined -- the value is not a
+ * wrapper -- so unlike `OP_accessed_get` this is not an error.
+ */
+const OP_unwrap_get_tag = makeOpcode(
+    null,
+    (
+        vm: JebVM,
+        { 0: flags, 1: only, 2: value }: [string[], boolean | undefined, any],
+    ) => {
+        const descriptor = popData(vm);
+        const get = protocolMethod(descriptor, "get");
+        if (!get) return;
+        pushCommand(vm, OP_unwrap_with_tag, flags, only, value);
+        pushCommand(vm, OP_unwrap, []);
+        pushMethodApply(vm, get, [descriptor]);
+    },
+    null,
+);
+/**
+ * Continuation of {@link OP_unwrap} for a tag that had to be read first
+ * (through a descriptor's `__get__`, or through `__access__`): the resolved
+ * tag is on top of the data stack, over the value it describes (which is
+ * also passed as an immediate).
+ */
+const OP_unwrap_with_tag = makeOpcode(
+    null,
+    (
+        vm: JebVM,
+        { 0: flags, 1: only, 2: value }: [string[], boolean | undefined, any],
+    ) => {
+        const tag = popData(vm);
+        // A tag that reads as undefined is no tag at all: the property
+        // simply does not exist on the value, so it is not a wrapper.
+        if (tag !== undefined) unwrapIfTagged(vm, value, tag, flags, only);
+    },
+    null,
+);
 export const OP_unwrap = makeOpcode(
     "unwrap",
     (vm, { 0: flags, 1: only }: [string[], only?: boolean]) => {
         const top = peekData(vm);
-        const wrapper = vm.getProtocol(true, false, "wrapper", [top]);
-        if (wrapper && !flags.includes(wrapper.run(vm, [top])) === !only) {
-            popData(vm);
-            pushCommand(vm, OP_unwrap, flags, only);
-            vm.getProtocol(false, true, "unwrap", [top]).run(vm, [top]);
+        if (typeof top !== "object" || top === null) return;
+        // A wrapper says its tag with its __tag__ property (the Wrapper
+        // base class provides one, returning the wrapper's flag).
+        const tag = top[PROTOCOL_SYMBOLS.tag];
+        if (tag !== undefined) {
+            if (
+                typeof tag === "object" &&
+                tag !== null &&
+                tag[PROTOCOL_SYMBOLS.get] !== undefined
+            ) {
+                // The tag is behind a descriptor: read it, then decide.
+                pushCommand(vm, OP_unwrap_with_tag, flags, only, top);
+                pushCommand(vm, OP_unwrap, []);
+                pushCommand(vm, OP_get, true);
+                pushData(vm, tag);
+                return;
+            }
+            unwrapIfTagged(vm, top, tag, flags, only);
+            return;
+        }
+        // No direct __tag__: the tag can still live behind __access__,
+        // but only a value that also provides __unwrap__ can be a
+        // wrapper at all. Any other accessed object is not probed: it is
+        // under no obligation to have a __tag__ (the hole's reads all
+        // return the hole itself, so probing it would never terminate).
+        if (
+            top[PROTOCOL_SYMBOLS.unwrap] !== undefined &&
+            protocolMethod(top, "access")
+        ) {
+            const ref = new AccessReference(
+                AccessType.PROPERTY,
+                top,
+                new Block(vm.currentEnv, [["sym", "__tag__"]]),
+            );
+            pushCommand(vm, OP_unwrap_get_tag, flags, only, top);
+            pushCommand(vm, OP_unwrap, []);
+            pushAccessCall(vm, ref);
         }
     },
     `.imm flags only
 .param {string[]} flags
 .param {boolean?} [only=false]
 .sed value -- unwrapped
-. Unwraps all wrappers from the value, when the value's wrapper has a tag in the given list of \`flags\` (when \`only\` is true) or when the value's wrapper has a flag *not* in the list of \`flags\` (when \`only\` is false). Whether the value is a wrapper at all, and what its tag is, is determined by the \`wrapper\` protocol.`,
+. Unwraps all wrappers from the value, when the value's wrapper has a tag in the given list of \`flags\` (when \`only\` is true) or when the value's wrapper has a flag *not* in the list of \`flags\` (when \`only\` is false). The tag is the value's \`__tag__\` property, read through \`__access__\` / \`__get__\` if it is not a direct property; a value with no tag is not a wrapper and is left alone.`,
 );
 
 export const loadUnwrappingBuiltins = (vm: JebVM) => {
-    // A Wrapper says its tag with its flag; host classes that do not
-    // extend Wrapper can register their own tag with defineWrapper.
-    vm.addProtocol("wrapper", {
-        type: [[Wrapper]],
-        run: (vm, { 0: wrapper }) => wrapper.flag,
-        doc: "A wrapper's tag is its flag.",
-    });
     defineUnwrapper(
         vm,
         [ReferenceWrapper],

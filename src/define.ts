@@ -163,21 +163,6 @@ export const defineSetter = <V extends JebVM, const T extends Type[]>(
     vm.addProtocol("set", { type: [type, [true]], run: fn, doc });
 };
 
-/**
- * Defines a new kind of wrapper: values of the given type are wrappers whose
- * tag is the given string. `OP_unwrap` decides whether a value is a wrapper
- * (and whether to unwrap it) by looking for an implementation of the `wrapper`
- * protocol, matching the tag against its flag lists.
- */
-export const defineWrapper = <V extends JebVM, const T extends Type[]>(
-    vm: V,
-    type: T,
-    tag: string,
-    doc: string,
-) => {
-    vm.addProtocol("wrapper", { type: [type], run: () => tag, doc });
-};
-
 /** Defines a new unwrapper to define how a special wrapper should be unwrapped. */
 
 export const defineUnwrapper = <

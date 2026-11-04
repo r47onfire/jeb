@@ -7,7 +7,9 @@
  * `(object (sym "__add__") (fn (self other) ...))`.
  *
  * `eval` has no symbol: evaluation is the VM's own business and values do not
- * get to override it. `get` and `set` are registry protocols (the two halves of
+ * get to override it. `__tag__` is not a protocol of its own: it is the
+ * property by which a wrapper says its tag, which `OP_unwrap` reads (through
+ * `__access__` / `__get__` if necessary) before dispatching `unwrap`. `get` and `set` are registry protocols (the two halves of
  * the reference model, generalized): their symbols are the keys under which a
  * descriptor object provides them as methods, so any object with
  * `__get__`/`__set__` methods can be dereferenced and assigned to without being
@@ -20,7 +22,9 @@
 export const PROTOCOL_SYMBOLS = {
     apply: Symbol.for("__call__"),
     access: Symbol.for("__access__"),
+    member: Symbol.for("__member__"),
     unwrap: Symbol.for("__unwrap__"),
+    tag: Symbol.for("__tag__"),
     name: Symbol.for("__name__"),
     get: Symbol.for("__get__"),
     set: Symbol.for("__set__"),

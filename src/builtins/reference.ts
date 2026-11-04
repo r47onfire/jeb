@@ -1,10 +1,11 @@
 import { stringify } from "lib0/json";
-import { OP_apply, OP_shuffle } from ".";
+import { OP_apply, OP_shuffle, pushMethodApply } from ".";
 import { Fun } from "../callable";
+import { NOTHING } from "../define";
 import { Env } from "../env";
 import { ErrnoCode } from "../errno";
 import { JEBError, wrapThrowToError } from "../errors";
-import { AccessType, Reference } from "../protocol";
+import { AccessType, protocolMethod, Reference } from "../protocol";
 import { Identifier } from "../utils";
 import { JebVM, pushCommand, pushData } from "../vm";
 
@@ -24,13 +25,26 @@ export class ObjectPropertyReference extends Reference {
     /**
      * Reads the property. If `shouldBind` is set and the value is a function,
      * it is bound to the object, so host methods keep their receiver.
+     *
+     * Property lookup is Python-shaped: an `__access__` method, if the
+     * object has one, has already been consulted before this reference was
+     * created (see `index`); a property that is simply absent falls back
+     * to the object's `__member__` method, if it has one, whose result is
+     * the value. That call is scheduled, so this returns {@link NOTHING}
+     * in that case and the result lands on the stack in its place.
      */
     get(vm: JebVM, shouldBind: boolean) {
         vm.emit("jeb:ffi/object/get", [this.name, this.obj]);
-        var value = this.obj[this.name];
-        if (shouldBind && typeof value === "function")
-            value = value.bind(this.obj);
-        return value;
+        if (this.name in this.obj) {
+            var value = this.obj[this.name];
+            if (shouldBind && typeof value === "function")
+                value = value.bind(this.obj);
+            return value;
+        }
+        const member = protocolMethod(this.obj, "member");
+        if (!member) return undefined;
+        pushMethodApply(vm, member, [this.obj, this.name]);
+        return NOTHING;
     }
     /**
      * Writes the property, converting any JavaScript exception thrown by a

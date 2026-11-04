@@ -122,25 +122,29 @@ const loadNameMethod = (vm: JebVM) =>
     });
 
 /**
- * A wrapper class with no dedicated unwrapper can still be unwrapped if
- * instances provide a `__unwrap__` method: unwrapping calls it and uses its
- * result.
- */
-/**
- * Pseudoclass matching the wrappers that provide a `__unwrap__` method.
- * (Unwrapping only ever applies to wrappers, so unlike the other method
- * fallbacks this one matches wrappers carrying the method, not plain objects.)
+ * Pseudoclass matching the values that provide a `__unwrap__` method: a
+ * value with a `__tag__` and no dedicated unwrapper is unwrapped by
+ * calling the method and using its result. (Unlike the other method
+ * fallbacks this one also matches host class instances: saying a tag is
+ * not limited to plain objects. `OP_unwrap` only dispatches here after
+ * the value's tag has passed its flag lists, and references are read and
+ * assigned, never unwrapped, so they are excluded.)
  */
 const HasUnwrapMethod = predicateToClass(
-    (x): x is Wrapper =>
-        x instanceof Wrapper &&
+    (x): x is Record<PropertyKey, any> =>
+        typeof x === "object" &&
+        x !== null &&
+        !(x instanceof Reference) &&
         (x as any)[PROTOCOL_SYMBOLS.unwrap] !== undefined,
 );
 
 const loadUnwrapMethod = (vm: JebVM) =>
     defineUnwrapper(
         vm,
-        [HasUnwrapMethod],
+        // The pseudoclass matches any value carrying the method, not
+        // just Wrapper subclasses, so it does not fit defineUnwrapper's
+        // Wrapper-typed signature.
+        [HasUnwrapMethod] as any,
         (vm, { 0: wrapper }) => {
             pushMethodApply(vm, (wrapper as any)[PROTOCOL_SYMBOLS.unwrap], [
                 wrapper,

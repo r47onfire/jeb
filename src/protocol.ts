@@ -239,7 +239,6 @@ export interface JEBProtocols<V extends JebVM> {
     get: ProtocolsList<V, any, [Type[]], {}, void, GetFlags>;
     set: ProtocolsList<V, void, [Type[], Type[]], {}, void, SetFlags>;
     unwrap: ProtocolsList<V, void, [(typeof Wrapper)[]], {}, void, void>;
-    wrapper: ProtocolsList<V, string, [Type[]], {}, void, void>;
     name: ProtocolsList<V, void, [Type[]], {}, void, { name: Identifier }>;
     // Math protocols
     add: BinaryProtocolToResult<V>;

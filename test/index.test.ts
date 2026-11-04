@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { argumentLocation, define, defineUnwrapper, defineWrapper, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_get, OP_set, OP_shuffle, OP_unwrap, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typecheck, typeMatches, withType, Wrapper } from "../src";
+import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_get, OP_set, OP_shuffle, OP_unwrap, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typecheck, typeMatches, withType } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -1443,6 +1443,31 @@ describe("protocol methods", () => {
         vm.error = undefined;
         expect(() => run(vm, ["assign", ["index", ["local", "bad"], ["add", "x", ""]], 1])).toThrow("property is not writable");
     });
+    testTest(test, "__member__ is the last resort for a missing property", vm => {
+        expect(run(vm, ["define", "o", ["object",
+            ["sym", "__member__"], ["fn", ["self", "k"], ["add", "member:", ["local", "k"]]],
+            "real", "direct",
+        ]])).toBeTrue();
+        // a missing property is answered by __member__
+        expect(run(vm, ["index", ["local", "o"], "ghost"])).toBeTrue();
+        expect(popData(vm)).toBe("member:ghost");
+        // a real property is read directly; __member__ is not consulted
+        expect(run(vm, ["index", ["local", "o"], "real"])).toBeTrue();
+        expect(popData(vm)).toBe("direct");
+        // and __access__, when present, still comes before both
+        expect(run(vm, ["define", "a", ["object",
+            ["sym", "__access__"], ["fn", ["self", "k"], ["object",
+                ["sym", "__get__"], ["fn", ["s"], "accessed"],
+            ]],
+            ["sym", "__member__"], ["fn", ["self", "k"], "member"],
+            "real", "direct",
+        ]])).toBeTrue();
+        expect(run(vm, ["index", ["local", "a"], "real"])).toBeTrue();
+        expect(popData(vm)).toBe("accessed");
+        // without __member__, a missing property is still just undefined
+        expect(run(vm, ["index", ["object"], "nope"])).toBeTrue();
+        expect(popData(vm)).toBeUndefined();
+    });
     testTest(test, "__access__ can be lazy", vm => {
         vm.currentEnv.add("count", 0);
         expect(run(vm, ["define", ["bump"], ["begin",
@@ -1586,20 +1611,41 @@ describe("protocol methods", () => {
         expect(popData(vm)).toBe(123);
     });
     testTest(test, "externally defined unwrap protocol", vm => {
+        // a wrapper is just an object with a __tag__ and a __unwrap__:
+        // no Wrapper base class and no registration involved
         class ForeignWrapper {
-            constructor(readonly obj: any) {}
+            constructor(readonly obj: any) {
+                (this as any)[Symbol.for("__tag__")] = "foreign";
+                (this as any)[Symbol.for("__unwrap__")] = makeJSFun("unwrapForeign", ["self"], ({ self }) => (self as ForeignWrapper).obj, "test unwrapper");
+            }
         }
-        defineWrapper(vm, [ForeignWrapper], "foreign", "A test wrapper that does not extend Wrapper.");
-        defineUnwrapper(vm, [ForeignWrapper as any], (vm, { 0: w }) => pushData(vm, (w as any).obj), "Unwraps a foreign wrapper.");
+        const unwrapAll = (value: any, flags: string[] = []) => {
+            pushData(vm, value);
+            pushCommand(vm, OP_unwrap, flags);
+            while (vm.step());
+            return popData(vm);
+        };
         // a flag list naming its tag leaves it alone
-        pushData(vm, new ForeignWrapper(42));
-        pushCommand(vm, OP_unwrap, ["foreign"]);
-        while (vm.step());
-        expect(popData(vm)).toBeInstanceOf(ForeignWrapper);
+        expect(unwrapAll(new ForeignWrapper(42), ["foreign"])).toBeInstanceOf(ForeignWrapper);
         // otherwise OP_unwrap unwraps it like any other wrapper
-        pushData(vm, new ForeignWrapper(42));
-        pushCommand(vm, OP_unwrap, []);
-        while (vm.step());
-        expect(popData(vm)).toBe(42);
+        expect(unwrapAll(new ForeignWrapper(42))).toBe(42);
+        // the tag may sit behind a descriptor
+        const descriptorTagged = {
+            [Symbol.for("__tag__")]: {
+                [Symbol.for("__get__")]: makeJSFun("getTag", ["self"], () => "described", "test tag descriptor"),
+            },
+            [Symbol.for("__unwrap__")]: makeJSFun("unwrapDescribed", ["self"], () => 42, "test unwrapper"),
+        };
+        expect(unwrapAll(descriptorTagged, ["described"])).toBe(descriptorTagged);
+        expect(unwrapAll(descriptorTagged)).toBe(42);
+        // and with no direct __tag__ at all, it is read through __access__
+        const accessedTagged = {
+            [Symbol.for("__access__")]: makeJSFun("accessTag", ["self", "k"], () => ({
+                [Symbol.for("__get__")]: makeJSFun("getAccessedTag", ["self"], () => "accessed", "test tag descriptor"),
+            }), "test access"),
+            [Symbol.for("__unwrap__")]: makeJSFun("unwrapAccessed", ["self"], () => 42, "test unwrapper"),
+        };
+        expect(unwrapAll(accessedTagged, ["accessed"])).toBe(accessedTagged);
+        expect(unwrapAll(accessedTagged)).toBe(42);
     });
 });

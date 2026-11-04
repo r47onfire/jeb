@@ -23,6 +23,7 @@ export {
     B_keyword,
     B_macro_wrap,
     B_splat,
+    OP_accessed_get,
     OP_apply,
     OP_audit,
     OP_eval,

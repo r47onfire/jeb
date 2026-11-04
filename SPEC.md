@@ -62,7 +62,7 @@ An implementation MUST NOT allow user code to access or modify existing protocol
 
 This implementation additionally lets a plain object provide protocol implementations as _methods_: functions stored on the object under well-known symbols. Each protocol (except `eval`) has such a symbol, spelled like Python's "dunder" names and created with `Symbol.for`, so an interned symbol of the same spelling in user code (e.g. `:__add__`) is the same key:
 
-- `apply` is `__call__`, `access` is `__access__`, `unwrap` is `__unwrap__`, `name` is `__name__`
+- `apply` is `__call__`, `access` is `__access__`, `unwrap` is `__unwrap__`, `name` is `__name__`, `member` is `__member__`
 - the math protocols are `__add__`, `__sub__`, `__mul__`, `__div__`, `__mod__`, `__pow__`, `__matMul__`, `__abs__`, `__neg__`, `__inv__`, `__bitAnd__`, `__bitOr__`, `__bitXor__`, `__shl__`, `__shr__`, `__bitNot__`, and `__cmp__`
 
 A protocol method is called with the object it was found on as its first argument, followed by the operation's own arguments (for `__cmp__`, the other operand and the relation bitset being tested). The object's own method always comes first: host-registered implementations are fallbacks, used only for values that do not provide the method. (This matters most for `cmp`, whose catch-all identity implementation would otherwise shadow every method: an object with a `__cmp__` method takes over its own comparisons entirely.) Providing a method does not modify the protocol itself; dispatch for other values is unaffected.
@@ -70,6 +70,8 @@ A protocol method is called with the object it was found on as its first argumen
 Separately, an object with `__get__` and/or `__set__` methods is a _descriptor_: it can be read and assigned like a reference without being one (see 6.4). A `__set__` method whose value parameter is lazy receives the assigned value unevaluated, so a descriptor can decline to evaluate it (this is what lets a null-chaining sentinel absorb an assignment without running its right-hand side).
 
 An object with an `__access__` method instead controls indexing into itself per property. When a property of such an object is read or assigned, the method is called with the object and the property key, and returns a descriptor object for that property; the access then goes through the descriptor's own `__get__` / `__set__` methods (called with just the descriptor, and the value for `__set__`). The key is passed to `__access__` unevaluated: whether it is evaluated at all is decided by the method's signature. The returned descriptor's `__set__` likewise decides, through its value parameter's laziness, whether the assigned value is evaluated -- so which properties are lazy, and how, is up to the object on each access. Indexing goes through `__access__` only: a descriptor's `__get__` / `__set__` methods are never used for indexing unless the object opts in by returning itself (or another descriptor) from `__access__`.
+
+Property lookup on an object without `__access__` is, as in Python, a ladder: the direct property if it exists, and otherwise the object's `__member__` method if it provides one, called with the object and the property key, whose result is the property's value. `__member__` is only consulted for properties that do not exist; it never shadows a real property, and assigning to a missing property simply creates it.
 
 ## 2. Evaluation
 
