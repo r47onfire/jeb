@@ -26,9 +26,9 @@ import { OP_unwrap } from "./unwrap";
  * Fallback protocol implementations for plain objects that provide their own
  * protocol methods: functions stored on the object under the protocols' symbols
  * (see {@link PROTOCOL_SYMBOLS}). These are what let code written in JEB itself
- * overload calls, indexing, naming, unwrapping, and reading and assignment,
- * and (through the operator builtins) the math operations, instead of only
- * host code being able to register protocol implementations. The `get` / `set`
+ * overload calls, indexing, naming, unwrapping, and reading and assignment, and
+ * (through the operator builtins) the math operations, instead of only host
+ * code being able to register protocol implementations. The `get` / `set`
  * implementations for references and access references also live here.
  *
  * Each fallback is registered for a pseudoclass matching exactly the values
@@ -51,8 +51,14 @@ const isPlainObject = (x: unknown): x is Record<PropertyKey, any> =>
         Object.getPrototypeOf(x) === null);
 
 /**
- * Pseudoclass matching the plain objects that provide the named protocol
- * method.
+ * Pseudoclass that claims plain objects that provide the named protocol method
+ * (although its callability is not checked).
+ *
+ * @example
+ *     const Callable = hasMethod("apply");
+ *     console.log({ [PROTOCOL_SYMBOLS.apply]: true } instanceof Callable); // true
+ *
+ * @see {@link PROTOCOL_SYMBOLS}
  */
 const hasMethod = <
     T extends Record<PropertyKey, any> = Record<PropertyKey, any>,
@@ -164,8 +170,8 @@ const scheduleAccess = (vm: JebVM, ref: AccessReference) => {
 };
 
 /**
- * Reading a reference goes through its `get()`; assigning to one goes
- * through its `set()`, with the assignment flags.
+ * Reading a reference goes through its `get()`; assigning to one goes through
+ * its `set()`, with the assignment flags.
  */
 const loadReferenceGetSet = (vm: JebVM) => {
     defineGetter(
@@ -186,9 +192,9 @@ const loadReferenceGetSet = (vm: JebVM) => {
 
 /**
  * A descriptor (an object with `__get__` / `__set__` methods) is read and
- * assigned through those methods, which receive the descriptor itself.
- * (The assignment flags only apply to references, so the `__set__`
- * implementation doesn't see them.)
+ * assigned through those methods, which receive the descriptor itself. (The
+ * assignment flags only apply to references, so the `__set__` implementation
+ * doesn't see them.)
  */
 const loadMethodGetSet = (vm: JebVM) => {
     defineGetter(
@@ -205,7 +211,12 @@ const loadMethodGetSet = (vm: JebVM) => {
         vm,
         [hasMethod("set")],
         (vm, { 0: obj, 1: value }) => {
-            pushMethodApply(vm, protocolMethod(obj, "set")!, [obj, value], true);
+            pushMethodApply(
+                vm,
+                protocolMethod(obj, "set")!,
+                [obj, value],
+                true,
+            );
         },
         "Assigns to a descriptor by calling its __set__ protocol method.",
     );
@@ -213,11 +224,11 @@ const loadMethodGetSet = (vm: JebVM) => {
 
 /**
  * An {@link AccessReference} reads and assigns through the descriptor its
- * object's `__access__` method returns: the handlers schedule the access
- * call and then read or assign through the returned descriptor.
- * (Registered last of the `get` / `set` implementations: an access
- * reference is also a {@link Reference}, and its own implementation must
- * win over the reference one.)
+ * object's `__access__` method returns: the handlers schedule the access call
+ * and then read or assign through the returned descriptor. (Registered last of
+ * the `get` / `set` implementations: an access reference is also a
+ * {@link Reference}, and its own implementation must win over the reference
+ * one.)
  */
 const loadAccessReferenceGetSet = (vm: JebVM) => {
     defineGetter(

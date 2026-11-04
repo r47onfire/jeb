@@ -364,19 +364,18 @@ export const pushMethodApply = (
     pushCommand(vm, OP_apply, args, undefined, false, true);
 };
 /**
- * Partially applies a callable to its first parameter: returns a callable
- * that calls `callee` with `value` filled in for that parameter. The
- * callee's signature and closure environment come from the `apply`
- * protocol's metadata, so how the callee is implemented doesn't matter:
- * whatever it is, the result is a single {@link Fun} with the first
- * parameter dropped, whose body is a call to the callee -- the parameter
- * is bound to `value` (and the callee to a generated name) in a child
- * environment of the callee's own, and each remaining parameter is
- * forwarded with a `local` reference (a rest parameter with a `splat`),
- * so the callee's signature decides how each argument is evaluated,
- * exactly as if it had been called directly. This is how protocol
- * methods are bound to their receivers: a method is just a callable
- * curried with the object it was found on.
+ * Partially applies a callable to its first parameter: returns a callable that
+ * calls `callee` with `value` filled in for that parameter. The callee's
+ * signature and closure environment come from the `apply` protocol's metadata,
+ * so how the callee is implemented doesn't matter: whatever it is, the result
+ * is a single {@link Fun} with the first parameter dropped, whose body is a call
+ * to the callee -- the parameter is bound to `value` (and the callee to a
+ * generated name) in a child environment of the callee's own, and each
+ * remaining parameter is forwarded with a `local` reference (a rest parameter
+ * with a `splat`), so the callee's signature decides how each argument is
+ * evaluated, exactly as if it had been called directly. This is how protocol
+ * methods are bound to their receivers: a method is just a callable curried
+ * with the object it was found on.
  */
 export const curry = (vm: JebVM, callee: any, value: any): any => {
     const { name, signature, closureEnv } = vm
@@ -389,9 +388,7 @@ export const curry = (vm: JebVM, callee: any, value: any): any => {
             ErrnoCode.EINVAL,
             "a callable's first parameter can't be a rest parameter",
         );
-    const taken = new Set(signature.map((p) => p.name as string));
-    let calleeName = "__callee__";
-    while (taken.has(calleeName)) calleeName += "_";
+    const calleeName = Symbol.for("__callee__");
     const forward = (p: LonghandArgument<any, any>): any =>
         p.rest === Rest.POSITIONAL
             ? ["splat", ["local", p.name]]
@@ -419,12 +416,12 @@ export const curry = (vm: JebVM, callee: any, value: any): any => {
     );
 };
 /**
- * Schedules a call to `callee` with `value` curried into its first
- * parameter (see {@link curry}), so the remaining arguments can be given
- * as unevaluated expressions: `OP_apply` runs without `noEval`, and the
- * signature decides whether each expression is evaluated. Used when an
- * argument must stay unevaluated -- a protocol method's receiver is a
- * computed value and could not be passed as an argument expression.
+ * Schedules a call to `callee` with `value` curried into its first parameter
+ * (see {@link curry}), so the remaining arguments can be given as unevaluated
+ * expressions: `OP_apply` runs without `noEval`, and the signature decides
+ * whether each expression is evaluated. Used when an argument must stay
+ * unevaluated -- a protocol method's receiver is a computed value and could not
+ * be passed as an argument expression.
  */
 export const pushCurriedApply = (
     vm: JebVM,

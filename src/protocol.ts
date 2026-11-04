@@ -273,9 +273,9 @@ export interface JEBProtocols<V extends JebVM> {
  * `undefined` if the object doesn't provide one. Only plain objects (and
  * arrays) can carry protocol methods; primitives, `null`, and host class
  * instances that are part of the VM's own machinery ({@link Reference}s and
- * {@link Wrapper}s) are not consulted. (An {@link AccessReference} is read
- * and assigned through the `get` / `set` protocols, not by consulting it
- * for methods.)
+ * {@link Wrapper}s) are not consulted. (An {@link AccessReference} is read and
+ * assigned through the `get` / `set` protocols, not by consulting it for
+ * methods.)
  */
 export const protocolMethod = (
     obj: any,

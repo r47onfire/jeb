@@ -134,10 +134,10 @@ export const defineAccessor = <V extends JebVM, const T extends Type[]>(
 };
 
 /**
- * Defines a new getter: an implementation of the `get` protocol, used by
- * the `jeb:get` opcode to read a value out of an LValue. The implementation
- * returns the value read, or `NOTHING` if it scheduled opcodes to produce
- * the value (or an error is already in flight).
+ * Defines a new getter: an implementation of the `get` protocol, used by the
+ * `jeb:get` opcode to read a value out of an LValue. The implementation returns
+ * the value read, or `NOTHING` if it scheduled opcodes to produce the value (or
+ * an error is already in flight).
  */
 export const defineGetter = <V extends JebVM, const T extends Type[]>(
     vm: V,
@@ -149,10 +149,10 @@ export const defineGetter = <V extends JebVM, const T extends Type[]>(
 };
 
 /**
- * Defines a new setter: an implementation of the `set` protocol, used by
- * the `jeb:assign` opcode to assign a value to an LValue. (The value to
- * assign is the second argument; the LValue's stack slot is not the
- * implementation's concern.)
+ * Defines a new setter: an implementation of the `set` protocol, used by the
+ * `jeb:assign` opcode to assign a value to an LValue. (The value to assign is
+ * the second argument; the LValue's stack slot is not the implementation's
+ * concern.)
  */
 export const defineSetter = <V extends JebVM, const T extends Type[]>(
     vm: V,
