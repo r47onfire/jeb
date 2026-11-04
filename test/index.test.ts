@@ -1388,13 +1388,13 @@ describe("protocol methods", () => {
         expect(popData(vm)[Symbol.for("__get__")]).toBeInstanceOf(Fun);
     });
     testTest(test, "descriptor fields: index reads and assigns through __get__/__set__", vm => {
-        expect(run(vm, ["define", "makeContainer", ["fn", [], ["begin",
+        expect(run(vm, ["define", ["makeContainer"], ["begin",
             ["define", "data", ["object"]],
             ["object",
                 ["sym", "__get__"], ["fn", ["self", "k"], ["index", ["local", "data"], ["local", "k"]]],
                 ["sym", "__set__"], ["fn", ["self", "k", "v"], ["assign", ["index", ["local", "data"], ["local", "k"]], ["local", "v"]]],
             ],
-        ]]])).toBeTrue();
+        ]])).toBeTrue();
         expect(run(vm, ["define", "c", ["makeContainer"]])).toBeTrue();
         expect(run(vm, ["assign", ["index", ["local", "c"], "x"], 5])).toBeTrue();
         expect(popData(vm)).toBe(5);
@@ -1402,7 +1402,7 @@ describe("protocol methods", () => {
         expect(popData(vm)).toBe(5);
     });
     testTest(test, "__access__ returns a descriptor for the property", vm => {
-        expect(run(vm, ["define", "makeAccessed", ["fn", [], ["begin",
+        expect(run(vm, ["define", ["makeAccessed"], ["begin",
             ["define", "data", ["object"]],
             ["object",
                 ["sym", "__access__"], ["fn", ["self", "k"], ["object",
@@ -1410,7 +1410,7 @@ describe("protocol methods", () => {
                     ["sym", "__set__"], ["fn", ["s", "v"], ["assign", ["index", ["local", "data"], ["local", "k"]], ["local", "v"]]],
                 ]],
             ],
-        ]]])).toBeTrue();
+        ]])).toBeTrue();
         expect(run(vm, ["define", "c", ["makeAccessed"]])).toBeTrue();
         expect(run(vm, ["assign", ["index", ["local", "c"], "x"], 5])).toBeTrue();
         expect(popData(vm)).toBe(5);
@@ -1429,10 +1429,10 @@ describe("protocol methods", () => {
     });
     testTest(test, "__access__ decides whether the key is evaluated", vm => {
         vm.currentEnv.add("count", 0);
-        expect(run(vm, ["define", "bump", ["fn", [], ["begin",
+        expect(run(vm, ["define", ["bump"], ["begin",
             ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
             99,
-        ]]])).toBeTrue();
+        ]])).toBeTrue();
         // a lazy key parameter: the key expression never runs
         expect(run(vm, ["define", "lazyTracker", {
             [Symbol.for("__access__")]: ["fn", ["self", [false, "k"]], ["object",
@@ -1456,10 +1456,10 @@ describe("protocol methods", () => {
     });
     testTest(test, "__access__ descriptor's __set__ decides whether the value is evaluated", vm => {
         vm.currentEnv.add("count", 0);
-        expect(run(vm, ["define", "bump", ["fn", [], ["begin",
+        expect(run(vm, ["define", ["bump"], ["begin",
             ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
             99,
-        ]]])).toBeTrue();
+        ]])).toBeTrue();
         expect(run(vm, ["define", "sink", {
             [Symbol.for("__access__")]: ["fn", ["self", "k"], ["object",
                 ["sym", "__set__"], ["fn", ["s", [false, "v"]], 12345],
@@ -1474,10 +1474,10 @@ describe("protocol methods", () => {
     });
     testTest(test, "lazy __set__ and __call__: the hole never evaluates what it ignores", vm => {
         vm.currentEnv.add("count", 0);
-        expect(run(vm, ["define", "bump", ["fn", [], ["begin",
+        expect(run(vm, ["define", ["bump"], ["begin",
             ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
             99,
-        ]]])).toBeTrue();
+        ]])).toBeTrue();
         expect(run(vm, ["define", "hole", {
             [Symbol.for("__get__")]: ["fn", ["self", "k"], ["local", "self"]],
             [Symbol.for("__set__")]: ["fn", ["self", "k", [false, "v"]], ["local", "self"]],
