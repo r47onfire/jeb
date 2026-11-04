@@ -62,19 +62,25 @@ export class JEBError extends Error {
         this.paramName = options.paramName;
     }
     toString(): string {
-        return `[${ErrnoCode[this.code] ?? this.code}] ${this.message}${this.traceback ? `\ntraceback: ${formatStackTraceCompact(compressStackTree(this.traceback))}` : ""}${
-            this.cause instanceof JEBError
-                ? `\ncaused by: ${this.cause.toString()}${this.children
-                      .map((c) =>
-                          c
-                              .toString()
-                              .split("\n")
-                              .map((l) => "  " + l)
-                              .join("\n"),
-                      )
-                      .join("\n\n")}`
+        return `[${ErrnoCode[this.code] ?? this.code}] ${this.message}${
+            this.traceback
+                ? `\ntraceback: ${formatStackTraceCompact(
+                      compressStackTree(this.traceback),
+                  )}`
                 : ""
-        }`;
+        }${
+            this.cause instanceof JEBError
+                ? `\ncaused by: ${this.cause.toString()}`
+                : ""
+        }${this.children
+            .map((c) =>
+                c
+                    .toString()
+                    .split("\n")
+                    .map((l) => "  " + l)
+                    .join("\n"),
+            )
+            .join("\n\n")}`;
     }
 }
 

@@ -1,4 +1,5 @@
 import { define, makeJSFun } from "./define";
+import { JEBError } from "./errors";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";
 
@@ -22,7 +23,17 @@ export const makeTestRun =
                 "test print",
             ),
         );
-        testfun(name, () => testBody(vm, out));
+        testfun(name, () => {
+            try {
+                return testBody(vm, out);
+            } catch (e) {
+                if (e instanceof JEBError) {
+                    console.error("VM Error Caught!");
+                    console.error(e.toString());
+                }
+                throw e;
+            }
+        });
     };
 
 export const run = <T extends JebVM>(
