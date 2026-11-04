@@ -359,65 +359,72 @@ export const pushMethodApply = (
     pushCommand(vm, OP_apply, args, undefined, false, true);
 };
 /**
- * Binds a protocol method to its receiver, producing the callable to actually
- * apply: a synthetic copy of the method with the receiver parameter dropped.
- * For a {@link Fun}, the copy's body closes over a child environment of the
- * method's own in which the receiver parameter is already bound to the
- * receiver; for a {@link JSFun}, the copy's implementation fills the receiver
- * parameter in before delegating to the original. The remaining parameters keep
- * their declared laziness, so arguments later given to the copy as expressions
- * are evaluated (or not) exactly as the method's signature dictates.
+ * Partially applies a callable to its first parameter: returns a callable
+ * that calls `callee` with `value` filled in for that parameter. For a
+ * {@link Fun}, the result is a synthetic copy with the parameter dropped,
+ * whose body closes over a child environment of the function's own in
+ * which the parameter is already bound to `value`; for a {@link JSFun},
+ * the copy's implementation fills the parameter in before delegating to
+ * the original. A callable object (one with a `__call__` method) is
+ * curried through its method: the method is first curried with the
+ * object itself, then with `value`. The remaining parameters keep their
+ * declared laziness, so arguments later given to the result as
+ * expressions are evaluated (or not) exactly as the signature dictates.
+ * This is how protocol methods are bound to their receivers: a method is
+ * just a callable curried with the object it was found on.
  */
-export const bindMethod = (self: any, method: any): any => {
-    if (method instanceof Fun || method instanceof JSFun) {
-        const first = method.signature[0];
-        if (!first) return method;
+export const curry = (callee: any, value: any): any => {
+    if (callee instanceof Fun || callee instanceof JSFun) {
+        const first = callee.signature[0];
+        if (!first) return callee;
         if (first.rest)
             throw new JEBError(
                 ErrnoCode.EINVAL,
-                "a protocol method's first parameter (the receiver) can't be a rest parameter",
+                "a callable's first parameter can't be a rest parameter",
             );
-        if (method instanceof Fun)
+        if (callee instanceof Fun)
             return new Fun(
-                method.isImplicit,
-                method.name,
-                method.signature.slice(1),
+                callee.isImplicit,
+                callee.name,
+                callee.signature.slice(1),
                 new Block(
-                    new Env({ [first.name]: self }, [method.closureEnv]),
-                    method.body.body,
+                    new Env({ [first.name]: value }, [callee.closureEnv]),
+                    callee.body.body,
                 ),
-                method.doc,
+                callee.doc,
             );
         return new JSFun(
-            method.name,
-            method.signature.slice(1),
+            callee.name,
+            callee.signature.slice(1),
             (args: any, vm: JebVM, location: Location | undefined) => {
-                args[first.name] = self;
-                return method.impl(args, vm, location);
+                args[first.name] = value;
+                return callee.impl(args, vm, location);
             },
-            method.doc,
+            callee.doc,
         );
     }
+    const method = protocolMethod(callee, "apply");
+    if (method) return curry(curry(method, callee), value);
     throw new JEBError(
         ErrnoCode.EINVAL,
-        `${theTypeName(typeOf(method))} can't be used as a protocol method`,
+        `${theTypeName(typeOf(callee))} is not callable`,
     );
 };
 /**
- * Schedules a call to a protocol method with the receiver `self` bound to the
- * method's first parameter (see {@link bindMethod}), so the remaining arguments
- * can be given as unevaluated expressions: `OP_apply` runs without `noEval`,
- * and the method's signature decides whether each expression is evaluated. Used
- * when an argument must stay unevaluated -- the receiver itself is a computed
- * value and could not be passed as an argument expression.
+ * Schedules a call to `callee` with `value` curried into its first
+ * parameter (see {@link curry}), so the remaining arguments can be given
+ * as unevaluated expressions: `OP_apply` runs without `noEval`, and the
+ * signature decides whether each expression is evaluated. Used when an
+ * argument must stay unevaluated -- a protocol method's receiver is a
+ * computed value and could not be passed as an argument expression.
  */
-export const pushBoundApply = (
+export const pushCurriedApply = (
     vm: JebVM,
-    self: any,
-    method: any,
+    callee: any,
+    value: any,
     argv: any[],
 ) => {
-    pushData(vm, bindMethod(self, method));
+    pushData(vm, curry(callee, value));
     pushCommand(vm, OP_apply, argv, undefined, false, false);
 };
 /**
@@ -427,7 +434,7 @@ export const pushBoundApply = (
  * data stack for the next command to consume.
  */
 export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
-    pushBoundApply(vm, ref.obj, protocolMethod(ref.obj, "access")!, [
+    pushCurriedApply(vm, protocolMethod(ref.obj, "access")!, ref.obj, [
         ref.key.body[0],
     ]);
 };
@@ -436,7 +443,7 @@ export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
  * object returned by `__access__` is on top of the data stack; read through its
  * `__get__` method.
  */
-const OP_accessed_get = makeOpcode(
+export const OP_accessed_get = makeOpcode(
     null,
     (vm: JebVM) => {
         const descriptor = popData(vm);
@@ -457,7 +464,7 @@ const OP_accessed_get = makeOpcode(
  * `__set__` method, leaving the value on the stack (like the `assign` opcode
  * does).
  */
-const OP_accessed_set = makeOpcode(
+export const OP_accessed_set = makeOpcode(
     null,
     (vm: JebVM) => {
         const descriptor = popData(vm);
@@ -634,32 +641,16 @@ export const OP_get = makeOpcode(
     "get",
     (vm: JebVM, { 0: shouldBind }: [boolean]) => {
         const lvalue = popData(vm);
-        if (lvalue instanceof AccessReference) {
-            if (!protocolMethod(lvalue.obj, "access"))
-                throw new JEBError(
-                    ErrnoCode.EINVAL,
-                    `${theTypeName(typeOf(lvalue.obj))} has no __access__ method`,
-                );
-            // Call __access__ for the descriptor, then read through it;
-            // both the descriptor and the read result are unwrapped
-            // like any other values (a method body may end in a
-            // reference-producing form).
+        const get = protocolMethod(lvalue, "get");
+        if (get) {
+            // A descriptor: read through its __get__ method, which
+            // receives the descriptor itself.
             pushCommand(vm, OP_unwrap, []);
-            pushCommand(vm, OP_accessed_get);
-            pushCommand(vm, OP_unwrap, []);
-            pushAccessCall(vm, lvalue);
+            pushMethodApply(vm, get, [lvalue]);
             return;
         }
         if (lvalue instanceof Reference) {
             checkNothingOrPush(vm, lvalue.get(vm, shouldBind));
-            return;
-        }
-        const get = protocolMethod(lvalue, "get");
-        if (get) {
-            // A descriptor object used directly as an LValue: read through
-            // its __get__ method, which receives the object itself.
-            pushCommand(vm, OP_unwrap, []);
-            pushMethodApply(vm, get, [lvalue]);
             return;
         }
         throw new JEBError(
@@ -671,7 +662,7 @@ export const OP_get = makeOpcode(
 ..param {AccessType} accessType
 ..param {boolean?} [shouldBind=false]
 .sed lvalue -- value
-. Takes an LValue on the top of the stack and unwraps it: a reference by calling its get() method, a descriptor (an object with a \`__get__\` protocol method) used directly as an LValue by calling that method, and a reference to a property of a method-bearing object by calling its \`__access__\` protocol method for a descriptor and reading through that.`,
+. Takes an LValue on the top of the stack and unwraps it: a reference by calling its get() method, and a descriptor (an object with a \`__get__\` protocol method) by calling that method.`,
 );
 export const OP_assign = makeOpcode(
     "assign",
@@ -680,46 +671,33 @@ export const OP_assign = makeOpcode(
         { 0: create, 1: readonly }: [create?: boolean, readonly_?: boolean],
     ) => {
         const lvalue = popData(vm);
-        if (lvalue instanceof AccessReference) {
-            if (!protocolMethod(lvalue.obj, "access"))
-                throw new JEBError(
-                    ErrnoCode.EINVAL,
-                    `${theTypeName(typeOf(lvalue.obj))} has no __access__ method`,
-                );
-            // Call __access__ for the descriptor, then assign through
-            // it; the descriptor is unwrapped like any other value, and
-            // the value being assigned stays on the stack.
-            pushCommand(vm, OP_accessed_set);
-            pushCommand(vm, OP_unwrap, []);
-            pushAccessCall(vm, lvalue);
+        const set = protocolMethod(lvalue, "set");
+        if (set) {
+            // A descriptor: assign by calling its __set__ method. The
+            // method's result is discarded: like a reference assignment,
+            // the value being assigned stays on the stack. (The
+            // create/readonly flags only apply to references.)
+            const value = popData(vm);
+            pushData(vm, value);
+            pushMethodApply(vm, set, [lvalue, value], true);
             return;
         }
         if (lvalue instanceof Reference) {
             lvalue.set(vm, peekData(vm), create ?? false, readonly ?? false);
             return;
         }
-        const set = protocolMethod(lvalue, "set");
-        if (!set)
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                `cannot assign to ${theTypeName(typeOf(lvalue))}`,
-            );
-        // A descriptor is assigned by calling its __set__ method. The
-        // method's result is discarded: like a reference assignment, the
-        // value being assigned stays on the stack. (The create/readonly
-        // flags only apply to references.)
-        const value = popData(vm);
-        pushData(vm, value);
-        pushMethodApply(vm, set, [lvalue, value], true);
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            `cannot assign to ${theTypeName(typeOf(lvalue))}`,
+        );
     },
     `.imm accessType create readonly
 ..param {AccessType} accessType
 ..param {boolean?} [create=false]
 ..param {boolean?} [readonly=false]
 .sed value lvalue -- value
-. Takes an LValue on the top of the stack and assigns the next item in the stack to it: a reference by calling its \`set()\` method, a descriptor (an object with a \`__set__\` protocol method) used directly as an LValue by calling that method with the value, and a reference to a property of a method-bearing object by calling its \`__access__\` protocol method for a descriptor and assigning through that.`,
+. Takes an LValue on the top of the stack and assigns the next item in the stack to it: a reference by calling its set() method, and a descriptor (an object with a \`__set__\` protocol method) by calling that method with the value.`,
 );
-
 // MARK: logic
 export const OP_if = makeOpcode(
     "if",

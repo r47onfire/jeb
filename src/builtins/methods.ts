@@ -1,11 +1,20 @@
-import { defineApplier, defineUnwrapper } from "../define";
-import { protocolMethod } from "../protocol";
+import { defineApplier, defineUnwrapper, makeJSFun, NOTHING } from "../define";
+import { ErrnoCode } from "../errno";
+import { JEBError } from "../errors";
+import { AccessReference, protocolMethod } from "../protocol";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
 import { ApplyMetadata } from "../protocol";
-import { predicateToClass } from "../typecheck";
-import { JebVM } from "../vm";
+import { predicateToClass, theTypeName, typeOf } from "../typecheck";
+import { JebVM, pushCommand } from "../vm";
 import { Wrapper } from "../wrapper";
-import { bindMethod, pushMethodApply } from "./eval";
+import {
+    curry,
+    OP_accessed_get,
+    OP_accessed_set,
+    pushAccessCall,
+    pushMethodApply,
+} from "./eval";
+import { OP_unwrap } from "./unwrap";
 
 /**
  * Fallback protocol implementations for plain objects that provide their own
@@ -58,7 +67,7 @@ const methodMetadata = (vm: JebVM, method: any): ApplyMetadata =>
 
 /**
  * Any plain object with a `__call__` method is callable: the method is applied
- * with the object bound to its first parameter (see {@link bindMethod}),
+ * with the object bound to its first parameter (see {@link curry}),
  * followed by the call's own arguments. The signature the call is checked
  * against is the method's signature without that first (receiver) parameter, so
  * the method's lazy and quoted parameters keep their usual meaning -- in
@@ -70,14 +79,14 @@ const loadMethodApplier = (vm: JebVM) =>
         vm,
         [hasMethod("apply")],
         (vm, { 0: obj }, { tail, location }) => {
-            const bound = bindMethod(obj, protocolMethod(obj, "apply")!);
+            const bound = curry(protocolMethod(obj, "apply")!, obj);
             vm.getProtocol(true, true, "apply", [bound]).run(vm, [bound], {
                 tail,
                 location,
             });
         },
         (vm, obj) =>
-            methodMetadata(vm, bindMethod(obj, protocolMethod(obj, "apply")!)),
+            methodMetadata(vm, curry(protocolMethod(obj, "apply")!, obj)),
         "An object with a __call__ protocol method is callable through that method, with the object as the method's first argument.",
     );
 
@@ -104,10 +113,22 @@ const loadNameMethod = (vm: JebVM) =>
  * instances provide a `__unwrap__` method: unwrapping calls it and uses its
  * result.
  */
+/**
+ * Pseudoclass matching the wrappers that provide a `__unwrap__` method.
+ * (Unwrapping only ever applies to wrappers, so unlike the other method
+ * fallbacks this one matches wrappers carrying the method, not plain
+ * objects.)
+ */
+const HasUnwrapMethod = predicateToClass(
+    (x): x is Wrapper =>
+        x instanceof Wrapper &&
+        (x as any)[PROTOCOL_SYMBOLS.unwrap] !== undefined,
+);
+
 const loadUnwrapMethod = (vm: JebVM) =>
     defineUnwrapper(
         vm,
-        [hasMethod("unwrap")],
+        [HasUnwrapMethod],
         (vm, { 0: wrapper }) => {
             pushMethodApply(vm, (wrapper as any)[PROTOCOL_SYMBOLS.unwrap], [
                 wrapper,
@@ -122,8 +143,58 @@ const loadUnwrapMethod = (vm: JebVM) =>
  * so they compose with the dedicated protocol implementations in any
  * registration order.
  */
+/**
+ * Asserts that the object an {@link AccessReference} refers to provides
+ * `__access__`, and schedules the call: the descriptor object it returns
+ * is left on the data stack for the next command to consume.
+ */
+const scheduleAccess = (vm: JebVM, ref: AccessReference) => {
+    if (!protocolMethod(ref.obj, "access"))
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            `${theTypeName(typeOf(ref.obj))} has no __access__ method`,
+        );
+    pushAccessCall(vm, ref);
+};
+
+/**
+ * An {@link AccessReference} reads and assigns through the descriptor its
+ * object's `__access__` method returns, so the reference itself provides
+ * `__get__` / `__set__` handlers: the `get` and `assign` opcodes handle it
+ * through their ordinary descriptor paths, with no special case. The
+ * handlers are host functions like the other fallbacks in this file,
+ * installed on the class prototype.
+ */
+const loadAccessReferenceMethods = () => {
+    Object.assign(AccessReference.prototype, {
+        [PROTOCOL_SYMBOLS.get]: makeJSFun(
+            "AccessReference.__get__",
+            ["self"],
+            ({ self }: any, vm: JebVM) => {
+                pushCommand(vm, OP_accessed_get);
+                pushCommand(vm, OP_unwrap, []);
+                scheduleAccess(vm, self);
+                return NOTHING;
+            },
+            "Reads an access reference through the descriptor its object's __access__ method returns.",
+        ),
+        [PROTOCOL_SYMBOLS.set]: makeJSFun(
+            "AccessReference.__set__",
+            ["self", "value"],
+            ({ self, value }: any, vm: JebVM) => {
+                pushCommand(vm, OP_accessed_set);
+                pushCommand(vm, OP_unwrap, []);
+                scheduleAccess(vm, self);
+                return value;
+            },
+            "Assigns an access reference through the descriptor its object's __access__ method returns.",
+        ),
+    });
+};
+
 export const loadProtocolMethods = (vm: JebVM) => {
     loadMethodApplier(vm);
     loadNameMethod(vm);
     loadUnwrapMethod(vm);
+    loadAccessReferenceMethods();
 };

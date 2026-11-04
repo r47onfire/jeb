@@ -30,7 +30,7 @@ import {
     OP_assign,
     OP_shuffle,
     pushAccessCall,
-    pushBoundApply,
+    pushCurriedApply,
     pushMethodApply,
 } from "./eval";
 
@@ -186,7 +186,7 @@ const assignDescriptor = (
     const valueParam = signature[1];
     if (valueParam && valueParam.lazy !== Laziness.NONE) {
         if (wantOld) pushCommand(vm, OP_shuffle, 1, []); // the __set__ result is dropped
-        pushBoundApply(vm, target, set, [value.body[0]]);
+        pushCurriedApply(vm, set, target, [value.body[0]]);
         if (wantOld) {
             const get = protocolMethod(target, "get");
             if (get) {

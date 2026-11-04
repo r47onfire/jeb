@@ -34,7 +34,7 @@ export {
     OP_tbPop,
     OP_tbPush,
     pushAccessCall,
-    pushBoundApply,
+    pushCurriedApply,
     pushMethodApply,
 } from "./eval";
 export { B_is_nil } from "./ffi";

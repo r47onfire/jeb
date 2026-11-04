@@ -1504,6 +1504,29 @@ describe("protocol methods", () => {
         expect(run(vm, ["local", "count"])).toBeTrue();
         expect(popData(vm)).toBe(0);
     });
+    testTest(test, "a callable object can serve as a protocol method", vm => {
+        // the __access__ "method" stored on this object is itself an
+        // object, callable through its own __call__ (whose parameters are
+        // the method object, then the indexed object, then the key)
+        expect(run(vm, ["define", "o", ["object",
+            ["sym", "__access__"], ["object",
+                ["sym", "__call__"], ["fn", ["self", "owner", "k"], ["object",
+                    ["sym", "__get__"], ["fn", ["d"], ["local", "k"]],
+                ]],
+            ],
+        ]])).toBeTrue();
+        expect(run(vm, ["index", ["local", "o"], "hello"])).toBeTrue();
+        expect(popData(vm)).toBe("hello");
+        // and an object whose __call__ is a callable object can be called
+        expect(run(vm, ["define", "doubler", ["object",
+            ["sym", "__call__"], ["object",
+                ["sym", "__call__"], ["fn", ["self", "obj", "x"],
+                    ["add", ["local", "x"], ["local", "x"]]],
+            ],
+        ]])).toBeTrue();
+        expect(run(vm, [["local", "doubler"], 21])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+    });
     testTest(test, "__name__ method is told the variable's name", vm => {
         vm.currentEnv.add("seen", null);
         expect(run(vm, ["define", "thing", {
