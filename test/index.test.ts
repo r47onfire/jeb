@@ -1431,10 +1431,17 @@ describe("protocol methods", () => {
         expect(run(vm, ["define", "bad", {
             [Symbol.for("__access__")]: ["fn", ["self", "k"], ["object"]],
         }])).toBeTrue();
-        expect(() => run(vm, ["index", ["local", "bad"], "x"])).toThrow("property is not readable");
+        expect(() => run(vm, ["index", ["local", "bad"], "x"])).toThrow("property x is not readable");
         vm.commandStack = null;
         vm.error = undefined;
-        expect(() => run(vm, ["assign", ["index", ["local", "bad"], "x"], 1])).toThrow("descriptor is not writable");
+        expect(() => run(vm, ["assign", ["index", ["local", "bad"], "x"], 1])).toThrow("property x is not writable");
+        // a computed key has no static name, so the errors stay generic
+        vm.commandStack = null;
+        vm.error = undefined;
+        expect(() => run(vm, ["index", ["local", "bad"], ["add", "x", ""]])).toThrow("property is not readable");
+        vm.commandStack = null;
+        vm.error = undefined;
+        expect(() => run(vm, ["assign", ["index", ["local", "bad"], ["add", "x", ""]], 1])).toThrow("property is not writable");
     });
     testTest(test, "__access__ decides whether the key is evaluated", vm => {
         vm.currentEnv.add("count", 0);

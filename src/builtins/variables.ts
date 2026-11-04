@@ -24,6 +24,7 @@ import { Identifier } from "../utils";
 import { JebVM, peekData, popData, pushCommand, pushData } from "../vm";
 import { ReferenceWrapper } from "../wrapper";
 import {
+    accessedSetter,
     OP_apply,
     OP_get,
     OP_index,
@@ -175,10 +176,10 @@ const OP_assign_descriptor_internal = makeOpcode(
 const assignDescriptor = (
     vm: JebVM,
     target: any,
+    set: any,
     value: Block,
     wantOld: boolean,
 ) => {
-    const set = protocolMethod(target, "set")!;
     const { signature } = vm
         .getProtocol(true, true, "apply", [set])
         .describe(vm, set);
@@ -205,17 +206,28 @@ const assignDescriptor = (
     pushCommand(vm, OP_assign_descriptor_internal, target, value, wantOld);
 };
 /**
- * Continuation of an assignment through an {@link AccessReference}: the
- * descriptor object returned by `__access__` is on top of the data stack;
- * assign to it as a bare descriptor (see {@link assignDescriptor}).
+ * Continuation of an assignment through an {@link AccessReference} from the
+ * `assign` builtin: the descriptor object returned by `__access__` is on top
+ * of the data stack; assign to it as a bare descriptor (see
+ * {@link assignDescriptor}). Unlike `OP_accessed_set` (the `assign` opcode's
+ * continuation in eval.ts), the value here is still the unevaluated
+ * right-hand side expression, so the descriptor's `__set__` signature
+ * decides whether it is evaluated.
  */
 const OP_assign_accessed = makeOpcode(
     null,
-    (vm: JebVM, { 0: value, 1: wantOld }: [Block, boolean]) => {
+    (
+        vm: JebVM,
+        { 0: value, 1: wantOld, 2: property }: [Block, boolean, string | undefined],
+    ) => {
         const descriptor = popData(vm);
-        if (!protocolMethod(descriptor, "set"))
-            throw new JEBError(ErrnoCode.ENODEV, `descriptor is not writable`);
-        assignDescriptor(vm, descriptor, value, wantOld);
+        assignDescriptor(
+            vm,
+            descriptor,
+            accessedSetter(descriptor, property),
+            value,
+            wantOld,
+        );
     },
     null,
 );
@@ -231,7 +243,13 @@ export const B_assign = makeJSFun(
         const wantOld = withType(old, ["boolean"], "old", args);
         if (ref instanceof ReferenceWrapper) {
             if (ref.obj instanceof AccessReference) {
-                pushCommand(vm, OP_assign_accessed, value as Block, wantOld);
+                pushCommand(
+                    vm,
+                    OP_assign_accessed,
+                    value as Block,
+                    wantOld,
+                    ref.obj.propertyName,
+                );
                 pushCommand(vm, OP_unwrap, []);
                 pushAccessCall(vm, ref.obj);
                 return NOTHING;
@@ -242,13 +260,20 @@ export const B_assign = makeJSFun(
         if (ref instanceof AccessReference) {
             // A bare access reference (e.g. out of (ref (index obj k))):
             // the same access step as for a wrapped one.
-            pushCommand(vm, OP_assign_accessed, value as Block, wantOld);
+            pushCommand(
+                vm,
+                OP_assign_accessed,
+                value as Block,
+                wantOld,
+                ref.propertyName,
+            );
             pushCommand(vm, OP_unwrap, []);
             pushAccessCall(vm, ref);
             return NOTHING;
         }
-        if (protocolMethod(ref, "set")) {
-            assignDescriptor(vm, ref, value as Block, wantOld);
+        const set = protocolMethod(ref, "set");
+        if (set) {
+            assignDescriptor(vm, ref, set, value as Block, wantOld);
             return NOTHING;
         }
         throw new JEBError(

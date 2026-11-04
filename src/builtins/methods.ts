@@ -235,7 +235,7 @@ const loadAccessReferenceGetSet = (vm: JebVM) => {
         vm,
         [AccessReference],
         (vm, { 0: ref }) => {
-            pushCommand(vm, OP_accessed_get);
+            pushCommand(vm, OP_accessed_get, ref.propertyName);
             pushCommand(vm, OP_unwrap, []);
             scheduleAccess(vm, ref);
             return NOTHING;
@@ -246,7 +246,7 @@ const loadAccessReferenceGetSet = (vm: JebVM) => {
         vm,
         [AccessReference],
         (vm, { 0: ref }) => {
-            pushCommand(vm, OP_accessed_set);
+            pushCommand(vm, OP_accessed_set, ref.propertyName);
             pushCommand(vm, OP_unwrap, []);
             scheduleAccess(vm, ref);
         },

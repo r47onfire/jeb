@@ -308,6 +308,23 @@ export class AccessReference extends Reference {
     ) {
         super(type);
     }
+    /**
+     * The name of the property being accessed, when the key is a literal
+     * string, number or symbol; used in error messages. A computed key
+     * expression has no static name.
+     */
+    get propertyName(): string | undefined {
+        const form = this.key.body[0];
+        switch (typeof form) {
+            case "string":
+                return form;
+            case "number":
+            case "symbol":
+                return String(form);
+            default:
+                return undefined;
+        }
+    }
     get(): never {
         throw new JEBError(
             ErrnoCode.EPANIC,
