@@ -381,7 +381,7 @@ export const bindMethod = (self: any, method: any): any => {
             return new Fun(
                 method.isImplicit,
                 method.name,
-                method.signature.slice(1) as CallableSignature,
+                method.signature.slice(1),
                 new Block(
                     new Env({ [first.name]: self }, [method.closureEnv]),
                     method.body.body,
@@ -390,7 +390,7 @@ export const bindMethod = (self: any, method: any): any => {
             );
         return new JSFun(
             method.name,
-            method.signature.slice(1) as CallableSignature,
+            method.signature.slice(1),
             (args: any, vm: JebVM, location: Location | undefined) => {
                 args[first.name] = self;
                 return method.impl(args, vm, location);

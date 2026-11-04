@@ -1,5 +1,5 @@
 import { Block } from "../block";
-import { defineAccessor, defineApplier } from "../define";
+import { defineAccessor, defineApplier, defineUnwrapper } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { AccessReference, protocolMethod } from "../protocol";
@@ -66,7 +66,7 @@ const HasDescriptorMethods = predicateToClass(
  */
 const HasUnwrapMethod = predicateToClass(
     (x): x is Wrapper =>
-        x instanceof Wrapper &&
+        x instanceof Wrapper ||
         (x as any)[PROTOCOL_SYMBOLS.unwrap] !== undefined,
 );
 
@@ -155,15 +155,16 @@ const loadNameMethod = (vm: JebVM) =>
  * result.
  */
 const loadUnwrapMethod = (vm: JebVM) =>
-    vm.addProtocol("unwrap", {
-        type: [[HasUnwrapMethod]],
-        run(vm, { 0: wrapper }) {
+    defineUnwrapper(
+        vm,
+        [HasUnwrapMethod],
+        (vm, { 0: wrapper }) => {
             pushMethodApply(vm, (wrapper as any)[PROTOCOL_SYMBOLS.unwrap], [
                 wrapper,
             ]);
         },
-        doc: "Unwraps a wrapper by calling its __unwrap__ protocol method.",
-    });
+        "Unwraps a wrapper by calling its __unwrap__ protocol method.",
+    );
 
 /**
  * Registers the object protocol-method fallbacks in the VM. The fallbacks only
