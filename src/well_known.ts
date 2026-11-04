@@ -10,11 +10,12 @@
  * not get to override it. `get` and `set` are not registry protocols (they
  * are the two halves of the reference model), but they have symbols because
  * any object with `__get__`/`__set__` methods acts as a descriptor: it can
- * be dereferenced and assigned to without being a `Reference`, and it is
- * its own descriptor when indexed. An object with an `__access__` method
- * instead controls indexing itself: the method is called with the index
- * key and returns a descriptor object (with `__get__`/`__set__` methods)
- * for that property (see `AccessReference`).
+ * be dereferenced and assigned to without being a `Reference`. Indexing
+ * goes through `__access__` only: an object with an `__access__` method
+ * controls indexing itself -- the method is called with the index key
+ * and returns a descriptor object (with `__get__`/`__set__` methods) for
+ * that property (see `AccessReference`) -- and an object that wants to
+ * be its own descriptor returns itself from `__access__`.
  */
 export const PROTOCOL_SYMBOLS = {
     apply: Symbol.for("__call__"),

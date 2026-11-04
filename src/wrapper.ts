@@ -72,21 +72,3 @@ export class ReferenceWrapper extends Wrapper {
 export class MacroWrapper extends Wrapper {
     flag = "macro" as const;
 }
-
-/**
- * A protocol method together with the receiver it is called on. Applying it
- * (through `OP_apply`) calls the method with the receiver bound to its first
- * parameter, so the remaining arguments can stay unevaluated expressions
- * whose evaluation the method's own signature controls -- the receiver is a
- * computed value and could not be passed as an argument expression. Only
- * ever sits on the data stack as an `OP_apply` callee.
- */
-export class BoundMethod extends Wrapper {
-    flag = "boundMethod" as const;
-    constructor(
-        method: any,
-        readonly self: any,
-    ) {
-        super(method);
-    }
-}

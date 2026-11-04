@@ -72,15 +72,10 @@ export const B_index = makeJSFun(
     ["obj", [false, "name"]],
     ({ obj, name }, vm) => {
         const key = name as Block;
-        if (
-            protocolMethod(obj, "access") ??
-            protocolMethod(obj, "get") ??
-            protocolMethod(obj, "set")
-        ) {
-            // The object is indexed through its descriptor protocol
-            // methods: keep the key unevaluated, so the methods'
-            // signatures decide whether it is evaluated (see
-            // AccessReference).
+        if (protocolMethod(obj, "access")) {
+            // The object controls indexing itself through __access__:
+            // keep the key unevaluated, so the method's signature
+            // decides whether it is evaluated (see AccessReference).
             pushCommand(vm, OP_wrap, ReferenceWrapper);
             pushCommand(
                 vm,
@@ -89,6 +84,14 @@ export const B_index = makeJSFun(
             );
             return NOTHING;
         }
+        if (protocolMethod(obj, "get") ?? protocolMethod(obj, "set"))
+            // __get__/__set__ make an object a descriptor, not indexable:
+            // indexing goes through __access__ only, and an object that
+            // wants to be its own descriptor returns itself from it.
+            throw new JEBError(
+                ErrnoCode.EINVAL,
+                `${theTypeName(typeOf(obj))} is not subscriptable`,
+            );
         pushCommand(vm, OP_wrap, ReferenceWrapper);
         pushCommand(vm, OP_index, AccessType.PROPERTY);
         // The key is evaluated like a call argument: its result is
@@ -103,7 +106,7 @@ export const B_index = makeJSFun(
 ..param {any} obj
 ..param {PropertyKey} name
 .pure
-. Returns a reference to \`obj[name]\`. If \`obj\` has descriptor protocol methods (\`__access__\`, or \`__get__\`/\`__set__\`), the key is passed to them unevaluated and their signatures decide whether it is evaluated.`,
+. Returns a reference to \`obj[name]\`. If \`obj\` has an \`__access__\` protocol method, the key is passed to it unevaluated and the method's signature decides whether it is evaluated. An object with only \`__get__\`/\`__set__\` methods is a descriptor, not indexable, and indexing it is an error.`,
 );
 const OP_assign_internal_nested = makeOpcode(
     null,
@@ -138,23 +141,9 @@ const OP_push_value = makeOpcode(
  */
 const OP_desc_set = makeOpcode(
     null,
-    (
-        vm: JebVM,
-        {
-            0: target,
-            1: field,
-            2: hasField,
-        }: [any, PropertyKey | undefined, boolean],
-    ) => {
+    (vm: JebVM, { 0: target }: [any]) => {
         const set = protocolMethod(target, "set")!;
-        pushMethodApply(
-            vm,
-            set,
-            hasField
-                ? [target, field, peekData(vm)]
-                : [target, peekData(vm)],
-            true,
-        );
+        pushMethodApply(vm, set, [target, peekData(vm)], true);
     },
     null,
 );
@@ -166,33 +155,23 @@ const OP_desc_set = makeOpcode(
  */
 const OP_assign_descriptor_internal = makeOpcode(
     null,
-    (
-        vm: JebVM,
-        {
-            0: target,
-            1: field,
-            2: hasField,
-            3: b,
-            4: old,
-        }: [any, PropertyKey | undefined, boolean, Block, boolean],
-    ) => {
+    (vm: JebVM, { 0: target, 1: b, 2: old }: [any, Block, boolean]) => {
         pushCommand(vm, OP_shuffle, 2, [old ? 0 : 1]);
-        pushCommand(vm, OP_desc_set, target, field, hasField);
+        pushCommand(vm, OP_desc_set, target);
         pushCommand(vm, OP_block_invoke, b, false);
         pushCommand(vm, OP_assign_internal_nested);
         pushCommand(vm, OP_shuffle, 1, [0, 0]);
         const get = protocolMethod(target, "get");
         if (get) {
             pushCommand(vm, OP_unwrap, []);
-            pushMethodApply(vm, get, hasField ? [target, field] : [target]);
+            pushMethodApply(vm, get, [target]);
         } else pushCommand(vm, OP_push_value, undefined);
     },
     null,
 );
 /**
- * Schedules an assignment to a descriptor: an object with a `__set__` protocol
- * method, either the object itself (a cell, called as `__set__(obj, value)`) or
- * one of its fields (`__set__(obj, field, value)`).
+ * Schedules an assignment to a descriptor: an object with a `__set__`
+ * protocol method, called as `__set__(obj, value)`.
  *
  * If the method's value parameter is lazy, the unevaluated right-hand side
  * expression is passed straight to the method (through `OP_apply`, so its
@@ -206,8 +185,6 @@ const OP_assign_descriptor_internal = makeOpcode(
 const assignDescriptor = (
     vm: JebVM,
     target: any,
-    field: PropertyKey | undefined,
-    hasField: boolean,
     value: Block,
     wantOld: boolean,
 ) => {
@@ -215,37 +192,20 @@ const assignDescriptor = (
     const { signature } = vm
         .getProtocol(true, true, "apply", [set])
         .describe(vm, set);
-    const valueParam = signature[hasField ? 2 : 1];
+    const valueParam = signature[1];
     if (valueParam && valueParam.lazy !== Laziness.NONE) {
         if (wantOld) pushCommand(vm, OP_shuffle, 1, []); // the __set__ result is dropped
-        pushBoundApply(
-            vm,
-            target,
-            set,
-            hasField ? [field, value.body[0]] : [value.body[0]],
-        );
+        pushBoundApply(vm, target, set, [value.body[0]]);
         if (wantOld) {
             const get = protocolMethod(target, "get");
             if (get) {
                 pushCommand(vm, OP_unwrap, []);
-                pushMethodApply(
-                    vm,
-                    get,
-                    hasField ? [target, field] : [target],
-                );
+                pushMethodApply(vm, get, [target]);
             } else pushCommand(vm, OP_push_value, undefined);
         }
         return;
     }
-    pushCommand(
-        vm,
-        OP_assign_descriptor_internal,
-        target,
-        field,
-        hasField,
-        value,
-        wantOld,
-    );
+    pushCommand(vm, OP_assign_descriptor_internal, target, value, wantOld);
 };
 /**
  * Continuation of an assignment through an {@link AccessReference}: the
@@ -264,19 +224,7 @@ const OP_assign_accessed = makeOpcode(
                 ErrnoCode.EINVAL,
                 `${theTypeName(typeOf(descriptor))} returned by __access__ has no __set__ method`,
             );
-        assignDescriptor(vm, descriptor, undefined, false, value, wantOld);
-    },
-    null,
-);
-/**
- * Continuation of an assignment through an {@link AccessReference} whose
- * object is its own descriptor: the key has been evaluated and is on top
- * of the data stack; assign to that field through `assignDescriptor`.
- */
-const OP_assign_direct = makeOpcode(
-    null,
-    (vm: JebVM, { 0: obj, 1: value, 2: wantOld }: [any, Block, boolean]) => {
-        assignDescriptor(vm, obj, popData(vm), true, value, wantOld);
+        assignDescriptor(vm, descriptor, value, wantOld);
     },
     null,
 );
@@ -292,47 +240,21 @@ export const B_assign = makeJSFun(
         const wantOld = withType(old, ["boolean"], "old", args);
         if (ref instanceof ReferenceWrapper) {
             if (ref.obj instanceof AccessReference) {
-                if (protocolMethod(ref.obj.obj, "access")) {
-                    pushCommand(
-                        vm,
-                        OP_assign_accessed,
-                        value as Block,
-                        wantOld,
-                    );
-                    pushAccessCall(vm, ref.obj);
-                    return NOTHING;
-                }
-                // The object is its own descriptor: force the key,
-                // then assign to that field through assignDescriptor.
                 pushCommand(
                     vm,
-                    OP_assign_direct,
-                    ref.obj.obj,
+                    OP_assign_accessed,
                     value as Block,
                     wantOld,
                 );
-                pushCommand(vm, OP_unwrap, [
-                    "splat",
-                    "keyword",
-                    "empty",
-                    "option",
-                ]);
-                pushCommand(vm, OP_block_invoke, ref.obj.key, false);
-                pushCommand(vm, OP_push_value, { _: {} });
+                pushCommand(vm, OP_unwrap, []);
+                pushAccessCall(vm, ref.obj);
                 return NOTHING;
             }
             pushCommand(vm, OP_assign_internal, value as Block, wantOld);
             return ref.obj;
         }
         if (protocolMethod(ref, "set")) {
-            assignDescriptor(
-                vm,
-                ref,
-                undefined,
-                false,
-                value as Block,
-                wantOld,
-            );
+            assignDescriptor(vm, ref, value as Block, wantOld);
             return NOTHING;
         }
         throw new JEBError(
@@ -348,7 +270,7 @@ export const B_assign = makeJSFun(
 .throws ENAME - if the value is not defined anywhere
 .returns {old ? U : T}
 . Changes the value of the slot, and returns the new or old value as determined by \`old\`.
-. The slot may also be a descriptor (an object with a \`__set__\` protocol method, or a field of one): the assignment then calls that method instead. If the method's value parameter is lazy it receives the value unevaluated, and the assignment returns the method's result instead.`,
+. The slot may also be a descriptor (an object with a \`__set__\` protocol method, or a descriptor returned by an \`__access__\` method): the assignment then calls that method instead. If the method's value parameter is lazy it receives the value unevaluated, and the assignment returns the method's result instead.`,
 );
 
 export const B_ref = makeJSFun(

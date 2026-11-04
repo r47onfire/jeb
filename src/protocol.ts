@@ -269,19 +269,16 @@ export const protocolMethod = (
 };
 
 /**
- * A reference to a property of an object that provides descriptor
- * protocol methods. The access has not happened yet: the key is kept as
- * the unevaluated {@link Block} it arrived as, so when the reference is
- * read or assigned, the `get` / `assign` opcodes can hand the key
- * expression to the object's methods and let their signatures decide
- * whether it is evaluated.
- *
- * If the object provides an `__access__` method, the access goes through
- * it: the method is called with the key and returns a descriptor object
- * whose own `__get__` / `__set__` methods the access then goes through.
- * Otherwise the object is its own descriptor (like Python's iterators
- * returning themselves from `__iter__`): the access goes through its
- * `__get__` / `__set__` methods directly, with the key as an argument.
+ * A reference to a property of an object that provides an `__access__`
+ * protocol method. The method has not been called yet: the key is kept
+ * as the unevaluated {@link Block} it arrived as, so when the reference
+ * is read or assigned, the `get` / `assign` opcodes can pass the key
+ * expression straight to `__access__` and let the method's signature
+ * decide whether it is evaluated. The method returns a descriptor
+ * object whose own `__get__` / `__set__` methods the access then goes
+ * through. (An object that wants to be its own descriptor returns
+ * itself from `__access__`; `__get__` / `__set__` methods alone do not
+ * make an object indexable.)
  *
  * The synchronous accessors throw: all real access goes through the
  * opcodes, which call the methods.

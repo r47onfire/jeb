@@ -10,6 +10,7 @@ import {
     NOTHING,
 } from "../define";
 import { OP_doargs } from "../doargs";
+import { Env } from "../env";
 import { ErrnoCode } from "../errno";
 import { checkNothingOrPush, JEBError, Location } from "../errors";
 import {
@@ -32,7 +33,6 @@ import {
     StackEntryKind,
 } from "../vm";
 import {
-    BoundMethod,
     EmptyArg,
     KeywordArg,
     MacroWrapper,
@@ -359,10 +359,56 @@ export const pushMethodApply = (
     pushCommand(vm, OP_apply, args, undefined, false, true);
 };
 /**
+ * Binds a protocol method to its receiver, producing the callable to
+ * actually apply: a synthetic copy of the method with the receiver
+ * parameter dropped. For a {@link Fun}, the copy's body closes over a
+ * child environment of the method's own in which the receiver parameter
+ * is already bound to the receiver; for a {@link JSFun}, the copy's
+ * implementation fills the receiver parameter in before delegating to
+ * the original. The remaining parameters keep their declared laziness,
+ * so arguments later given to the copy as expressions are evaluated (or
+ * not) exactly as the method's signature dictates.
+ */
+export const bindMethod = (self: any, method: any): any => {
+    if (method instanceof Fun || method instanceof JSFun) {
+        const first = method.signature[0];
+        if (!first) return method;
+        if (first.rest)
+            throw new JEBError(
+                ErrnoCode.EINVAL,
+                "a protocol method's first parameter (the receiver) can't be a rest parameter",
+            );
+        if (method instanceof Fun)
+            return new Fun(
+                method.isImplicit,
+                method.name,
+                method.signature.slice(1) as CallableSignature,
+                new Block(
+                    new Env({ [first.name]: self }, [method.closureEnv]),
+                    method.body.body,
+                ),
+                method.doc,
+            );
+        return new JSFun(
+            method.name,
+            method.signature.slice(1) as CallableSignature,
+            (args: any, vm: JebVM, location: Location | undefined) => {
+                args[first.name] = self;
+                return method.impl(args, vm, location);
+            },
+            method.doc,
+        );
+    }
+    throw new JEBError(
+        ErrnoCode.EINVAL,
+        `${theTypeName(typeOf(method))} can't be used as a protocol method`,
+    );
+};
+/**
  * Schedules a call to a protocol method with the receiver `self` bound to
- * the method's first parameter (through a {@link BoundMethod}), so the
- * remaining arguments can be given as unevaluated expressions: `OP_apply`
- * runs without `noEval`, and the method's signature decides whether each
+ * the method's first parameter (see {@link bindMethod}), so the remaining
+ * arguments can be given as unevaluated expressions: `OP_apply` runs
+ * without `noEval`, and the method's signature decides whether each
  * expression is evaluated. Used when an argument must stay unevaluated --
  * the receiver itself is a computed value and could not be passed as an
  * argument expression.
@@ -373,7 +419,7 @@ export const pushBoundApply = (
     method: any,
     argv: any[],
 ) => {
-    pushData(vm, new BoundMethod(method, self));
+    pushData(vm, bindMethod(self, method));
     pushCommand(vm, OP_apply, argv, undefined, false, false);
 };
 /**
@@ -424,46 +470,6 @@ const OP_accessed_set = makeOpcode(
                 `${theTypeName(typeOf(descriptor))} returned by __access__ has no __set__ method`,
             );
         pushMethodApply(vm, set, [descriptor, peekData(vm)], true);
-    },
-    null,
-);
-/**
- * Continuation of an assignment through an {@link AccessReference} whose
- * object is its own descriptor: the key has been evaluated and is on top
- * of the data stack; assign through the object's `__set__` method,
- * restoring the assignment's environment and leaving the assigned value
- * on the stack.
- */
-const OP_direct_set_2 = makeOpcode(
-    null,
-    (
-        vm: JebVM,
-        { 0: ref, 1: set, 2: value, 3: env }: [AccessReference, any, any, any],
-    ) => {
-        vm.currentEnv = env;
-        const key = popData(vm);
-        pushData(vm, value);
-        pushMethodApply(vm, set, [ref.obj, key, value], true);
-    },
-    null,
-);
-/**
- * First half of an assignment through an {@link AccessReference} whose
- * object is its own descriptor (it has `__get__`/`__set__` methods but no
- * `__access__`): the value being assigned is on top of the data stack.
- * Unlike the `__access__` path, the object's methods take the key as a
- * value, so the key expression is evaluated (in the environment it was
- * captured in) before the `__set__` call is scheduled by the continuation.
- */
-const OP_direct_set_1 = makeOpcode(
-    null,
-    (vm: JebVM, { 0: ref, 1: set }: [AccessReference, any]) => {
-        const value = popData(vm);
-        pushCommand(vm, OP_direct_set_2, ref, set, value, vm.currentEnv);
-        pushCommand(vm, OP_unwrap, ["splat", "keyword", "empty", "option"]);
-        vm.currentEnv = ref.key.closureEnv;
-        pushCommand(vm, OP_eval, undefined);
-        pushData(vm, ref.key.body[0]);
     },
     null,
 );
@@ -631,26 +637,19 @@ export const OP_get = makeOpcode(
     (vm: JebVM, { 0: shouldBind }: [boolean]) => {
         const lvalue = popData(vm);
         if (lvalue instanceof AccessReference) {
-            if (protocolMethod(lvalue.obj, "access")) {
-                // Call __access__ for the descriptor, then read through
-                // it; the read result is unwrapped like any other read
-                // value.
-                pushCommand(vm, OP_unwrap, []);
-                pushCommand(vm, OP_accessed_get);
-                pushAccessCall(vm, lvalue);
-                return;
-            }
-            // The object is its own descriptor: read through its
-            // __get__ method, passing the key expression verbatim so
-            // the method's signature decides whether it is evaluated.
-            const get = protocolMethod(lvalue.obj, "get");
-            if (!get)
+            if (!protocolMethod(lvalue.obj, "access"))
                 throw new JEBError(
                     ErrnoCode.EINVAL,
-                    `${theTypeName(typeOf(lvalue.obj))} has no __get__ method`,
+                    `${theTypeName(typeOf(lvalue.obj))} has no __access__ method`,
                 );
+            // Call __access__ for the descriptor, then read through it;
+            // both the descriptor and the read result are unwrapped
+            // like any other values (a method body may end in a
+            // reference-producing form).
             pushCommand(vm, OP_unwrap, []);
-            pushBoundApply(vm, lvalue.obj, get, [lvalue.key.body[0]]);
+            pushCommand(vm, OP_accessed_get);
+            pushCommand(vm, OP_unwrap, []);
+            pushAccessCall(vm, lvalue);
             return;
         }
         if (lvalue instanceof Reference) {
@@ -684,23 +683,17 @@ export const OP_assign = makeOpcode(
     ) => {
         const lvalue = popData(vm);
         if (lvalue instanceof AccessReference) {
-            if (protocolMethod(lvalue.obj, "access")) {
-                // Call __access__ for the descriptor, then assign
-                // through it; the value being assigned stays on the
-                // stack.
-                pushCommand(vm, OP_accessed_set);
-                pushAccessCall(vm, lvalue);
-                return;
-            }
-            // The object is its own descriptor: assign through its
-            // __set__ method (see OP_direct_set_1).
-            const set = protocolMethod(lvalue.obj, "set");
-            if (!set)
+            if (!protocolMethod(lvalue.obj, "access"))
                 throw new JEBError(
                     ErrnoCode.EINVAL,
-                    `cannot assign to ${theTypeName(typeOf(lvalue.obj))}`,
+                    `${theTypeName(typeOf(lvalue.obj))} has no __access__ method`,
                 );
-            pushCommand(vm, OP_direct_set_1, lvalue, set);
+            // Call __access__ for the descriptor, then assign through
+            // it; the descriptor is unwrapped like any other value, and
+            // the value being assigned stays on the stack.
+            pushCommand(vm, OP_accessed_set);
+            pushCommand(vm, OP_unwrap, []);
+            pushAccessCall(vm, lvalue);
             return;
         }
         if (lvalue instanceof Reference) {

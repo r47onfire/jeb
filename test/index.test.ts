@@ -1387,19 +1387,12 @@ describe("protocol methods", () => {
         expect(run(vm, ["ref", cellCode])).toBeTrue();
         expect(popData(vm)[Symbol.for("__get__")]).toBeInstanceOf(Fun);
     });
-    testTest(test, "descriptor fields: index reads and assigns through __get__/__set__", vm => {
-        expect(run(vm, ["define", ["makeContainer"], ["begin",
-            ["define", "data", ["object"]],
-            ["object",
-                ["sym", "__get__"], ["fn", ["self", "k"], ["index", ["local", "data"], ["local", "k"]]],
-                ["sym", "__set__"], ["fn", ["self", "k", "v"], ["assign", ["index", ["local", "data"], ["local", "k"]], ["local", "v"]]],
-            ],
+    testTest(test, "a descriptor without __access__ is not indexable", vm => {
+        expect(run(vm, ["define", "c", ["object",
+            ["sym", "__get__"], ["fn", ["self", "k"], 1],
+            ["sym", "__set__"], ["fn", ["self", "k", "v"], 2],
         ]])).toBeTrue();
-        expect(run(vm, ["define", "c", ["makeContainer"]])).toBeTrue();
-        expect(run(vm, ["assign", ["index", ["local", "c"], "x"], 5])).toBeTrue();
-        expect(popData(vm)).toBe(5);
-        expect(run(vm, ["index", ["local", "c"], "x"])).toBeTrue();
-        expect(popData(vm)).toBe(5);
+        expect(() => run(vm, ["index", ["local", "c"], "x"])).toThrow(/is not subscriptable/);
     });
     testTest(test, "__access__ returns a descriptor for the property", vm => {
         expect(run(vm, ["define", ["makeAccessed"], ["begin",
@@ -1479,8 +1472,9 @@ describe("protocol methods", () => {
             99,
         ]])).toBeTrue();
         expect(run(vm, ["define", "hole", {
-            [Symbol.for("__get__")]: ["fn", ["self", "k"], ["local", "self"]],
-            [Symbol.for("__set__")]: ["fn", ["self", "k", [false, "v"]], ["local", "self"]],
+            [Symbol.for("__access__")]: ["fn", ["self", "k"], ["local", "self"]],
+            [Symbol.for("__get__")]: ["fn", ["self"], ["local", "self"]],
+            [Symbol.for("__set__")]: ["fn", ["self", [false, "v"]], ["local", "self"]],
             [Symbol.for("__call__")]: ["fn", ["self", [false, "a"]], ["local", "self"]],
         }])).toBeTrue();
         expect(run(vm, ["local", "hole"])).toBeTrue();

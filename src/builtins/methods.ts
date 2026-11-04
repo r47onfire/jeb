@@ -1,15 +1,14 @@
 import { Block } from "../block";
-import { defineAccessor, defineApplier, makeOpcode } from "../define";
+import { defineAccessor, defineApplier } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { AccessReference, protocolMethod } from "../protocol";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
 import { ApplyMetadata } from "../protocol";
-import { predicateToClass } from "../typecheck";
-import { Identifier } from "../utils";
-import { JebVM, popData, pushCommand, pushData } from "../vm";
-import { BoundMethod, Wrapper } from "../wrapper";
-import { pushMethodApply } from "./eval";
+import { predicateToClass, theTypeName, typeOf } from "../typecheck";
+import { JebVM } from "../vm";
+import { Wrapper } from "../wrapper";
+import { bindMethod, pushMethodApply } from "./eval";
 
 /**
  * Fallback protocol implementations for plain objects that provide their own
@@ -76,105 +75,58 @@ const HasUnwrapMethod = predicateToClass(
 const methodMetadata = (vm: JebVM, method: any): ApplyMetadata =>
     vm.getProtocol(true, true, "apply", [method]).describe(vm, method);
 
-/** Binds the receiver to the first parameter of a method call's bound arguments. */
-const OP_insert_self = makeOpcode(
-    null,
-    (vm: JebVM, { 0: self, 1: firstParam }: [any, Identifier | undefined]) => {
-        const argsObj = popData(vm);
-        if (firstParam !== undefined) argsObj[firstParam] = self;
-        pushData(vm, argsObj);
-    },
-    null,
-);
-
 /**
- * Any plain object with a `__call__` method is callable: the method is called
- * with the object as its first argument, followed by the call's own arguments.
- * The signature the call is checked against is the method's signature without
- * that first (receiver) parameter, so the method's lazy and quoted parameters
- * keep their usual meaning -- in particular a method whose parameters are all
- * lazy (like the null-chaining sentinel's) is called without any of its
- * arguments being evaluated.
+ * Any plain object with a `__call__` method is callable: the method is
+ * applied with the object bound to its first parameter (see
+ * {@link bindMethod}), followed by the call's own arguments. The
+ * signature the call is checked against is the method's signature
+ * without that first (receiver) parameter, so the method's lazy and
+ * quoted parameters keep their usual meaning -- in particular a method
+ * whose parameters are all lazy (like the null-chaining sentinel's) is
+ * called without any of its arguments being evaluated.
  */
 const loadMethodApplier = (vm: JebVM) =>
     defineApplier(
         vm,
         [hasMethod("apply")],
         (vm, { 0: obj }, { tail, location }) => {
-            const method = protocolMethod(obj, "apply")!;
-            const { signature } = methodMetadata(vm, method);
-            vm.getProtocol(true, true, "apply", [method]).run(vm, [method], {
+            const bound = bindMethod(obj, protocolMethod(obj, "apply")!);
+            vm.getProtocol(true, true, "apply", [bound]).run(vm, [bound], {
                 tail,
                 location,
             });
-            pushCommand(vm, OP_insert_self, obj, signature[0]?.name);
         },
-        (vm, obj) => {
-            const method = protocolMethod(obj, "apply")!;
-            const { name, signature, closureEnv } = methodMetadata(vm, method);
-            if (signature[0]?.rest)
-                throw new JEBError(
-                    ErrnoCode.EINVAL,
-                    "a __call__ method's first parameter (the receiver) can't be a rest parameter",
-                );
-            return { name, signature: signature.slice(1), closureEnv };
-        },
+        (vm, obj) =>
+            methodMetadata(vm, bindMethod(obj, protocolMethod(obj, "apply")!)),
         "An object with a __call__ protocol method is callable through that method, with the object as the method's first argument.",
     );
 
 /**
- * A {@link BoundMethod} applies its wrapped protocol method with the
- * receiver bound to the method's first parameter -- the same arrangement
- * as the `__call__` fallback above, packaged as a callable of its own so
- * the VM's own machinery (the `get` / `assign` opcodes, the `assign`
- * builtin) can call a method through `OP_apply` even when some arguments
- * must stay unevaluated expressions.
- */
-const loadBoundMethodApplier = (vm: JebVM) =>
-    defineApplier(
-        vm,
-        [BoundMethod],
-        (vm, { 0: bound }, { tail, location }) => {
-            const method = bound.obj;
-            const { signature } = methodMetadata(vm, method);
-            vm.getProtocol(true, true, "apply", [method]).run(vm, [method], {
-                tail,
-                location,
-            });
-            pushCommand(vm, OP_insert_self, bound.self, signature[0]?.name);
-        },
-        (vm, bound) => {
-            const { name, signature, closureEnv } = methodMetadata(
-                vm,
-                bound.obj,
-            );
-            if (signature[0]?.rest)
-                throw new JEBError(
-                    ErrnoCode.EINVAL,
-                    "a protocol method's first parameter (the receiver) can't be a rest parameter",
-                );
-            return { name, signature: signature.slice(1), closureEnv };
-        },
-        "Calls a protocol method with its receiver bound to the method's first parameter.",
-    );
-
-/**
  * Indexing a plain object that provides descriptor protocol methods goes
- * through an {@link AccessReference}: the key has already been evaluated
- * on this path, so it is quoted (the access step receives it as the value
- * it is). Objects without descriptor methods keep the default accessor.
+ * through its `__access__` method only: the result is an
+ * {@link AccessReference} (the key has already been evaluated on this
+ * path, so it is quoted -- the access step receives it as the value it
+ * is). An object with `__get__`/`__set__` methods but no `__access__` is
+ * a descriptor, not indexable, and indexing it is an error. Objects
+ * without descriptor methods keep the default accessor.
  */
 const loadDescriptorAccessor = (vm: JebVM) =>
     defineAccessor(
         vm,
         [HasDescriptorMethods],
-        (vm, { 0: obj }, { field, type }) =>
-            new AccessReference(
+        (vm, { 0: obj }, { field, type }) => {
+            if (!protocolMethod(obj, "access"))
+                throw new JEBError(
+                    ErrnoCode.EINVAL,
+                    `${theTypeName(typeOf(obj))} is not subscriptable`,
+                );
+            return new AccessReference(
                 type,
                 obj,
                 new Block(vm.currentEnv, [["quote", field]]),
-            ),
-        "Accessor for plain objects with descriptor protocol methods: indexing goes through the object's __access__ method if it has one, and through its __get__/__set__ methods otherwise.",
+            );
+        },
+        "Accessor for plain objects with descriptor protocol methods: indexing goes through the object's __access__ method, and an object with only __get__/__set__ methods is not subscriptable.",
     );
 
 /**
@@ -221,7 +173,6 @@ const loadUnwrapMethod = (vm: JebVM) =>
  */
 export const loadProtocolMethods = (vm: JebVM) => {
     loadMethodApplier(vm);
-    loadBoundMethodApplier(vm);
     loadDescriptorAccessor(vm);
     loadNameMethod(vm);
     loadUnwrapMethod(vm);
