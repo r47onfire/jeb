@@ -1,11 +1,8 @@
-import { Block } from "../block";
-import { defineAccessor, defineApplier, defineUnwrapper } from "../define";
-import { ErrnoCode } from "../errno";
-import { JEBError } from "../errors";
-import { AccessReference, protocolMethod } from "../protocol";
+import { defineApplier, defineUnwrapper } from "../define";
+import { protocolMethod } from "../protocol";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
 import { ApplyMetadata } from "../protocol";
-import { predicateToClass, theTypeName, typeOf } from "../typecheck";
+import { predicateToClass } from "../typecheck";
 import { JebVM } from "../vm";
 import { Wrapper } from "../wrapper";
 import { bindMethod, pushMethodApply } from "./eval";
@@ -46,18 +43,6 @@ const hasMethod = (name: ProtocolSymbolName) =>
         (x): x is Record<PropertyKey, any> =>
             isPlainObject(x) && x[PROTOCOL_SYMBOLS[name]] !== undefined,
     );
-
-/**
- * Pseudoclass matching the plain objects that provide any descriptor protocol
- * method (`__access__`, `__get__`, or `__set__`).
- */
-const HasDescriptorMethods = predicateToClass(
-    (x): x is Record<PropertyKey, any> =>
-        isPlainObject(x) &&
-        (x[PROTOCOL_SYMBOLS.access] !== undefined ||
-            x[PROTOCOL_SYMBOLS.get] !== undefined ||
-            x[PROTOCOL_SYMBOLS.set] !== undefined),
-);
 
 /**
  * Pseudoclass matching the wrappers that provide a `__unwrap__` method.
@@ -104,34 +89,6 @@ const loadMethodApplier = (vm: JebVM) =>
     );
 
 /**
- * Indexing a plain object that provides descriptor protocol methods goes
- * through its `__access__` method only: the result is an
- * {@link AccessReference} (the key has already been evaluated on this path, so
- * it is quoted -- the access step receives it as the value it is). An object
- * with `__get__`/`__set__` methods but no `__access__` is a descriptor, not
- * indexable, and indexing it is an error. Objects without descriptor methods
- * keep the default accessor.
- */
-const loadDescriptorAccessor = (vm: JebVM) =>
-    defineAccessor(
-        vm,
-        [HasDescriptorMethods],
-        (vm, { 0: obj }, { field, type }) => {
-            if (!protocolMethod(obj, "access"))
-                throw new JEBError(
-                    ErrnoCode.EINVAL,
-                    `${theTypeName(typeOf(obj))} is not subscriptable`,
-                );
-            return new AccessReference(
-                type,
-                obj,
-                new Block(vm.currentEnv, [["quote", field]]),
-            );
-        },
-        "Accessor for plain objects with descriptor protocol methods: indexing goes through the object's __access__ method, and an object with only __get__/__set__ methods is not subscriptable.",
-    );
-
-/**
  * When a value with a `__name__` method is assigned to a variable, the method
  * is called with the value and the name.
  */
@@ -174,7 +131,6 @@ const loadUnwrapMethod = (vm: JebVM) =>
  */
 export const loadProtocolMethods = (vm: JebVM) => {
     loadMethodApplier(vm);
-    loadDescriptorAccessor(vm);
     loadNameMethod(vm);
     loadUnwrapMethod(vm);
 };

@@ -1387,12 +1387,25 @@ describe("protocol methods", () => {
         expect(run(vm, ["ref", cellCode])).toBeTrue();
         expect(popData(vm)[Symbol.for("__get__")]).toBeInstanceOf(Fun);
     });
-    testTest(test, "a descriptor without __access__ is not indexable", vm => {
-        expect(run(vm, ["define", "c", ["object",
-            ["sym", "__get__"], ["fn", ["self", "k"], 1],
-            ["sym", "__set__"], ["fn", ["self", "k", "v"], 2],
+    testTest(test, "without __access__, index does not consult __get__/__set__", vm => {
+        expect(run(vm, ["define", ["makePlain"], ["begin",
+            ["define", "c", ["object",
+                ["sym", "__get__"], ["fn", ["self", "k"], 1],
+                ["sym", "__set__"], ["fn", ["self", "k", "v"], 2],
+            ]],
+            ["local", "c"],
         ]])).toBeTrue();
-        expect(() => run(vm, ["index", ["local", "c"], "x"])).toThrow(/is not subscriptable/);
+        // the object is indexed as an ordinary object: __get__ is just a
+        // property (reading it gives the method itself), and other fields
+        // read and assign as plain properties -- the methods never run
+        expect(run(vm, ["define", "c", [["local", "makePlain"]]])).toBeTrue();
+        expect(run(vm, ["index", ["local", "c"], ["sym", "__get__"]])).toBeTrue();
+        expect(popData(vm)).toBeInstanceOf(Fun);
+        expect(run(vm, ["index", ["local", "c"], "x"])).toBeTrue();
+        expect(popData(vm)).toBeUndefined();
+        expect(run(vm, ["assign", ["index", ["local", "c"], "x"], 5])).toBeTrue();
+        expect(run(vm, ["index", ["local", "c"], "x"])).toBeTrue();
+        expect(popData(vm)).toBe(5);
     });
     testTest(test, "__access__ returns a descriptor for the property", vm => {
         expect(run(vm, ["define", ["makeAccessed"], ["begin",

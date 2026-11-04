@@ -84,14 +84,6 @@ export const B_index = makeJSFun(
             );
             return NOTHING;
         }
-        if (protocolMethod(obj, "get") ?? protocolMethod(obj, "set"))
-            // __get__/__set__ make an object a descriptor, not indexable:
-            // indexing goes through __access__ only, and an object that
-            // wants to be its own descriptor returns itself from it.
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                `${theTypeName(typeOf(obj))} is not subscriptable`,
-            );
         pushCommand(vm, OP_wrap, ReferenceWrapper);
         pushCommand(vm, OP_index, AccessType.PROPERTY);
         // The key is evaluated like a call argument: its result is
@@ -106,7 +98,7 @@ export const B_index = makeJSFun(
 ..param {any} obj
 ..param {PropertyKey} name
 .pure
-. Returns a reference to \`obj[name]\`. If \`obj\` has an \`__access__\` protocol method, the key is passed to it unevaluated and the method's signature decides whether it is evaluated. An object with only \`__get__\`/\`__set__\` methods is a descriptor, not indexable, and indexing it is an error.`,
+. Returns a reference to \`obj[name]\`. If \`obj\` has an \`__access__\` protocol method, the key is passed to it unevaluated and the method's signature decides whether it is evaluated. Nothing else is consulted: without \`__access__\` the object is indexed as an ordinary object, and any \`__get__\`/\`__set__\` methods it has are just properties.`,
 );
 const OP_assign_internal_nested = makeOpcode(
     null,

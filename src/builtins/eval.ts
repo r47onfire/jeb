@@ -671,7 +671,7 @@ export const OP_get = makeOpcode(
 ..param {AccessType} accessType
 ..param {boolean?} [shouldBind=false]
 .sed lvalue -- value
-. Takes an LValue on the top of the stack and unwraps it: a reference by calling its get() method, a descriptor (an object with a \`__get__\` protocol method) used directly as an LValue by calling that method, and a reference to a property of a method-bearing object by calling its \`__access__\` protocol method for a descriptor and reading through it, or through its own \`__get__\` method if it has no \`__access__\`.`,
+. Takes an LValue on the top of the stack and unwraps it: a reference by calling its get() method, a descriptor (an object with a \`__get__\` protocol method) used directly as an LValue by calling that method, and a reference to a property of a method-bearing object by calling its \`__access__\` protocol method for a descriptor and reading through that.`,
 );
 export const OP_assign = makeOpcode(
     "assign",
@@ -717,7 +717,7 @@ export const OP_assign = makeOpcode(
 ..param {boolean?} [create=false]
 ..param {boolean?} [readonly=false]
 .sed value lvalue -- value
-. Takes an LValue on the top of the stack and assigns the next item in the stack to it: a reference by calling its \`set()\` method, a descriptor (an object with a \`__set__\` protocol method) used directly as an LValue by calling that method with the value, and a reference to a property of a method-bearing object by calling its \`__access__\` protocol method for a descriptor and assigning through it, or through its own \`__set__\` method if it has no \`__access__\`.`,
+. Takes an LValue on the top of the stack and assigns the next item in the stack to it: a reference by calling its \`set()\` method, a descriptor (an object with a \`__set__\` protocol method) used directly as an LValue by calling that method with the value, and a reference to a property of a method-bearing object by calling its \`__access__\` protocol method for a descriptor and assigning through that.`,
 );
 
 // MARK: logic
