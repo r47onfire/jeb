@@ -38,22 +38,15 @@ const isPlainObject = (x: unknown): x is Record<PropertyKey, any> =>
  * Pseudoclass matching the plain objects that provide the named protocol
  * method.
  */
-const hasMethod = (name: ProtocolSymbolName) =>
+const hasMethod = <
+    T extends Record<PropertyKey, any> = Record<PropertyKey, any>,
+>(
+    name: ProtocolSymbolName,
+) =>
     predicateToClass(
-        (x): x is Record<PropertyKey, any> =>
+        (x): x is T =>
             isPlainObject(x) && x[PROTOCOL_SYMBOLS[name]] !== undefined,
     );
-
-/**
- * Pseudoclass matching the wrappers that provide a `__unwrap__` method.
- * (Wrappers are VM machinery and don't go through {@link protocolMethod}, so
- * the symbol is read directly.)
- */
-const HasUnwrapMethod = predicateToClass(
-    (x): x is Wrapper =>
-        x instanceof Wrapper ||
-        (x as any)[PROTOCOL_SYMBOLS.unwrap] !== undefined,
-);
 
 /**
  * Metadata of a protocol method: its signature, name, and closure environment,
@@ -114,7 +107,7 @@ const loadNameMethod = (vm: JebVM) =>
 const loadUnwrapMethod = (vm: JebVM) =>
     defineUnwrapper(
         vm,
-        [HasUnwrapMethod],
+        [hasMethod("unwrap")],
         (vm, { 0: wrapper }) => {
             pushMethodApply(vm, (wrapper as any)[PROTOCOL_SYMBOLS.unwrap], [
                 wrapper,

@@ -45,6 +45,7 @@ export const OP_unwrap = makeOpcode(
     "unwrap",
     (vm, { 0: flags, 1: only }: [string[], only?: boolean]) => {
         const top = peekData(vm);
+        // TODO: check protocol compatibility here?
         if (top instanceof Wrapper && !flags.includes(top.flag) === !only) {
             popData(vm);
             pushCommand(vm, OP_unwrap, flags, only);
