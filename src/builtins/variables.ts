@@ -77,11 +77,7 @@ export const B_index = makeJSFun(
             // keep the key unevaluated, so the method's signature
             // decides whether it is evaluated (see AccessReference).
             pushCommand(vm, OP_wrap, ReferenceWrapper);
-            pushCommand(
-                vm,
-                OP_push_value,
-                new AccessReference(AccessType.PROPERTY, obj, key),
-            );
+            pushCommand(vm, OP_push_value, new AccessReference(obj, key));
             return NOTHING;
         }
         pushCommand(vm, OP_wrap, ReferenceWrapper);

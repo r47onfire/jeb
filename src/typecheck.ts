@@ -45,6 +45,11 @@ export function typeMatches(obj: any, type: Type): number {
         return score;
     }
 }
+
+/** Whether a value is a real object (not null). */
+export const isPlainObject = (x: unknown): x is Record<PropertyKey, any> =>
+    typeof x === "object" && x !== null;
+
 /**
  * Transforms a type predicate into something that can be used in an instanceof
  * check.

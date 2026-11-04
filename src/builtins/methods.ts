@@ -6,7 +6,7 @@ import {
     Reference,
     Unwrappable,
 } from "../protocol";
-import { predicateToClass } from "../typecheck";
+import { isPlainObject, predicateToClass } from "../typecheck";
 import { JebVM, pushCommand } from "../vm";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
 import {
@@ -34,19 +34,6 @@ import { OP_unwrap } from "./unwrap";
  */
 
 /**
- * Whether a value is a plain object (or array): the values that can carry
- * protocol methods. Host class instances (functions, environments, blocks, ...)
- * never match, so these fallbacks can't shadow their dedicated protocol
- * implementations.
- */
-const isPlainObject = (x: unknown): x is Record<PropertyKey, any> =>
-    typeof x === "object" &&
-    x !== null &&
-    (Array.isArray(x) ||
-        Object.getPrototypeOf(x) === Object.prototype ||
-        Object.getPrototypeOf(x) === null);
-
-/**
  * Pseudoclass that claims plain objects that provide the named protocol method
  * (although its callability is not checked).
  *
@@ -63,7 +50,7 @@ const hasMethod = <
 ) =>
     predicateToClass(
         (x): x is T =>
-            isPlainObject(x) && x[PROTOCOL_SYMBOLS[name]] !== undefined,
+            isPlainObject(x) && Reflect.has(x, PROTOCOL_SYMBOLS[name]),
     );
 
 /**

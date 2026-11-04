@@ -7,7 +7,13 @@ import { ErrnoCode } from "./errno";
 import { JEBError, Location } from "./errors";
 import { Relation } from "./math";
 import { CallableSignature } from "./signature";
-import { predicateToClass, Type, TypeMap, typeMatches } from "./typecheck";
+import {
+    isPlainObject,
+    predicateToClass,
+    Type,
+    TypeMap,
+    typeMatches,
+} from "./typecheck";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "./well_known";
@@ -300,14 +306,11 @@ export const protocolMethod = (
  * The synchronous accessors throw: all real access goes through the opcodes,
  * which call the methods.
  */
-export class AccessReference extends Reference {
+export class AccessReference {
     constructor(
-        type: AccessType,
         readonly obj: any,
         readonly key: Block,
-    ) {
-        super(type);
-    }
+    ) {}
     /**
      * The name of the property being accessed, when the key is a literal
      * string, number or symbol; used in error messages. A computed key
@@ -325,18 +328,6 @@ export class AccessReference extends Reference {
                 return undefined;
         }
     }
-    get(): never {
-        throw new JEBError(
-            ErrnoCode.EPANIC,
-            "an access reference can only be read by the get opcode",
-        );
-    }
-    set(): never {
-        throw new JEBError(
-            ErrnoCode.EPANIC,
-            "an access reference can only be assigned by the assign opcode",
-        );
-    }
 }
 
 /** The number of arguments the protocol `N` takes. */
@@ -348,11 +339,9 @@ export class AccessReference extends Reference {
  */
 export const Unwrappable = predicateToClass(
     (x): x is Record<PropertyKey, any> =>
-        typeof x === "object" &&
-        x !== null &&
-        !(x instanceof Reference) &&
-        (x as any)[PROTOCOL_SYMBOLS.tag] !== undefined &&
-        (x as any)[PROTOCOL_SYMBOLS.unwrap] !== undefined,
+        isPlainObject(x) &&
+        Reflect.has(x, PROTOCOL_SYMBOLS.tag) &&
+        Reflect.has(x, PROTOCOL_SYMBOLS.unwrap),
 );
 
 export type ArgcForName<V extends JebVM, N extends keyof JEBProtocols<V>> =
