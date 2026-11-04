@@ -153,7 +153,12 @@ const loadReferenceGetSet = (vm: JebVM) => {
         [Reference],
         (vm, { 0: ref, 1: value }, { create, readonly, unevaluated, old }) => {
             if (unevaluated) {
-                pushCommand(vm, OP_assign_internal, value as Block, old ?? false);
+                pushCommand(
+                    vm,
+                    OP_assign_internal,
+                    value as Block,
+                    old ?? false,
+                );
                 pushData(vm, ref);
                 return;
             }
@@ -275,11 +280,12 @@ const loadAccessReferenceGetSet = (vm: JebVM) => {
 
 /**
  * Continuation of an unevaluated assignment through an {@link
- * AccessReference}: the descriptor object returned by `__access__` is on
- * top of the data stack; the assignment re-dispatches the `set` protocol
- * on it, still with the unevaluated value, so the descriptor's own
- * implementation decides how the value is handled. (The opcode flavor
- * uses `OP_accessed_set` instead: its value is already computed.)
+ * AccessReference}:
+ * the descriptor object returned by `__access__` is on top of the data stack;
+ * the assignment re-dispatches the `set` protocol on it, still with the
+ * unevaluated value, so the descriptor's own implementation decides how the
+ * value is handled. (The opcode flavor uses `OP_accessed_set` instead: its
+ * value is already computed.)
  */
 const OP_assign_accessed = makeOpcode(
     null,

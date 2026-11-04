@@ -87,9 +87,9 @@ const OP_assign_internal_nested = makeOpcode(
     null,
 );
 /**
- * The old-value read of {@link OP_assign_internal}: the `get` protocol,
- * except that an lvalue no implementation can read (a descriptor with a
- * `__set__` but no `__get__`) reads as `undefined` instead of throwing.
+ * The old-value read of {@link OP_assign_internal}: the `get` protocol, except
+ * that an lvalue no implementation can read (a descriptor with a `__set__` but
+ * no `__get__`) reads as `undefined` instead of throwing.
  */
 const OP_assign_get_old = makeOpcode(
     null,
@@ -107,13 +107,12 @@ const OP_assign_get_old = makeOpcode(
 );
 /**
  * The shared body of an unevaluated assignment (the `assign` builtin's
- * right-hand side, still a block): the lvalue is first on the stack; its
- * old value is read through the `get` protocol, the block is evaluated
- * with `_` bound to it, and the result is assigned through the `set`
- * protocol -- so it works unchanged for references, descriptors, and
- * access references alike. The `set` implementations seed it when their
- * flags say the value is unevaluated (and their own signature does not
- * take the value unevaluated itself).
+ * right-hand side, still a block): the lvalue is first on the stack; its old
+ * value is read through the `get` protocol, the block is evaluated with `_`
+ * bound to it, and the result is assigned through the `set` protocol -- so it
+ * works unchanged for references, descriptors, and access references alike. The
+ * `set` implementations seed it when their flags say the value is unevaluated
+ * (and their own signature does not take the value unevaluated itself).
  */
 export const OP_assign_internal = makeOpcode(
     null,
@@ -186,7 +185,7 @@ export const B_ref = makeJSFun(
             return ref;
         throw new JEBError(
             ErrnoCode.EINVAL,
-            `${theTypeName(typeOf(ref))} is not assignable`,
+            `${theTypeName(typeOf(ref))} is not a reference`,
         );
     },
     `.macro (ref x)
