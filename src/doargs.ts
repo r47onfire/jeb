@@ -127,8 +127,11 @@ const doneHelper = (
  * arguments object accumulated so far (`#argsObj`), and which parameters have
  * already been supplied by name (`#seenByName`). `#callEnv` is the environment
  * arguments are evaluated in; `#closureEnv` is the callee's closure
- * environment, additionally visible to default expressions. In `#noEvalMode`,
- * argument values are taken as-is and lazy parameters are an error.
+ * environment, additionally visible to default expressions. `#noEval` says
+ * which arguments are already-computed values rather than expressions --
+ * either one boolean for all of them, or an array of booleans, one per
+ * argument: a computed argument is taken as-is, and giving one to a lazy
+ * parameter is an error.
  *
  * `#paramLocations` holds the location of the argument that filled each
  * parameter, by parameter name, as observed from the VM's last-call slot when
@@ -142,7 +145,7 @@ export class DoargsState {
     readonly #argsObj: Record<string, any>;
     readonly #callEnv: Env;
     readonly #closureEnv: Env | undefined;
-    readonly #noEvalMode: boolean;
+    readonly #noEval: boolean | boolean[];
     readonly #givenArgs: any[];
     readonly #rawArgsIndex: number;
     readonly #paramsIndex: number;
@@ -155,7 +158,7 @@ export class DoargsState {
         params: CallableSignature,
         call: Env,
         closure: Env | undefined,
-        noEval: boolean,
+        noEval: boolean | boolean[],
         given: any[],
         argsObj: Record<string, any> = {},
         rawArgsIndex = 0,
@@ -168,7 +171,7 @@ export class DoargsState {
         this.#params = params;
         this.#callEnv = call;
         this.#closureEnv = closure;
-        this.#noEvalMode = noEval;
+        this.#noEval = noEval;
         this.#givenArgs = given;
         this.#argsObj = argsObj;
         this.#rawArgsIndex = rawArgsIndex;
@@ -199,7 +202,7 @@ export class DoargsState {
             this.#params,
             this.#callEnv,
             this.#closureEnv,
-            this.#noEvalMode,
+            this.#noEval,
             this.#givenArgs,
             argsObj,
             rawArgsIndex,
@@ -265,6 +268,13 @@ export class DoargsState {
             state = newState;
         }
     }
+    /** Whether the raw argument at `index` is an already-computed value. */
+    #noEvalAt(index: number): boolean {
+        return Array.isArray(this.#noEval)
+            ? (this.#noEval[index] ?? false)
+            : this.#noEval;
+    }
+
     // Also prepares evaluation or handles end-of-arguments
     #prepareNextValue(vm: JebVM) {
         const paramsList = this.#params,
@@ -275,10 +285,11 @@ export class DoargsState {
         if (curArgvIndex < argv.length) {
             const value = argv[curArgvIndex]!;
             const param = paramsList[curParamIndex];
+            const noEval = this.#noEvalAt(curArgvIndex);
             if (param && param.lazy !== Laziness.NONE) {
                 // If current arg is rest lazy, slice off everything at once and wrap it
                 if (param.rest === Rest.POSITIONAL) {
-                    if (this.#noEvalMode)
+                    if (noEval)
                         throw new JEBError(
                             ErrnoCode.ESYNTAX,
                             "lazy parameter not allowed here",
@@ -298,14 +309,14 @@ export class DoargsState {
                         this.#paramLocations as Record<Identifier, Location>,
                     );
                 }
-                if (this.#noEvalMode)
+                if (noEval)
                     throw new JEBError(
                         ErrnoCode.ESYNTAX,
                         "lazy parameter not allowed here",
                     );
                 return wrapLazyValue(param.lazy, value, this.#callEnv, true);
             }
-            return this.#noEvalMode
+            return noEval
                 ? value
                 : evalHelper(vm, this, this.#callEnv, value, param);
         }
@@ -650,7 +661,7 @@ export const OP_doargs = makeOpcode(
         }: [
             CallableSignature,
             Env | undefined,
-            boolean | undefined,
+            boolean | boolean[] | undefined,
             Identifier | undefined,
         ],
     ) => {

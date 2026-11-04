@@ -302,7 +302,7 @@ export const OP_apply = makeOpcode(
             1: location,
             2: tail,
             3: noEval,
-        }: [any[], location?: Location, tail?: boolean, noEval?: boolean],
+        }: [any[], location?: Location, tail?: boolean, noEval?: boolean | boolean[]],
     ) => {
         const func = popData(vm);
         const applier = vm.getProtocol(true, false, "apply", [func]);
@@ -340,12 +340,12 @@ export const OP_apply = makeOpcode(
 ..param {code[]} expressions
 ..param {Location?} location
 ..param {boolean?} [tailcall=false]
-..param {boolean?} noEval
+..param {boolean | boolean[]?} noEval
 .sed functor -- result
 .throws EINVAL - when the object is not callable
 .throws ERANGE - when the argument count is wrong
 . Pops the top value from the stack and calls it with the provided arguments.
-The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.`,
+The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not. \`noEval\` says which arguments are already-computed values instead: either a single boolean, applying to all the arguments, or an array of booleans, one per argument.`,
 );
 /**
  * Schedules a call to a protocol method with already-computed argument values:
@@ -416,25 +416,17 @@ export const curry = (vm: JebVM, callee: any, value: any): any => {
     );
 };
 /**
- * Schedules a call to `callee` with `value` curried into its first parameter
- * (see {@link curry}), so the remaining arguments can be given as unevaluated
- * expressions: `OP_apply` runs without `noEval`, and the signature decides
- * whether each expression is evaluated. Used when an argument must stay
- * unevaluated -- a protocol method's receiver is a computed value and could not
- * be passed as an argument expression.
+ * Schedules the `__access__` call for an {@link AccessReference}: the
+ * object itself is an already-computed value, and the key expression is
+ * passed verbatim, so whether it is evaluated is up to the method's
+ * signature. The descriptor object the method returns is left on the
+ * data stack for the next command to consume.
  */
-export const pushCurriedApply = (
-    vm: JebVM,
-    callee: any,
-    value: any,
-    argv: any[],
-) => {
-    pushData(vm, curry(vm, callee, value));
-    pushCommand(vm, OP_apply, argv, undefined, false, false);
-};
 export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
-    pushCurriedApply(vm, protocolMethod(ref.obj, "access")!, ref.obj, [
-        ref.key.body[0],
+    pushData(vm, protocolMethod(ref.obj, "access")!);
+    pushCommand(vm, OP_apply, [ref.obj, ref.key.body[0]], undefined, false, [
+        true,
+        false,
     ]);
 };
 /**

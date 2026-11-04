@@ -30,7 +30,6 @@ import {
     OP_assign,
     OP_shuffle,
     pushAccessCall,
-    pushCurriedApply,
     pushMethodApply,
 } from "./eval";
 
@@ -186,7 +185,14 @@ const assignDescriptor = (
     const valueParam = signature[1];
     if (valueParam && valueParam.lazy !== Laziness.NONE) {
         if (wantOld) pushCommand(vm, OP_shuffle, 1, []); // the __set__ result is dropped
-        pushCurriedApply(vm, set, target, [value.body[0]]);
+        // The descriptor is an already-computed value; the value
+        // expression goes verbatim, for the method's signature to
+        // evaluate (or not).
+        pushData(vm, set);
+        pushCommand(vm, OP_apply, [target, value.body[0]], undefined, false, [
+            true,
+            false,
+        ]);
         if (wantOld) {
             const get = protocolMethod(target, "get");
             if (get) {
