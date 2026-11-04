@@ -128,10 +128,10 @@ const doneHelper = (
  * already been supplied by name (`#seenByName`). `#callEnv` is the environment
  * arguments are evaluated in; `#closureEnv` is the callee's closure
  * environment, additionally visible to default expressions. `#noEval` says
- * which arguments are already-computed values rather than expressions --
- * either one boolean for all of them, or an array of booleans, one per
- * argument: a computed argument is taken as-is, and giving one to a lazy
- * parameter is an error.
+ * which arguments are already-computed values rather than expressions -- either
+ * one boolean for all of them, or an array of booleans, one per argument: a
+ * computed argument is taken as-is, and giving one to a lazy parameter is an
+ * error.
  *
  * `#paramLocations` holds the location of the argument that filled each
  * parameter, by parameter name, as observed from the VM's last-call slot when

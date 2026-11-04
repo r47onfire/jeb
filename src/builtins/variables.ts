@@ -214,10 +214,7 @@ const OP_assign_accessed = makeOpcode(
     (vm: JebVM, { 0: value, 1: wantOld }: [Block, boolean]) => {
         const descriptor = popData(vm);
         if (!protocolMethod(descriptor, "set"))
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                `${theTypeName(typeOf(descriptor))} returned by __access__ has no __set__ method`,
-            );
+            throw new JEBError(ErrnoCode.ENODEV, `descriptor is not writable`);
         assignDescriptor(vm, descriptor, value, wantOld);
     },
     null,

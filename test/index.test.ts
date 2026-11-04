@@ -1323,7 +1323,7 @@ testTest(test, "names stick on functions", vm => {
 });
 
 describe("protocol methods", () => {
-    testTest(test, "__call__ method makes an object callable", vm => {
+    testTest(test, "__call__ enables calling", vm => {
         expect(run(vm, ["define", "c", {
             n: 5,
             [Symbol.for("__call__")]: ["fn", ["self", "x"], ["add", ["index", ["local", "self"], "n"], ["local", "x"]]],
@@ -1331,7 +1331,7 @@ describe("protocol methods", () => {
         expect(run(vm, [["local", "c"], 37])).toBeTrue();
         expect(popData(vm)).toBe(42);
     });
-    testTest(test, "math protocol methods overload the operators", vm => {
+    testTest(test, "operator overloading", vm => {
         expect(run(vm, ["define", "vec", {
             [Symbol.for("__add__")]: ["fn", ["self", "other"], ["add", ["local", "other"], 100]],
             [Symbol.for("__bitNot__")]: ["fn", ["self"], 42],
@@ -1345,18 +1345,18 @@ describe("protocol methods", () => {
         expect(run(vm, ["bitInv", ["local", "vec"]])).toBeTrue();
         expect(popData(vm)).toBe(42);
         // an object without the method gets the usual no-overload error
-        expect(() => run(vm, ["add", ["object"], 1])).toThrow(/No overload of add/);
+        expect(() => run(vm, ["add", ["object"], 1])).toThrow("No overload of add exists for types object, number");
     });
-    testTest(test, "__cmp__ method overloads the comparisons", vm => {
+    testTest(test, "comparison overloading", vm => {
         expect(run(vm, ["define", "o", {
-            [Symbol.for("__cmp__")]: ["fn", ["self", "other", "rel"], true],
+            [Symbol.for("__cmp__")]: ["fn", ["self", "other", "rel"], 42],
         }])).toBeTrue();
         expect(run(vm, ["eq", ["local", "o"], 1])).toBeTrue();
-        expect(popData(vm)).toBe(true);
+        expect(popData(vm)).toBe(42);
         expect(run(vm, ["less", ["local", "o"], 1])).toBeTrue();
-        expect(popData(vm)).toBe(true);
+        expect(popData(vm)).toBe(42);
     });
-    testTest(test, "descriptor cell: deref and assign through __get__/__set__", vm => {
+    testTest(test, "descriptor object", vm => {
         vm.currentEnv.add("stored", 7);
         const cellCode = {
             [Symbol.for("__get__")]: ["fn", ["self"], ["local", "stored"]],
@@ -1387,7 +1387,7 @@ describe("protocol methods", () => {
         expect(run(vm, ["ref", cellCode])).toBeTrue();
         expect(popData(vm)[Symbol.for("__get__")]).toBeInstanceOf(Fun);
     });
-    testTest(test, "without __access__, index does not consult __get__/__set__", vm => {
+    testTest(test, "no __access__ falls back", vm => {
         expect(run(vm, ["define", ["makePlain"], ["begin",
             ["define", "c", ["object",
                 ["sym", "__get__"], ["fn", ["self", "k"], 1],
@@ -1407,7 +1407,7 @@ describe("protocol methods", () => {
         expect(run(vm, ["index", ["local", "c"], "x"])).toBeTrue();
         expect(popData(vm)).toBe(5);
     });
-    testTest(test, "__access__ returns a descriptor for the property", vm => {
+    testTest(test, "__access__ should return descriptor", vm => {
         expect(run(vm, ["define", ["makeAccessed"], ["begin",
             ["define", "data", ["object"]],
             ["object",
@@ -1427,11 +1427,14 @@ describe("protocol methods", () => {
         popData(vm);
         expect(run(vm, ["deref", ["local", "r"]])).toBeTrue();
         expect(popData(vm)).toBe(5);
-        // a descriptor without __get__ cannot be read
+        // a descriptor without __get__ cannot be read and without __set__ cannot be written
         expect(run(vm, ["define", "bad", {
             [Symbol.for("__access__")]: ["fn", ["self", "k"], ["object"]],
         }])).toBeTrue();
-        expect(() => run(vm, ["index", ["local", "bad"], "x"])).toThrow(/has no __get__ method/);
+        expect(() => run(vm, ["index", ["local", "bad"], "x"])).toThrow("property is not readable");
+        vm.commandStack = null;
+        vm.error = undefined;
+        expect(() => run(vm, ["assign", ["index", ["local", "bad"], "x"], 1])).toThrow("descriptor is not writable");
     });
     testTest(test, "__access__ decides whether the key is evaluated", vm => {
         vm.currentEnv.add("count", 0);

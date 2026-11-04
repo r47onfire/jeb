@@ -302,7 +302,12 @@ export const OP_apply = makeOpcode(
             1: location,
             2: tail,
             3: noEval,
-        }: [any[], location?: Location, tail?: boolean, noEval?: boolean | boolean[]],
+        }: [
+            any[],
+            location?: Location,
+            tail?: boolean,
+            noEval?: boolean | boolean[],
+        ],
     ) => {
         const func = popData(vm);
         const applier = vm.getProtocol(true, false, "apply", [func]);
@@ -416,11 +421,11 @@ export const curry = (vm: JebVM, callee: any, value: any): any => {
     );
 };
 /**
- * Schedules the `__access__` call for an {@link AccessReference}: the
- * object itself is an already-computed value, and the key expression is
- * passed verbatim, so whether it is evaluated is up to the method's
- * signature. The descriptor object the method returns is left on the
- * data stack for the next command to consume.
+ * Schedules the `__access__` call for an {@link AccessReference}: the object
+ * itself is an already-computed value, and the key expression is passed
+ * verbatim, so whether it is evaluated is up to the method's signature. The
+ * descriptor object the method returns is left on the data stack for the next
+ * command to consume.
  */
 export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
     pushData(vm, protocolMethod(ref.obj, "access")!);
@@ -440,10 +445,7 @@ export const OP_accessed_get = makeOpcode(
         const descriptor = popData(vm);
         const get = protocolMethod(descriptor, "get");
         if (!get)
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                `${theTypeName(typeOf(descriptor))} returned by __access__ has no __get__ method`,
-            );
+            throw new JEBError(ErrnoCode.ENODEV, `property is not readable`);
         pushMethodApply(vm, get, [descriptor]);
     },
     null,
@@ -461,10 +463,7 @@ export const OP_accessed_set = makeOpcode(
         const descriptor = popData(vm);
         const set = protocolMethod(descriptor, "set");
         if (!set)
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                `${theTypeName(typeOf(descriptor))} returned by __access__ has no __set__ method`,
-            );
+            throw new JEBError(ErrnoCode.ENODEV, `property is not writable`);
         pushMethodApply(vm, set, [descriptor, peekData(vm)], true);
     },
     null,
