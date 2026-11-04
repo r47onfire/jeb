@@ -254,12 +254,12 @@ export interface JEBProtocols<V extends JebVM> {
 /**
  * Returns the protocol method that `obj` itself provides for the protocol
  * `name`: the callable stored on the object under the protocol's symbol, or
- * `undefined` if the object doesn't provide one. Primitives and `null`
- * provide none, and {@link Wrapper}s are not consulted (they are VM
- * machinery; the value they wrap is what carries methods). Everything else
- * is read directly -- plain objects and arrays carrying methods of their
- * own, and {@link AccessReference}s, which provide `__get__` / `__set__`
- * handlers (see builtins/methods.ts).
+ * `undefined` if the object doesn't provide one. Primitives and `null` provide
+ * none, and {@link Wrapper}s are not consulted (they are VM machinery; the
+ * value they wrap is what carries methods). Everything else is read directly --
+ * plain objects and arrays carrying methods of their own, and
+ * {@link AccessReference}s, which provide `__get__` / `__set__` handlers (see
+ * builtins/methods.ts).
  */
 export const protocolMethod = (
     obj: any,

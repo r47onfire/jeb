@@ -67,12 +67,12 @@ const methodMetadata = (vm: JebVM, method: any): ApplyMetadata =>
 
 /**
  * Any plain object with a `__call__` method is callable: the method is applied
- * with the object bound to its first parameter (see {@link curry}),
- * followed by the call's own arguments. The signature the call is checked
- * against is the method's signature without that first (receiver) parameter, so
- * the method's lazy and quoted parameters keep their usual meaning -- in
- * particular a method whose parameters are all lazy (like the null-chaining
- * sentinel's) is called without any of its arguments being evaluated.
+ * with the object bound to its first parameter (see {@link curry}), followed by
+ * the call's own arguments. The signature the call is checked against is the
+ * method's signature without that first (receiver) parameter, so the method's
+ * lazy and quoted parameters keep their usual meaning -- in particular a method
+ * whose parameters are all lazy (like the null-chaining sentinel's) is called
+ * without any of its arguments being evaluated.
  */
 const loadMethodApplier = (vm: JebVM) =>
     defineApplier(
@@ -116,8 +116,7 @@ const loadNameMethod = (vm: JebVM) =>
 /**
  * Pseudoclass matching the wrappers that provide a `__unwrap__` method.
  * (Unwrapping only ever applies to wrappers, so unlike the other method
- * fallbacks this one matches wrappers carrying the method, not plain
- * objects.)
+ * fallbacks this one matches wrappers carrying the method, not plain objects.)
  */
 const HasUnwrapMethod = predicateToClass(
     (x): x is Wrapper =>
@@ -145,8 +144,8 @@ const loadUnwrapMethod = (vm: JebVM) =>
  */
 /**
  * Asserts that the object an {@link AccessReference} refers to provides
- * `__access__`, and schedules the call: the descriptor object it returns
- * is left on the data stack for the next command to consume.
+ * `__access__`, and schedules the call: the descriptor object it returns is
+ * left on the data stack for the next command to consume.
  */
 const scheduleAccess = (vm: JebVM, ref: AccessReference) => {
     if (!protocolMethod(ref.obj, "access"))
@@ -161,9 +160,9 @@ const scheduleAccess = (vm: JebVM, ref: AccessReference) => {
  * An {@link AccessReference} reads and assigns through the descriptor its
  * object's `__access__` method returns, so the reference itself provides
  * `__get__` / `__set__` handlers: the `get` and `assign` opcodes handle it
- * through their ordinary descriptor paths, with no special case. The
- * handlers are host functions like the other fallbacks in this file,
- * installed on the class prototype.
+ * through their ordinary descriptor paths, with no special case. The handlers
+ * are host functions like the other fallbacks in this file, installed on the
+ * class prototype.
  */
 const loadAccessReferenceMethods = () => {
     Object.assign(AccessReference.prototype, {

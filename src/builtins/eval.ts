@@ -359,19 +359,18 @@ export const pushMethodApply = (
     pushCommand(vm, OP_apply, args, undefined, false, true);
 };
 /**
- * Partially applies a callable to its first parameter: returns a callable
- * that calls `callee` with `value` filled in for that parameter. For a
- * {@link Fun}, the result is a synthetic copy with the parameter dropped,
- * whose body closes over a child environment of the function's own in
- * which the parameter is already bound to `value`; for a {@link JSFun},
- * the copy's implementation fills the parameter in before delegating to
- * the original. A callable object (one with a `__call__` method) is
- * curried through its method: the method is first curried with the
- * object itself, then with `value`. The remaining parameters keep their
- * declared laziness, so arguments later given to the result as
- * expressions are evaluated (or not) exactly as the signature dictates.
- * This is how protocol methods are bound to their receivers: a method is
- * just a callable curried with the object it was found on.
+ * Partially applies a callable to its first parameter: returns a callable that
+ * calls `callee` with `value` filled in for that parameter. For a {@link Fun},
+ * the result is a synthetic copy with the parameter dropped, whose body closes
+ * over a child environment of the function's own in which the parameter is
+ * already bound to `value`; for a {@link JSFun}, the copy's implementation
+ * fills the parameter in before delegating to the original. A callable object
+ * (one with a `__call__` method) is curried through its method: the method is
+ * first curried with the object itself, then with `value`. The remaining
+ * parameters keep their declared laziness, so arguments later given to the
+ * result as expressions are evaluated (or not) exactly as the signature
+ * dictates. This is how protocol methods are bound to their receivers: a method
+ * is just a callable curried with the object it was found on.
  */
 export const curry = (callee: any, value: any): any => {
     if (callee instanceof Fun || callee instanceof JSFun) {
@@ -411,12 +410,12 @@ export const curry = (callee: any, value: any): any => {
     );
 };
 /**
- * Schedules a call to `callee` with `value` curried into its first
- * parameter (see {@link curry}), so the remaining arguments can be given
- * as unevaluated expressions: `OP_apply` runs without `noEval`, and the
- * signature decides whether each expression is evaluated. Used when an
- * argument must stay unevaluated -- a protocol method's receiver is a
- * computed value and could not be passed as an argument expression.
+ * Schedules a call to `callee` with `value` curried into its first parameter
+ * (see {@link curry}), so the remaining arguments can be given as unevaluated
+ * expressions: `OP_apply` runs without `noEval`, and the signature decides
+ * whether each expression is evaluated. Used when an argument must stay
+ * unevaluated -- a protocol method's receiver is a computed value and could not
+ * be passed as an argument expression.
  */
 export const pushCurriedApply = (
     vm: JebVM,
