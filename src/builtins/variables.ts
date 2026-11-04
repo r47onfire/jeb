@@ -313,15 +313,7 @@ export const B_ref = makeJSFun(
 export const B_deref = makeJSFun(
     "deref",
     ["ref"],
-    (args) => {
-        if (args.ref instanceof Reference)
-            return new ReferenceWrapper(args.ref);
-        if (protocolMethod(args.ref, "get"))
-            return new ReferenceWrapper(args.ref);
-        return new ReferenceWrapper(
-            withType(args.ref, [Reference], "ref", args),
-        );
-    },
+    ({ ref }) => new ReferenceWrapper(ref),
     `.func (deref x)
 ..param {Reference | descriptor} x
 .pure
