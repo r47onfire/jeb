@@ -15,7 +15,13 @@ import { theTypeName, typeOf, withType } from "../typecheck";
 import { Identifier } from "../utils";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { ReferenceWrapper } from "../wrapper";
-import { OP_apply, OP_assign, OP_index, OP_shuffle } from "./eval";
+import {
+    OP_apply,
+    OP_assign,
+    OP_index,
+    OP_shuffle,
+    runSetter,
+} from "./eval";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap, OP_wrap } from "./unwrap";
 
@@ -150,13 +156,7 @@ export const B_assign = makeJSFun(
         // an access reference) decides how the unevaluated value is
         // handled -- the implementations see it in their flags.
         const lvalue = ref instanceof ReferenceWrapper ? ref.obj : ref;
-        const setter = vm.getProtocol(true, false, "set", [lvalue, value]);
-        if (!setter)
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                `cannot assign to ${theTypeName(typeOf(lvalue))}`,
-            );
-        setter.run(vm, [lvalue, value], {
+        runSetter(vm, lvalue, value, {
             create: false,
             readonly: false,
             unevaluated: true,

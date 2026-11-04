@@ -38,6 +38,14 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
 
     const { 0: head, 1: arg } = form;
 
+    const expectOneArg = (form: any[], name: string) => {
+        if (form.length !== 2)
+            throw new JEBError(
+                ErrnoCode.ESYNTAX,
+                `expected 1 argument to ${name}`,
+            );
+    };
+
     const same = (x: any, y: any) => {
         if (!isIdentifier(x)) return x === y;
         const v1 = env.get(x);
@@ -46,22 +54,14 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
 
     // ,x
     if (same(head, B_unquote)) {
-        if (form.length !== 2)
-            throw new JEBError(
-                ErrnoCode.ESYNTAX,
-                "expected 1 argument to unquote",
-            );
+        expectOneArg(form, "unquote");
         return depth === 1
             ? arg
             : [B_list, B_unquote, processQuasiquote(vm, arg, depth - 1)];
     }
     // ,@x
     if (same(head, B_unquoteSplicing)) {
-        if (form.length !== 2)
-            throw new JEBError(
-                ErrnoCode.ESYNTAX,
-                "expected 1 argument to unquoteSplicing",
-            );
+        expectOneArg(form, "unquoteSplicing");
         if (depth !== 1)
             return [
                 B_list,
@@ -75,11 +75,7 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
     }
     // nested `
     if (same(head, B_quasiquote)) {
-        if (form.length !== 2)
-            throw new JEBError(
-                ErrnoCode.ESYNTAX,
-                "expected 1 argument to quasiquote",
-            );
+        expectOneArg(form, "quasiquote");
         return [B_list, B_quasiquote, processQuasiquote(vm, arg, depth + 1)];
     }
 
@@ -102,11 +98,7 @@ const processQuasiquote = (vm: JebVM, form: any, depth: number): any => {
         if (!isArray(el) || depth !== 1) {
             buffer.push(el);
         } else if (same(el[0], B_unquoteSplicing)) {
-            if (el.length !== 2)
-                throw new JEBError(
-                    ErrnoCode.ESYNTAX,
-                    "expected 1 argument to unquoteSplicing",
-                );
+            expectOneArg(el, "unquoteSplicing");
             flush();
             parts.push(el[1]); // ,@x → will be spliced by concat
         } else {
@@ -132,33 +124,30 @@ export const B_quasiquote = makeJSFun(
 . Prevents \`value\` from being evaluated, but walks the elements and replaces [[unquote]] and [[unquoteSplicing]] with the results of evaluating their arguments. The argument to [[unquoteSplicing]] must be a list.`,
 );
 
-export const B_unquote = makeJSFun(
+const makeUnquoteBuiltin = (name: "unquote" | "unquoteSplicing", doc: string) =>
+    makeJSFun(
+        name,
+        [[true, "value"]],
+        (_, vm) => {
+            throw new JEBError(
+                ErrnoCode.ESYNTAX,
+                `${name} not valid outside of quasiquote`,
+                {},
+                { return: vm.cc() },
+            );
+        },
+        doc,
+    );
+
+export const B_unquote = makeUnquoteBuiltin(
     "unquote",
-    [[true, "value"]],
-    (_, vm) => {
-        throw new JEBError(
-            ErrnoCode.ESYNTAX,
-            "unquote" + " not valid outside of quasiquote",
-            {},
-            { return: vm.cc() },
-        );
-    },
     `.macro (unquote value) | (, value) | ,value
 .returns {never}
 .throws ESYNTAX - when called as a normal function outside of a [[quasiquote]].
 . Marks a value to be interpolated inside a [[quasiquote]].`,
 );
-export const B_unquoteSplicing = makeJSFun(
+export const B_unquoteSplicing = makeUnquoteBuiltin(
     "unquoteSplicing",
-    [[true, "value"]],
-    (_, vm) => {
-        throw new JEBError(
-            ErrnoCode.ESYNTAX,
-            "unquoteSplicing" + " not valid outside of quasiquote",
-            {},
-            { return: vm.cc() },
-        );
-    },
     `.macro (unquoteSplicing value) | (,@ value) | ,@value
 .returns {never}
 .throws ESYNTAX - when called as a normal function outside of a [[quasiquote]].

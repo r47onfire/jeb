@@ -54,7 +54,7 @@ const mathHelper = (
                     pushMethodApply(vm, method, [a]);
                     return NOTHING;
                 }
-                const handler = vm.getProtocol(false, true, op1, [a]);
+                const handler = vm.getProtocol(true, true, op1, [a]);
                 f = () => handler.run(vm, [a]);
             } else {
                 const method = protocolMethod(a, op2);
@@ -62,7 +62,7 @@ const mathHelper = (
                     pushMethodApply(vm, method, [a, b]);
                     return NOTHING;
                 }
-                const handler = vm.getProtocol(false, true, op2, [a, b]);
+                const handler = vm.getProtocol(true, true, op2, [a, b]);
                 f = () => handler.run(vm, [a, b]);
             }
             return wrapThrowToError(ErrnoCode.EINVAL, f).else((e) => {
@@ -220,7 +220,7 @@ export const B_bitInv = makeJSFun(
             pushMethodApply(vm, method, [a]);
             return NOTHING;
         }
-        const handler = vm.getProtocol(false, false, "bitNot", [a]);
+        const handler = vm.getProtocol(true, false, "bitNot", [a]);
         if (handler)
             return wrapThrowToError(ErrnoCode.EINVAL, () =>
                 handler.run(vm, [a], undefined),
@@ -242,8 +242,8 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
         ["a", "b"],
         ({ a, b }, vm) => {
             // An object with a __cmp__ method takes over its own
-            // comparisons entirely (the cmp protocol's catch-all identity
-            // implementation would otherwise shadow it). The method
+            // comparisons entirely, like the other operator methods:
+            // the method is consulted before the registry is. It
             // receives the object, the other operand, and the Relation
             // bitset being tested, and returns whether the relation holds.
             const method = protocolMethod(a, "cmp");
@@ -252,7 +252,7 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
                 return NOTHING;
             }
             return vm
-                .getProtocol(false, true, "cmp", [a, b, bits])
+                .getProtocol(true, true, "cmp", [a, b, bits])
                 .run(vm, [a, b, bits])
                 .else((err) => {
                     throw new JEBError(ErrnoCode.ENOTSUP, err);
@@ -303,16 +303,11 @@ const compareFn = (_: JebVM, { 0: a, 1: b, 2: c }: [any, any, Relation]) => {
     throw "unreachable";
 };
 const loadCompareProtocol = (vm: JebVM) => {
-    vm.addProtocol("cmp", {
-        type: [["number", "bigint"], ["number", "bigint"], ["number"]],
-        run: compareFn,
-        doc: "Compares numbers",
-    });
-    vm.addProtocol("cmp", {
-        type: [["string"], ["string"], ["number"]],
-        run: compareFn,
-        doc: "Compares strings",
-    });
+    // Registered first, so that under fast dispatch (reverse
+    // registration order, first match) the specific implementations
+    // below are found before it for the types they match: this is
+    // the identity catch-all, for values with no ordering of their
+    // own.
     vm.addProtocol("cmp", {
         type: [[true], [true], ["number"]],
         run(_, { 0: a, 1: b, 2: c }) {
@@ -324,6 +319,16 @@ const loadCompareProtocol = (vm: JebVM) => {
             return Ok(!!(c & Relation.LESS));
         },
         doc: "Compares any items",
+    });
+    vm.addProtocol("cmp", {
+        type: [["number", "bigint"], ["number", "bigint"], ["number"]],
+        run: compareFn,
+        doc: "Compares numbers",
+    });
+    vm.addProtocol("cmp", {
+        type: [["string"], ["string"], ["number"]],
+        run: compareFn,
+        doc: "Compares strings",
     });
 };
 

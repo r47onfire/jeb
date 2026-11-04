@@ -287,13 +287,13 @@ export class DoargsState {
             const param = paramsList[curParamIndex];
             const noEval = this.#noEvalAt(curArgvIndex);
             if (param && param.lazy !== Laziness.NONE) {
+                if (noEval)
+                    throw new JEBError(
+                        ErrnoCode.ESYNTAX,
+                        "lazy parameter not allowed here",
+                    );
                 // If current arg is rest lazy, slice off everything at once and wrap it
                 if (param.rest === Rest.POSITIONAL) {
-                    if (noEval)
-                        throw new JEBError(
-                            ErrnoCode.ESYNTAX,
-                            "lazy parameter not allowed here",
-                        );
                     return doneHelper(
                         vm,
                         {
@@ -309,11 +309,6 @@ export class DoargsState {
                         this.#paramLocations as Record<Identifier, Location>,
                     );
                 }
-                if (noEval)
-                    throw new JEBError(
-                        ErrnoCode.ESYNTAX,
-                        "lazy parameter not allowed here",
-                    );
                 return wrapLazyValue(param.lazy, value, this.#callEnv, true);
             }
             return noEval
@@ -476,6 +471,23 @@ export class DoargsState {
      * Throws if a splat being unpacked contains a nested keyword/splat wrapper,
      * which cannot be unpacked further.
      */
+    /**
+     * Throws if a splat argument is being unpacked into a lazy rest
+     * parameter: the splat's values are already computed, and a lazy
+     * parameter cannot take computed values.
+     */
+    #assertNotLazySplat(
+        param: CallableSignature[number],
+        isFromSplat: boolean,
+    ) {
+        if (param.lazy !== Laziness.NONE && isFromSplat) {
+            throw new JEBError(
+                ErrnoCode.ERANGE,
+                "cannot unpack splat argument into lazy rest parameter",
+            );
+        }
+    }
+
     #assertNotSpecial(value: any) {
         if (value instanceof KeywordArg || value instanceof SplatArg) {
             throw new JEBError(
@@ -555,12 +567,7 @@ export class DoargsState {
         if (index >= pList.length) {
             const p = this.#params.find((x) => x.rest === Rest.POSITIONAL);
             if (p) {
-                if (p.lazy !== Laziness.NONE && isFromSplat) {
-                    throw new JEBError(
-                        ErrnoCode.ERANGE,
-                        "cannot unpack splat argument into lazy rest parameter",
-                    );
-                }
+                this.#assertNotLazySplat(p, isFromSplat);
                 return this.#update(
                     {
                         ...this.#argsObj,
@@ -590,12 +597,7 @@ export class DoargsState {
             // The rest parameter absorbs every remaining positional value
             // without advancing the parameter index; the walk steps over
             // it once the given arguments run out.
-            if (param.lazy !== Laziness.NONE && isFromSplat) {
-                throw new JEBError(
-                    ErrnoCode.ERANGE,
-                    "cannot unpack splat argument into lazy rest parameter",
-                );
-            }
+            this.#assertNotLazySplat(param, isFromSplat);
             return this.#update(
                 {
                     ...this.#argsObj,

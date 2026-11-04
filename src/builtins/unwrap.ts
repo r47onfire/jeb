@@ -45,7 +45,7 @@ export const OP_unwrap = makeOpcode(
     "unwrap",
     (vm, { 0: flags, 1: only }: [string[], only?: boolean]) => {
         const top = peekData(vm);
-        const unwrapper = vm.getProtocol(false, false, "unwrap", [top]);
+        const unwrapper = vm.getProtocol(true, false, "unwrap", [top]);
         if (!unwrapper) return;
         // The implementation describes the value with its tag: a
         // Wrapper's flag, or a wrapper object's __tag__ property. A tag

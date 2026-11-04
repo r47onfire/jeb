@@ -18,6 +18,7 @@ import {
     AccessType,
     protocolMethod,
     Reference,
+    SetFlags,
 } from "../protocol";
 import {
     CallableSignature,
@@ -684,6 +685,26 @@ export const OP_get = makeOpcode(
 .sed lvalue -- value
 . Takes an LValue on the top of the stack and unwraps it: a reference by calling its get() method, and a descriptor (an object with a \`__get__\` protocol method) by calling that method.`,
 );
+/**
+ * Runs the `set` protocol implementation for an lvalue, or throws if
+ * there is none: the one place "cannot assign" is decided, shared by
+ * the `assign` opcode, the `assign` builtin, and the accessed-descriptor
+ * continuation.
+ */
+export const runSetter = (
+    vm: JebVM,
+    lvalue: any,
+    value: any,
+    flags: SetFlags,
+) => {
+    const setter = vm.getProtocol(true, false, "set", [lvalue, value]);
+    if (!setter)
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            `cannot assign to ${theTypeName(typeOf(lvalue))}`,
+        );
+    setter.run(vm, [lvalue, value], flags);
+};
 export const OP_assign = makeOpcode(
     "assign",
     (
@@ -692,13 +713,7 @@ export const OP_assign = makeOpcode(
     ) => {
         const lvalue = popData(vm);
         const value = peekData(vm);
-        const setter = vm.getProtocol(true, false, "set", [lvalue, value]);
-        if (!setter)
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                `cannot assign to ${theTypeName(typeOf(lvalue))}`,
-            );
-        setter.run(vm, [lvalue, value], {
+        runSetter(vm, lvalue, value, {
             create: create ?? false,
             readonly: readonly ?? false,
         });

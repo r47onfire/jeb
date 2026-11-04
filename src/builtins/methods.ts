@@ -26,6 +26,7 @@ import {
     OP_shuffle,
     pushAccessCall,
     pushMethodApply,
+    runSetter,
 } from "./eval";
 import { OP_assign_internal, OP_push_value } from "./variables";
 import { OP_unwrap } from "./unwrap";
@@ -299,11 +300,12 @@ const OP_assign_accessed = makeOpcode(
     ) => {
         const descriptor = popData(vm);
         accessedSetter(descriptor, property);
-        vm.getProtocol(true, false, "set", [descriptor, value])!.run(
-            vm,
-            [descriptor, value],
-            { create: false, readonly: false, unevaluated: true, old: wantOld },
-        );
+        runSetter(vm, descriptor, value, {
+            create: false,
+            readonly: false,
+            unevaluated: true,
+            old: wantOld,
+        });
     },
     null,
 );
