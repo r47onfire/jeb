@@ -7,17 +7,18 @@
  * `(object (sym "__add__") (fn (self other) ...))`.
  *
  * `eval` has no symbol: evaluation is the VM's own business and values do not
- * get to override it. `__tag__` is not a protocol of its own: it is the
- * plain property by which a wrapper object says its tag, which the
- * `unwrap` protocol's describe reads synchronously. `get` and `set` are registry protocols (the two halves of
- * the reference model, generalized): their symbols are the keys under which a
- * descriptor object provides them as methods, so any object with
- * `__get__`/`__set__` methods can be dereferenced and assigned to without being
- * a `Reference`. Indexing goes through `__access__` only: an object with an
- * `__access__` method controls indexing itself -- the method is called with the
- * index key and returns a descriptor object (with `__get__`/`__set__` methods)
- * for that property (see `AccessReference`) -- and an object that wants to be
- * its own descriptor returns itself from `__access__`.
+ * get to override it. `__tag__` is not a protocol of its own: it is the plain
+ * property by which a wrapper object says its tag, which the `unwrap`
+ * protocol's describe reads synchronously. `get` and `set` are registry
+ * protocols (the two halves of the reference model, generalized): their symbols
+ * are the keys under which a descriptor object provides them as methods, so any
+ * object with `__get__`/`__set__` methods can be dereferenced and assigned to
+ * without being a `Reference`. Indexing goes through `__access__` only: an
+ * object with an `__access__` method controls indexing itself -- the method is
+ * called with the index key and returns a descriptor object (with
+ * `__get__`/`__set__` methods) for that property (see `AccessReference`) -- and
+ * an object that wants to be its own descriptor returns itself from
+ * `__access__`.
  */
 export const PROTOCOL_SYMBOLS = {
     apply: Symbol.for("__call__"),

@@ -1,22 +1,14 @@
-import {
-    defineApplier,
-    defineGetter,
-    defineSetter,
-    NOTHING,
-} from "../define";
-import { ErrnoCode } from "../errno";
-import { JEBError } from "../errors";
+import { defineApplier, defineGetter, defineSetter, NOTHING } from "../define";
 import {
     AccessReference,
+    ApplyMetadata,
     protocolMethod,
     Reference,
     Unwrappable,
 } from "../protocol";
-import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
-import { ApplyMetadata } from "../protocol";
-import { predicateToClass, theTypeName, typeOf } from "../typecheck";
+import { predicateToClass } from "../typecheck";
 import { JebVM, pushCommand } from "../vm";
-import { Wrapper } from "../wrapper";
+import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
 import {
     curry,
     OP_accessed_get,
@@ -127,9 +119,9 @@ const loadNameMethod = (vm: JebVM) =>
 
 /**
  * A value that is a wrapper by providing the wrapper properties
- * ({@link Unwrappable}) is unwrapped by calling its `__unwrap__` method
- * and using the result; its tag, for the `unwrap` protocol's describe,
- * is its `__tag__` property.
+ * ({@link Unwrappable}) is unwrapped by calling its `__unwrap__` method and
+ * using the result; its tag, for the `unwrap` protocol's describe, is its
+ * `__tag__` property.
  */
 const loadUnwrapMethod = (vm: JebVM) =>
     vm.addProtocol("unwrap", {

@@ -26,12 +26,12 @@ export class ObjectPropertyReference extends Reference {
      * Reads the property. If `shouldBind` is set and the value is a function,
      * it is bound to the object, so host methods keep their receiver.
      *
-     * Property lookup is Python-shaped: an `__access__` method, if the
-     * object has one, has already been consulted before this reference was
-     * created (see `index`); a property that is simply absent falls back
-     * to the object's `__member__` method, if it has one, whose result is
-     * the value. That call is scheduled, so this returns {@link NOTHING}
-     * in that case and the result lands on the stack in its place.
+     * Property lookup is Python-shaped: an `__access__` method, if the object
+     * has one, has already been consulted before this reference was created
+     * (see `index`); a property that is simply absent falls back to the
+     * object's `__member__` method, if it has one, whose result is the value.
+     * That call is scheduled, so this returns {@link NOTHING} in that case and
+     * the result lands on the stack in its place.
      */
     get(vm: JebVM, shouldBind: boolean) {
         vm.emit("jeb:ffi/object/get", [this.name, this.obj]);

@@ -7,12 +7,7 @@ import { ErrnoCode } from "./errno";
 import { JEBError, Location } from "./errors";
 import { Relation } from "./math";
 import { CallableSignature } from "./signature";
-import {
-    predicateToClass,
-    Type,
-    TypeMap,
-    typeMatches,
-} from "./typecheck";
+import { predicateToClass, Type, TypeMap, typeMatches } from "./typecheck";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "./well_known";
@@ -347,10 +342,9 @@ export class AccessReference extends Reference {
 /** The number of arguments the protocol `N` takes. */
 /**
  * Pseudoclass matching the values that are wrappers by providing the two
- * wrapper properties: a `__tag__` (their tag, as a plain property -- a tag
- * is never computed, so reading it is synchronous) and a `__unwrap__`
- * method. References are read and assigned, never unwrapped, so they do
- * not match.
+ * wrapper properties: a `__tag__` (their tag, as a plain property -- a tag is
+ * never computed, so reading it is synchronous) and a `__unwrap__` method.
+ * References are read and assigned, never unwrapped, so they do not match.
  */
 export const Unwrappable = predicateToClass(
     (x): x is Record<PropertyKey, any> =>
