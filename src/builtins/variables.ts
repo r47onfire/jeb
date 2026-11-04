@@ -8,24 +8,14 @@ import {
 } from "../define";
 import { Env } from "../env";
 import { ErrnoCode } from "../errno";
-import { JEBError } from "../errors";
+import { checkNothingOrPush, JEBError } from "../errors";
 import { implicitBegin } from "../implicitBegin";
 import { AccessReference, AccessType, protocolMethod } from "../protocol";
-import { Laziness } from "../signature";
 import { theTypeName, typeOf, withType } from "../typecheck";
 import { Identifier } from "../utils";
-import { JebVM, peekData, popData, pushCommand, pushData } from "../vm";
+import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { ReferenceWrapper } from "../wrapper";
-import {
-    accessedSetter,
-    OP_apply,
-    OP_assign,
-    OP_get,
-    OP_index,
-    OP_shuffle,
-    pushAccessCall,
-    pushMethodApply,
-} from "./eval";
+import { OP_apply, OP_assign, OP_index, OP_shuffle } from "./eval";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap, OP_wrap } from "./unwrap";
 
@@ -96,7 +86,36 @@ const OP_assign_internal_nested = makeOpcode(
     (vm) => pushData(vm, { _: { _: popData(vm) } }),
     null,
 );
-const OP_assign_internal = makeOpcode(
+/**
+ * The old-value read of {@link OP_assign_internal}: the `get` protocol,
+ * except that an lvalue no implementation can read (a descriptor with a
+ * `__set__` but no `__get__`) reads as `undefined` instead of throwing.
+ */
+const OP_assign_get_old = makeOpcode(
+    null,
+    (vm: JebVM) => {
+        const lvalue = popData(vm);
+        const getter = vm.getProtocol(true, false, "get", [lvalue]);
+        if (!getter) pushData(vm, undefined);
+        else
+            checkNothingOrPush(
+                vm,
+                getter.run(vm, [lvalue], { shouldBind: true }),
+            );
+    },
+    null,
+);
+/**
+ * The shared body of an unevaluated assignment (the `assign` builtin's
+ * right-hand side, still a block): the lvalue is first on the stack; its
+ * old value is read through the `get` protocol, the block is evaluated
+ * with `_` bound to it, and the result is assigned through the `set`
+ * protocol -- so it works unchanged for references, descriptors, and
+ * access references alike. The `set` implementations seed it when their
+ * flags say the value is unevaluated (and their own signature does not
+ * take the value unevaluated itself).
+ */
+export const OP_assign_internal = makeOpcode(
     null,
     (vm: JebVM, { 0: b, 1: old }: [Block, boolean]) => {
         // accessor is first on stack
@@ -106,7 +125,7 @@ const OP_assign_internal = makeOpcode(
         pushCommand(vm, OP_block_invoke, b, false);
         pushCommand(vm, OP_assign_internal_nested);
         if (old) pushCommand(vm, OP_shuffle, 2, [1, 0, 1]);
-        pushCommand(vm, OP_get, true);
+        pushCommand(vm, OP_assign_get_old);
         pushCommand(vm, OP_shuffle, 1, [0, 0]);
     },
     null,
@@ -115,115 +134,6 @@ const OP_assign_internal = makeOpcode(
 export const OP_push_value = makeOpcode(
     null,
     (vm: JebVM, { 0: value }: [any]) => pushData(vm, value),
-    null,
-);
-/**
- * Calls a descriptor's `__set__` method with the value on top of the data
- * stack, leaving the value there (like the `assign` opcode does for
- * references).
- */
-const OP_desc_set = makeOpcode(
-    null,
-    (vm: JebVM, { 0: target }: [any]) => {
-        const set = protocolMethod(target, "set")!;
-        pushMethodApply(vm, set, [target, peekData(vm)], true);
-    },
-    null,
-);
-/**
- * The descriptor counterpart of {@link OP_assign_internal}: reads the old value
- * through the descriptor's `__get__` method (`undefined` if it has none),
- * evaluates the value block with `_` bound to it, and assigns the result
- * through `__set__`.
- */
-const OP_assign_descriptor_internal = makeOpcode(
-    null,
-    (vm: JebVM, { 0: target, 1: b, 2: old }: [any, Block, boolean]) => {
-        pushCommand(vm, OP_shuffle, 2, [old ? 0 : 1]);
-        pushCommand(vm, OP_desc_set, target);
-        pushCommand(vm, OP_block_invoke, b, false);
-        pushCommand(vm, OP_assign_internal_nested);
-        pushCommand(vm, OP_shuffle, 1, [0, 0]);
-        const get = protocolMethod(target, "get");
-        if (get) {
-            pushCommand(vm, OP_unwrap, []);
-            pushMethodApply(vm, get, [target]);
-        } else pushCommand(vm, OP_push_value, undefined);
-    },
-    null,
-);
-/**
- * Schedules an assignment to a descriptor: an object with a `__set__` protocol
- * method, called as `__set__(obj, value)`.
- *
- * If the method's value parameter is lazy, the unevaluated right-hand side
- * expression is passed straight to the method (through `OP_apply`, so its
- * signature does the binding): if the method never evaluates it, the right-hand
- * side never runs, and the assignment returns the method's own result (or the
- * old value, read through `__get__` first, if that was requested). Otherwise
- * the value block is evaluated with `_` bound to the old value, as for
- * references, and the assignment returns the new or old value.
- */
-const assignDescriptor = (
-    vm: JebVM,
-    target: any,
-    set: any,
-    value: Block,
-    wantOld: boolean,
-) => {
-    const { signature } = vm
-        .getProtocol(true, true, "apply", [set])
-        .describe(vm, set);
-    const valueParam = signature[1];
-    if (valueParam && valueParam.lazy !== Laziness.NONE) {
-        if (wantOld) pushCommand(vm, OP_shuffle, 1, []); // the __set__ result is dropped
-        // The descriptor is an already-computed value; the value
-        // expression goes verbatim, for the method's signature to
-        // evaluate (or not).
-        pushData(vm, set);
-        pushCommand(vm, OP_apply, [target, value.body[0]], undefined, false, [
-            true,
-            false,
-        ]);
-        if (wantOld) {
-            const get = protocolMethod(target, "get");
-            if (get) {
-                pushCommand(vm, OP_unwrap, []);
-                pushMethodApply(vm, get, [target]);
-            } else pushCommand(vm, OP_push_value, undefined);
-        }
-        return;
-    }
-    pushCommand(vm, OP_assign_descriptor_internal, target, value, wantOld);
-};
-/**
- * Continuation of an assignment through an {@link AccessReference} from the
- * `assign` builtin: the descriptor object returned by `__access__` is on top of
- * the data stack; assign to it as a bare descriptor (see
- * {@link assignDescriptor}). Unlike `OP_accessed_set` (the `assign` opcode's
- * continuation in eval.ts), the value here is still the unevaluated right-hand
- * side expression, so the descriptor's `__set__` signature decides whether it
- * is evaluated.
- */
-const OP_assign_accessed = makeOpcode(
-    null,
-    (
-        vm: JebVM,
-        {
-            0: value,
-            1: wantOld,
-            2: property,
-        }: [Block, boolean, string | undefined],
-    ) => {
-        const descriptor = popData(vm);
-        assignDescriptor(
-            vm,
-            descriptor,
-            accessedSetter(descriptor, property),
-            value,
-            wantOld,
-        );
-    },
     null,
 );
 export const B_assign = makeJSFun(
@@ -236,31 +146,24 @@ export const B_assign = makeJSFun(
     (args, vm) => {
         const { ref, value, old } = args;
         const wantOld = withType(old, ["boolean"], "old", args);
-        if (ref instanceof ReferenceWrapper) {
-            if (ref.obj instanceof AccessReference) {
-                pushCommand(
-                    vm,
-                    OP_assign_accessed,
-                    value as Block,
-                    wantOld,
-                    ref.obj.propertyName,
-                );
-                pushCommand(vm, OP_unwrap, []);
-                pushAccessCall(vm, ref.obj);
-                return NOTHING;
-            }
-            pushCommand(vm, OP_assign_internal, value as Block, wantOld);
-            return ref.obj;
-        }
-        const set = protocolMethod(ref, "set");
-        if (set) {
-            assignDescriptor(vm, ref, set, value as Block, wantOld);
-            return NOTHING;
-        }
-        throw new JEBError(
-            ErrnoCode.EINVAL,
-            `cannot assign to ${theTypeName(typeOf(ref))}`,
-        );
+        // Everything else is the set protocol's business: which
+        // implementation matches the lvalue (a reference, a descriptor,
+        // an access reference) decides how the unevaluated value is
+        // handled -- the implementations see it in their flags.
+        const lvalue = ref instanceof ReferenceWrapper ? ref.obj : ref;
+        const setter = vm.getProtocol(true, false, "set", [lvalue, value]);
+        if (!setter)
+            throw new JEBError(
+                ErrnoCode.EINVAL,
+                `cannot assign to ${theTypeName(typeOf(lvalue))}`,
+            );
+        setter.run(vm, [lvalue, value], {
+            create: false,
+            readonly: false,
+            unevaluated: true,
+            old: wantOld,
+        });
+        return NOTHING;
     },
     `.macro (assign slot value old)
 ..param {reference | descriptor} slot
@@ -270,7 +173,7 @@ export const B_assign = makeJSFun(
 .throws ENAME - if the value is not defined anywhere
 .returns {old ? U : T}
 . Changes the value of the slot, and returns the new or old value as determined by \`old\`.
-The slot may also be a descriptor (an object with a \`__set__\` protocol method, or a descriptor returned by an \`__access__\` method): the assignment then calls that method instead. If the method's value parameter is lazy it receives the value unevaluated, and the assignment returns the method's result instead.`,
+The slot may also be a descriptor (an object with a \`__set__\` protocol method, or a descriptor returned by an \`__access__\` method): the assignment then goes through the \`set\` protocol to that method instead. If the method's value parameter is lazy it receives the value unevaluated, and the assignment returns the method's result instead.`,
 );
 
 export const B_ref = makeJSFun(

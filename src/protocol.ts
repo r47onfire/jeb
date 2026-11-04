@@ -194,6 +194,16 @@ export interface SetFlags {
     create: boolean;
     /** Whether the slot becomes read-only. */
     readonly: boolean;
+    /**
+     * The value argument is an unevaluated `Block` (the `assign` builtin's
+     * right-hand side): the implementation arranges its evaluation, with
+     * `_` bound to the old value, unless the assignment target's own
+     * signature takes it unevaluated. Absent for the `assign` opcode,
+     * whose value is already computed.
+     */
+    unevaluated?: boolean;
+    /** With `unevaluated`: the assignment's result is the old value. */
+    old?: boolean;
 }
 
 /** The capacity in which a {@link Reference} is accessed. */

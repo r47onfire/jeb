@@ -1,4 +1,12 @@
-import { defineApplier, defineGetter, defineSetter, NOTHING } from "../define";
+import { Block } from "../block";
+import {
+    defineApplier,
+    defineGetter,
+    defineSetter,
+    makeOpcode,
+    NOTHING,
+} from "../define";
+import { Laziness } from "../signature";
 import {
     AccessReference,
     ApplyMetadata,
@@ -7,15 +15,19 @@ import {
     Unwrappable,
 } from "../protocol";
 import { isPlainObject, predicateToClass } from "../typecheck";
-import { JebVM, pushCommand } from "../vm";
+import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
 import {
+    accessedSetter,
     curry,
     OP_accessed_get,
     OP_accessed_set,
+    OP_apply,
+    OP_shuffle,
     pushAccessCall,
     pushMethodApply,
 } from "./eval";
+import { OP_assign_internal, OP_push_value } from "./variables";
 import { OP_unwrap } from "./unwrap";
 
 /**
@@ -139,7 +151,12 @@ const loadReferenceGetSet = (vm: JebVM) => {
     defineSetter(
         vm,
         [Reference],
-        (vm, { 0: ref, 1: value }, { create, readonly }) => {
+        (vm, { 0: ref, 1: value }, { create, readonly, unevaluated, old }) => {
+            if (unevaluated) {
+                pushCommand(vm, OP_assign_internal, value as Block, old ?? false);
+                pushData(vm, ref);
+                return;
+            }
             ref.set(vm, value, create, readonly);
         },
         "Assigns to a reference by calling its set() method.",
@@ -166,13 +183,47 @@ const loadMethodGetSet = (vm: JebVM) => {
     defineSetter(
         vm,
         [hasMethod("set")],
-        (vm, { 0: obj, 1: value }) => {
-            pushMethodApply(
-                vm,
-                protocolMethod(obj, "set")!,
-                [obj, value],
-                true,
-            );
+        (vm, { 0: obj, 1: value }, { unevaluated, old }) => {
+            const set = protocolMethod(obj, "set")!;
+            if (!unevaluated) {
+                pushMethodApply(vm, set, [obj, value], true);
+                return;
+            }
+            // The value is still an unevaluated block: the method's
+            // signature decides whether it is evaluated. A lazy value
+            // parameter takes the expression verbatim (through OP_apply,
+            // so the signature does the binding) and the assignment
+            // returns the method's own result -- or the old value, read
+            // through __get__ first, if that was requested. Otherwise
+            // the shared dance evaluates it, with `_` bound to the old
+            // value, and this implementation is re-entered with the
+            // computed value.
+            const { signature } = vm
+                .getProtocol(true, true, "apply", [set])
+                .describe(vm, set);
+            const valueParam = signature[1];
+            if (valueParam && valueParam.lazy !== Laziness.NONE) {
+                if (old) pushCommand(vm, OP_shuffle, 1, []); // the __set__ result is dropped
+                pushData(vm, set);
+                pushCommand(
+                    vm,
+                    OP_apply,
+                    [obj, (value as Block).body[0]],
+                    undefined,
+                    false,
+                    [true, false],
+                );
+                if (old) {
+                    const get = protocolMethod(obj, "get");
+                    if (get) {
+                        pushCommand(vm, OP_unwrap, []);
+                        pushMethodApply(vm, get, [obj]);
+                    } else pushCommand(vm, OP_push_value, undefined);
+                }
+                return;
+            }
+            pushCommand(vm, OP_assign_internal, value as Block, old ?? false);
+            pushData(vm, obj);
         },
         "Assigns to a descriptor by calling its __set__ protocol method.",
     );
@@ -201,7 +252,19 @@ const loadAccessReferenceGetSet = (vm: JebVM) => {
     defineSetter(
         vm,
         [AccessReference],
-        (vm, { 0: ref }) => {
+        (vm, { 0: ref, 1: value }, { unevaluated, old }) => {
+            if (unevaluated) {
+                pushCommand(
+                    vm,
+                    OP_assign_accessed,
+                    value as Block,
+                    old ?? false,
+                    ref.propertyName,
+                );
+                pushCommand(vm, OP_unwrap, []);
+                pushAccessCall(vm, ref);
+                return;
+            }
             pushCommand(vm, OP_accessed_set, ref.propertyName);
             pushCommand(vm, OP_unwrap, []);
             pushAccessCall(vm, ref);
@@ -209,6 +272,35 @@ const loadAccessReferenceGetSet = (vm: JebVM) => {
         "Assigns an access reference through the descriptor its object's __access__ method returns.",
     );
 };
+
+/**
+ * Continuation of an unevaluated assignment through an {@link
+ * AccessReference}: the descriptor object returned by `__access__` is on
+ * top of the data stack; the assignment re-dispatches the `set` protocol
+ * on it, still with the unevaluated value, so the descriptor's own
+ * implementation decides how the value is handled. (The opcode flavor
+ * uses `OP_accessed_set` instead: its value is already computed.)
+ */
+const OP_assign_accessed = makeOpcode(
+    null,
+    (
+        vm: JebVM,
+        {
+            0: value,
+            1: wantOld,
+            2: property,
+        }: [Block, boolean, string | undefined],
+    ) => {
+        const descriptor = popData(vm);
+        accessedSetter(descriptor, property);
+        vm.getProtocol(true, false, "set", [descriptor, value])!.run(
+            vm,
+            [descriptor, value],
+            { create: false, readonly: false, unevaluated: true, old: wantOld },
+        );
+    },
+    null,
+);
 
 export const loadProtocolMethods = (vm: JebVM) => {
     loadMethodApplier(vm);
