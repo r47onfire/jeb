@@ -373,17 +373,9 @@ export const pushMethodApply = (
  * Partially applies a callable to its first parameter: returns a callable that
  * calls `callee` with `value` filled in for that parameter. The callee's
  * signature and closure environment come from the `apply` protocol's metadata,
- * so how the callee is implemented doesn't matter: whatever it is, the result
- * is a single {@link Fun} with the first parameter dropped, whose body is a call
- * to the callee -- the parameter is bound to `value` (and the callee to a
- * generated name) in a child environment of the callee's own, and each
- * remaining parameter is forwarded with a `local` reference (a rest parameter
- * with a `splat`), so the callee's signature decides how each argument is
- * evaluated, exactly as if it had been called directly. This is how protocol
- * methods are bound to their receivers: a method is just a callable curried
- * with the object it was found on.
+ * so how the callee is implemented doesn't matter.
  */
-export const curry = (vm: JebVM, callee: any, value: any): any => {
+export const curry = (vm: JebVM, callee: any, value: any) => {
     const { name, signature, closureEnv } = vm
         .getProtocol(true, true, "apply", [callee])
         .describe(vm, callee);
@@ -436,44 +428,6 @@ export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
     ]);
 };
 /**
- * The `__get__` method of a descriptor returned by `__access__`; throws if the
- * property cannot be read through it. `property` is the accessed property's
- * name, when it is statically known.
- */
-export const accessedGetter = (
-    descriptor: any,
-    property: string | undefined,
-) => {
-    const get = protocolMethod(descriptor, "get");
-    if (!get)
-        throw new JEBError(
-            ErrnoCode.ENODEV,
-            property === undefined
-                ? `property is not readable`
-                : `property ${property} is not readable`,
-        );
-    return get;
-};
-/**
- * The `__set__` method of a descriptor returned by `__access__`; throws if the
- * property cannot be assigned through it. `property` is the accessed property's
- * name, when it is statically known.
- */
-export const accessedSetter = (
-    descriptor: any,
-    property: string | undefined,
-) => {
-    const set = protocolMethod(descriptor, "set");
-    if (!set)
-        throw new JEBError(
-            ErrnoCode.ENODEV,
-            property === undefined
-                ? `property is not writable`
-                : `property ${property} is not writable`,
-        );
-    return set;
-};
-/**
  * Continuation of a read through an {@link AccessReference}: the descriptor
  * object returned by `__access__` is on top of the data stack; read through its
  * `__get__` method.
@@ -482,7 +436,15 @@ export const OP_accessed_get = makeOpcode(
     null,
     (vm: JebVM, { 0: property }: [string | undefined]) => {
         const descriptor = popData(vm);
-        pushMethodApply(vm, accessedGetter(descriptor, property), [descriptor]);
+        const get = protocolMethod(descriptor, "get");
+        if (!get)
+            throw new JEBError(
+                ErrnoCode.ENODEV,
+                property === undefined
+                    ? `property is not readable`
+                    : `property ${property} is not readable`,
+            );
+        pushMethodApply(vm, get, [descriptor]);
     },
     null,
 );
@@ -499,12 +461,15 @@ export const OP_accessed_set = makeOpcode(
     null,
     (vm: JebVM, { 0: property }: [string | undefined]) => {
         const descriptor = popData(vm);
-        pushMethodApply(
-            vm,
-            accessedSetter(descriptor, property),
-            [descriptor, peekData(vm)],
-            true,
-        );
+        const set = protocolMethod(descriptor, "set");
+        if (!set)
+            throw new JEBError(
+                ErrnoCode.ENODEV,
+                property === undefined
+                    ? `property is not writable`
+                    : `property ${property} is not writable`,
+            );
+        pushMethodApply(vm, set, [descriptor, peekData(vm)], true);
     },
     null,
 );

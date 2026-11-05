@@ -6,7 +6,6 @@ import {
     makeOpcode,
     NOTHING,
 } from "../define";
-import { Laziness } from "../signature";
 import {
     AccessReference,
     ApplyMetadata,
@@ -14,11 +13,11 @@ import {
     Reference,
     Unwrappable,
 } from "../protocol";
+import { Laziness } from "../signature";
 import { isPlainObject, predicateToClass } from "../typecheck";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
 import {
-    accessedSetter,
     curry,
     OP_accessed_get,
     OP_accessed_set,
@@ -28,8 +27,8 @@ import {
     pushMethodApply,
     runSetter,
 } from "./eval";
-import { OP_assign_internal, OP_push_value } from "./variables";
 import { OP_unwrap } from "./unwrap";
+import { OP_assign_internal, OP_push_value } from "./variables";
 
 /**
  * Fallback protocol implementations for plain objects that provide their own
@@ -299,7 +298,6 @@ const OP_assign_accessed = makeOpcode(
         }: [Block, boolean, string | undefined],
     ) => {
         const descriptor = popData(vm);
-        accessedSetter(descriptor, property);
         runSetter(vm, descriptor, value, {
             create: false,
             readonly: false,
