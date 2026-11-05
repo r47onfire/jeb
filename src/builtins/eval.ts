@@ -668,8 +668,7 @@ export const OP_get = makeOpcode(
 );
 /**
  * Runs the `set` protocol implementation for an lvalue, or throws if there is
- * none: the one place "cannot assign" is decided, shared by the `assign` opcode
- * and the `assign` builtin.
+ * none.
  */
 export const runSetter = (
     vm: JebVM,
