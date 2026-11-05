@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_shuffle, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typecheck, typeMatches, withType } from "../src";
+import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_get, OP_set, OP_shuffle, OP_unwrap, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typecheck, typeMatches, withType } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -1320,4 +1320,332 @@ testTest(test, "names stick on functions", vm => {
     const i = popData(vm);
     expect(i).toBeInstanceOf(Fun);
     expect(i.name).toEqual("foo");
+});
+
+describe("protocol methods", () => {
+    testTest(test, "__call__ enables calling", vm => {
+        expect(run(vm, ["define", "c", {
+            n: 5,
+            [Symbol.for("__call__")]: ["fn", ["self", "x"], ["add", ["index", ["local", "self"], "n"], ["local", "x"]]],
+        }])).toBeTrue();
+        expect(run(vm, [["local", "c"], 37])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+    });
+    testTest(test, "operator overloading", vm => {
+        expect(run(vm, ["define", "vec", {
+            [Symbol.for("__add__")]: ["fn", ["self", "other"], ["add", ["local", "other"], 100]],
+            [Symbol.for("__bitNot__")]: ["fn", ["self"], 42],
+            [Symbol.for("__neg__")]: ["fn", ["self"], -1],
+        }])).toBeTrue();
+        expect(run(vm, ["add", ["local", "vec"], 1])).toBeTrue();
+        expect(popData(vm)).toBe(101);
+        // the unary form of sub dispatches to __neg__
+        expect(run(vm, ["sub", ["local", "vec"]])).toBeTrue();
+        expect(popData(vm)).toBe(-1);
+        expect(run(vm, ["bitInv", ["local", "vec"]])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+        // an object without the method gets the usual no-overload error
+        expect(() => run(vm, ["add", ["object"], 1])).toThrow("No overload of add exists for types object, number");
+    });
+    testTest(test, "comparison overloading", vm => {
+        expect(run(vm, ["define", "o", {
+            [Symbol.for("__cmp__")]: ["fn", ["self", "other", "rel"], 42],
+        }])).toBeTrue();
+        expect(run(vm, ["eq", ["local", "o"], 1])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+        expect(run(vm, ["less", ["local", "o"], 1])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+    });
+    testTest(test, "descriptor object", vm => {
+        vm.currentEnv.add("stored", 7);
+        const cellCode = {
+            [Symbol.for("__get__")]: ["fn", ["self"], ["local", "stored"]],
+            [Symbol.for("__set__")]: ["fn", ["self", "v"], ["assign", ["local", "stored"], ["local", "v"]]],
+        };
+        expect(run(vm, ["define", "cell", cellCode])).toBeTrue();
+        expect(run(vm, ["local", "cell"])).toBeTrue();
+        const cell = popData(vm);
+        // read through the get opcode
+        pushData(vm, cell);
+        pushCommand(vm, OP_get, false);
+        while (vm.step());
+        expect(popData(vm)).toBe(7);
+        // assign through the assign opcode: the value stays on the stack
+        pushData(vm, 42);
+        pushData(vm, cell);
+        pushCommand(vm, OP_set);
+        while (vm.step());
+        expect(popData(vm)).toBe(42);
+        expect(run(vm, ["deref", ["local", "cell"]])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+        // the assign builtin also accepts a bare descriptor object
+        expect(run(vm, ["assign", cellCode, 9])).toBeTrue();
+        expect(popData(vm)).toBe(9);
+        expect(run(vm, ["local", "stored"])).toBeTrue();
+        expect(popData(vm)).toBe(9);
+        // and ref returns a descriptor as-is (it is its own reference)
+        expect(run(vm, ["ref", cellCode])).toBeTrue();
+        expect(popData(vm)[Symbol.for("__get__")]).toBeInstanceOf(Fun);
+    });
+    testTest(test, "no __access__ falls back", vm => {
+        expect(run(vm, ["define", ["makePlain"], ["begin",
+            ["define", "c", ["object",
+                ["sym", "__get__"], ["fn", ["self", "k"], 1],
+                ["sym", "__set__"], ["fn", ["self", "k", "v"], 2],
+            ]],
+            ["local", "c"],
+        ]])).toBeTrue();
+        // the object is indexed as an ordinary object: __get__ is just a
+        // property (reading it gives the method itself), and other fields
+        // read and assign as plain properties -- the methods never run
+        expect(run(vm, ["define", "c", [["local", "makePlain"]]])).toBeTrue();
+        expect(run(vm, ["index", ["local", "c"], ["sym", "__get__"]])).toBeTrue();
+        expect(popData(vm)).toBeInstanceOf(Fun);
+        expect(run(vm, ["index", ["local", "c"], "x"])).toBeTrue();
+        expect(popData(vm)).toBeUndefined();
+        expect(run(vm, ["assign", ["index", ["local", "c"], "x"], 5])).toBeTrue();
+        expect(run(vm, ["index", ["local", "c"], "x"])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+    });
+    testTest(test, "__access__ should return descriptor", vm => {
+        expect(run(vm, ["define", ["makeAccessed"], ["begin",
+            ["define", "data", ["object"]],
+            ["object",
+                ["sym", "__access__"], ["fn", ["self", "k"], ["object",
+                    ["sym", "__get__"], ["fn", ["s"], ["index", ["local", "data"], ["local", "k"]]],
+                    ["sym", "__set__"], ["fn", ["s", "v"], ["assign", ["index", ["local", "data"], ["local", "k"]], ["local", "v"]]],
+                ]],
+            ],
+        ]])).toBeTrue();
+        expect(run(vm, ["define", "c", ["makeAccessed"]])).toBeTrue();
+        expect(run(vm, ["assign", ["index", ["local", "c"], "x"], 5])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        expect(run(vm, ["index", ["local", "c"], "x"])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        // a stored reference accesses through __access__ when it is used
+        expect(run(vm, ["define", "r", ["ref", ["index", ["local", "c"], "x"]]])).toBeTrue();
+        popData(vm);
+        expect(run(vm, ["deref", ["local", "r"]])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        // a descriptor without __get__ cannot be read and without __set__ cannot be written
+        expect(run(vm, ["define", "bad", {
+            [Symbol.for("__access__")]: ["fn", ["self", "k"], ["object"]],
+        }])).toBeTrue();
+        expect(() => run(vm, ["index", ["local", "bad"], "x"])).toThrow("property x is not readable");
+        vm.commandStack = null;
+        vm.error = undefined;
+        expect(() => run(vm, ["assign", ["index", ["local", "bad"], "x"], 1])).toThrow("property x is not writable");
+        // a computed key has no static name, so the errors stay generic
+        vm.commandStack = null;
+        vm.error = undefined;
+        expect(() => run(vm, ["index", ["local", "bad"], ["add", "x", ""]])).toThrow("property is not readable");
+        vm.commandStack = null;
+        vm.error = undefined;
+        expect(() => run(vm, ["assign", ["index", ["local", "bad"], ["add", "x", ""]], 1])).toThrow("property is not writable");
+    });
+    testTest(test, "__member__ is the last resort for a missing property", vm => {
+        expect(run(vm, ["define", "o", ["object",
+            ["sym", "__member__"], ["fn", ["self", "k"], ["add", "member:", ["local", "k"]]],
+            "real", "direct",
+        ]])).toBeTrue();
+        // a missing property is answered by __member__
+        expect(run(vm, ["index", ["local", "o"], "ghost"])).toBeTrue();
+        expect(popData(vm)).toBe("member:ghost");
+        // a real property is read directly; __member__ is not consulted
+        expect(run(vm, ["index", ["local", "o"], "real"])).toBeTrue();
+        expect(popData(vm)).toBe("direct");
+        // and __access__, when present, still comes before both
+        expect(run(vm, ["define", "a", ["object",
+            ["sym", "__access__"], ["fn", ["self", "k"], ["object",
+                ["sym", "__get__"], ["fn", ["s"], "accessed"],
+            ]],
+            ["sym", "__member__"], ["fn", ["self", "k"], "member"],
+            "real", "direct",
+        ]])).toBeTrue();
+        expect(run(vm, ["index", ["local", "a"], "real"])).toBeTrue();
+        expect(popData(vm)).toBe("accessed");
+        // without __member__, a missing property is still just undefined
+        expect(run(vm, ["index", ["object"], "nope"])).toBeTrue();
+        expect(popData(vm)).toBeUndefined();
+    });
+    testTest(test, "__access__ can be lazy", vm => {
+        vm.currentEnv.add("count", 0);
+        expect(run(vm, ["define", ["bump"], ["begin",
+            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
+            99,
+        ]])).toBeTrue();
+        // a lazy key parameter: the key expression never runs
+        expect(run(vm, ["define", "lazyTracker", {
+            [Symbol.for("__access__")]: ["fn", ["self", [false, "k"]], ["object",
+                ["sym", "__get__"], ["fn", ["s"], "seen"],
+            ]],
+        }])).toBeTrue();
+        expect(run(vm, ["index", ["local", "lazyTracker"], ["bump"]])).toBeTrue();
+        expect(popData(vm)).toBe("seen");
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+        // a normal key parameter: the key is evaluated and passed in
+        expect(run(vm, ["define", "eagerTracker", {
+            [Symbol.for("__access__")]: ["fn", ["self", "k"], ["object",
+                ["sym", "__get__"], ["fn", ["s"], ["local", "k"]],
+            ]],
+        }])).toBeTrue();
+        expect(run(vm, ["index", ["local", "eagerTracker"], ["bump"]])).toBeTrue();
+        expect(popData(vm)).toBe(99);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(1);
+    });
+    testTest(test, "__set__ can be lazy", vm => {
+        vm.currentEnv.add("count", 0);
+        expect(run(vm, ["define", ["bump"], ["begin",
+            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
+            99,
+        ]])).toBeTrue();
+        expect(run(vm, ["define", "sink", {
+            [Symbol.for("__access__")]: ["fn", ["self", "k"], ["object",
+                ["sym", "__set__"], ["fn", ["s", [false, "v"]], 12345],
+            ]],
+        }])).toBeTrue();
+        // the lazy __set__ never evaluates the right-hand side, and the
+        // assignment returns the method's own result
+        expect(run(vm, ["assign", ["index", ["local", "sink"], "k"], ["bump"]])).toBeTrue();
+        expect(popData(vm)).toBe(12345);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+    });
+    testTest(test, "__call__ can be lazy", vm => {
+        vm.currentEnv.add("count", 0);
+        expect(run(vm, ["define", ["bump"], ["begin",
+            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
+            99,
+        ]])).toBeTrue();
+        expect(run(vm, ["define", "hole", {
+            [Symbol.for("__access__")]: ["fn", ["self", "k"], ["local", "self"]],
+            [Symbol.for("__get__")]: ["fn", ["self"], ["local", "self"]],
+            [Symbol.for("__set__")]: ["fn", ["self", [false, "v"]], ["local", "self"]],
+            [Symbol.for("__call__")]: ["fn", ["self", [false, "a"]], ["local", "self"]],
+        }])).toBeTrue();
+        expect(run(vm, ["local", "hole"])).toBeTrue();
+        const hole = popData(vm);
+        // calling the hole does not evaluate the argument, and returns the hole
+        expect(run(vm, [["local", "hole"], ["bump"]])).toBeTrue();
+        expect(popData(vm)).toBe(hole);
+        // indexing the hole returns the hole
+        expect(run(vm, ["index", ["local", "hole"], "x"])).toBeTrue();
+        expect(popData(vm)).toBe(hole);
+        // assigning to the hole does not evaluate the right-hand side, and returns the hole
+        expect(run(vm, ["assign", ["index", ["local", "hole"], "x"], ["bump"]])).toBeTrue();
+        expect(popData(vm)).toBe(hole);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+    });
+    testTest(test, "other methods can be a thing with a __call__", vm => {
+        // the __access__ "method" stored on this object is itself an
+        // object, callable through its own __call__ (whose parameters are
+        // the method object, then the indexed object, then the key)
+        expect(run(vm, ["define", "o", ["object",
+            ["sym", "__access__"], ["object",
+                ["sym", "__call__"], ["fn", ["self", "owner", "k"], ["object",
+                    ["sym", "__get__"], ["fn", ["d"], ["local", "k"]],
+                ]],
+            ],
+        ]])).toBeTrue();
+        expect(run(vm, ["index", ["local", "o"], "hello"])).toBeTrue();
+        expect(popData(vm)).toBe("hello");
+        // and an object whose __call__ is a callable object can be called
+        expect(run(vm, ["define", "doubler", ["object",
+            ["sym", "__call__"], ["object",
+                ["sym", "__call__"], ["fn", ["self", "obj", "x"],
+                    ["add", ["local", "x"], ["local", "x"]]],
+            ],
+        ]])).toBeTrue();
+        expect(run(vm, [["local", "doubler"], 21])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+    });
+    testTest(test, "currying works", vm => {
+        // y's default mentions the receiver: it must still find it after
+        // the receiver is curried away
+        expect(run(vm, ["define", "o", ["object",
+            "inc", 10,
+            ["sym", "__call__"], ["fn",
+                ["self", "x", ["y", ["index", ["local", "self"], "inc"]]],
+                ["local", "y"]],
+        ]])).toBeTrue();
+        expect(run(vm, [["local", "o"], 1])).toBeTrue();
+        expect(popData(vm)).toBe(10);
+        expect(run(vm, [["local", "o"], 1, 5])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        // a positional rest parameter forwards through a splat
+        expect(run(vm, ["define", "o2", ["object",
+            ["sym", "__call__"], ["fn", ["self", "x", [0, "rest"]],
+                ["index", ["local", "rest"], 1]],
+        ]])).toBeTrue();
+        expect(run(vm, [["local", "o2"], 0, 20, 30])).toBeTrue();
+        expect(popData(vm)).toBe(30);
+        // and a keyword rest parameter forwards as keyword arguments
+        expect(run(vm, ["define", "o3", ["object",
+            ["sym", "__call__"], ["fn", ["self", [1, "kw"]],
+                ["index", ["local", "kw"], "bonus"]],
+        ]])).toBeTrue();
+        expect(run(vm, [["local", "o3"], ["kw", "bonus", 7]])).toBeTrue();
+        expect(popData(vm)).toBe(7);
+    });
+    testTest(test, "__name__ method", vm => {
+        vm.currentEnv.add("seen", null);
+        expect(run(vm, ["define", "thing", {
+            [Symbol.for("__name__")]: ["fn", ["self", "n"], ["assign", ["local", "seen"], ["local", "n"]]],
+        }])).toBeTrue();
+        expect(run(vm, ["local", "seen"])).toBeTrue();
+        expect(popData(vm)).toBe("thing");
+    });
+    testTest(test, "__unwrap__ method", vm => {
+        class TestWrapper {
+            constructor(public obj: any) {
+                (this as any)[Symbol.for("__tag__")] = "test";
+                (this as any)[Symbol.for("__unwrap__")] = makeJSFun("unwrapTest", ["self"], () => 123, "test unwrapper");
+            }
+        }
+        pushData(vm, new TestWrapper(0));
+        pushCommand(vm, OP_unwrap, []);
+        while (vm.step());
+        expect(popData(vm)).toBe(123);
+    });
+    testTest(test, "externally defined unwrap protocol", vm => {
+        // a wrapper is just an object with a __tag__ and a __unwrap__:
+        // no Wrapper base class and no registration involved
+        class ForeignWrapper {
+            constructor(readonly obj: any) {
+                (this as any)[Symbol.for("__tag__")] = "foreign";
+                (this as any)[Symbol.for("__unwrap__")] = makeJSFun("unwrapForeign", ["self"], ({ self }) => (self as ForeignWrapper).obj, "test unwrapper");
+            }
+        }
+        const unwrapAll = (value: any, flags: string[] = []) => {
+            pushData(vm, value);
+            pushCommand(vm, OP_unwrap, flags);
+            while (vm.step());
+            return popData(vm);
+        };
+        // a flag list naming its tag leaves it alone
+        expect(unwrapAll(new ForeignWrapper(42), ["foreign"])).toBeInstanceOf(ForeignWrapper);
+        // otherwise OP_unwrap unwraps it like any other wrapper
+        expect(unwrapAll(new ForeignWrapper(42))).toBe(42);
+        // a tag is a plain property, never computed: a __tag__ held by a
+        // descriptor object is not a tag at all, so this is not a wrapper
+        const descriptorTagged = {
+            [Symbol.for("__tag__")]: {
+                [Symbol.for("__get__")]: makeJSFun("getTag", ["self"], () => "described", "test tag descriptor"),
+            },
+            [Symbol.for("__unwrap__")]: makeJSFun("unwrapDescribed", ["self"], () => 42, "test unwrapper"),
+        };
+        expect(unwrapAll(descriptorTagged)).toBe(descriptorTagged);
+        // and a tag that only exists behind __access__ does not count
+        // either: OP_unwrap never probes an accessed object for one
+        const accessedTagged = {
+            [Symbol.for("__access__")]: makeJSFun("accessTag", ["self", "k"], () => ({
+                [Symbol.for("__get__")]: makeJSFun("getAccessedTag", ["self"], () => "accessed", "test tag descriptor"),
+            }), "test access"),
+            [Symbol.for("__unwrap__")]: makeJSFun("unwrapAccessed", ["self"], () => 42, "test unwrapper"),
+        };
+        expect(unwrapAll(accessedTagged)).toBe(accessedTagged);
+    });
 });

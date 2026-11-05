@@ -5,6 +5,7 @@ import { loadEvalBuiltins } from "./eval";
 import { loadFFIBuiltins } from "./ffi";
 import { loadJsonBuiltins } from "./json";
 import { loadDataBuiltins } from "./lists";
+import { loadProtocolMethods } from "./methods";
 import { loadOperatorsBuiltins } from "./operators";
 import { loadQuoteBuiltins } from "./quote";
 import { loadVarNamingBuiltins } from "./reference";
@@ -13,6 +14,7 @@ import { loadSymbolBuiltins } from "./symbols";
 import { loadUnwrappingBuiltins } from "./unwrap";
 import { loadVariablesBuiltins } from "./variables";
 
+export { pushSyntheticCall } from "./callables";
 export { B_err, B_throw, B_with, OP_throw } from "./control";
 export {
     B_atLocation,
@@ -22,6 +24,7 @@ export {
     B_keyword,
     B_macro_wrap,
     B_splat,
+    OP_accessed_get,
     OP_apply,
     OP_audit,
     OP_eval,
@@ -32,6 +35,7 @@ export {
     OP_shuffle,
     OP_tbPop,
     OP_tbPush,
+    pushAccessCall,
 } from "./eval";
 export { B_is_nil } from "./ffi";
 export { B_jsonparse, B_jsonstringify } from "./json";
@@ -64,11 +68,12 @@ export { B_sym } from "./symbols";
 export * from "./unwrap";
 export {
     B_always,
+    B_assign,
     B_deref,
     B_index,
     B_local,
     B_ref,
-    B_assign as B_set,
+    OP_push_value,
     OP_set_env,
 } from "./variables";
 
@@ -85,6 +90,7 @@ export const loadBuiltins = (vm: JebVM) => {
     loadEvalBuiltins(vm);
     loadUnwrappingBuiltins(vm);
     loadVariablesBuiltins(vm);
+    loadProtocolMethods(vm);
     loadVarNamingBuiltins(vm);
     loadControlBuiltins(vm);
     loadFFIBuiltins(vm);

@@ -49,11 +49,28 @@ The standard protocols are:
 - `eval`
 - `apply`
 - `access`
+- `get`
+- `set`
 - `unwrap`
 
 When multiple protocol implementations match, dispatch SHOULD choose the most specific applicable implementation. If no implementation matches, the operation MUST throw an appropriate type error or return the documented no-handler result.
 
 An implementation MUST NOT allow user code to access or modify existing protocols.
+
+### 1.3 Protocol methods
+
+This implementation additionally lets a plain object provide protocol implementations as _methods_: functions stored on the object under well-known symbols. Each protocol (except `eval`) has such a symbol, spelled like Python's "dunder" names:
+
+- `apply` is `__call__`, `access` is `__access__`, `unwrap` is `__unwrap__`, `name` is `__name__`, `member` is `__member__`
+- the math protocols are `__add__`, `__sub__`, `__mul__`, `__div__`, `__mod__`, `__pow__`, `__matMul__`, `__abs__`, `__neg__`, `__inv__`, `__bitAnd__`, `__bitOr__`, `__bitXor__`, `__shl__`, `__shr__`, `__bitNot__`, and `__cmp__`
+
+A protocol method MUST be called with the object it was found on as its first argument, followed by the operation's own arguments (for `__cmp__`, the other operand and the relation bitset being tested). The object's own method MUST take precedence over host-registered implementations, which are used only for values that do not provide the method. Providing a method does not modify the protocol itself; dispatch for other values is unaffected.
+
+An object with `__get__` and/or `__set__` methods implements the _descriptor_ protocol. It can be read and assigned as though it were a reference (see 6.4). A `__set__` method whose value parameter is lazy receives the assigned value unevaluated, so a descriptor can decline to evaluate it (this is what lets a null-chaining sentinel absorb an assignment without running its right-hand side).
+
+An object with an `__access__` method instead controls indexing into itself per property. When a property of such an object is read or assigned, the `__access__` method MUST be called with the object and the property key, and it should a descriptor object for that property; the access then goes through the descriptor's own `__get__` / `__set__` methods (called with just the descriptor, and the value for `__set__`) and MUST NOT try to access properties directly. The key is passed to `__access__` unevaluated: whether it is evaluated at all is decided by the method's signature. The returned descriptor's `__set__` likewise decides, through its value parameter's laziness, whether the assigned value is evaluated -- so which properties are lazy, and how, is up to the object on each access. Indexing MUST use `__access__` only and MUST NOT look at the `__get__` / `__set__` methods, which are reserved for the descriptor _returned_ by `__access__`. (An object can be its own descriptor by returning itself from `__access__`.)
+
+Property lookup on an object without `__access__` is, as in Python, a ladder: the direct property if it exists, and otherwise the object's `__member__` method if it provides one, called with the object and the property key, whose result is the property's value. `__member__` MUST NOT be consulted for properties that already exist on the objest; it never shadows a real property, and assigning to a missing property simply creates it.
 
 ## 2. Evaluation
 
@@ -233,6 +250,12 @@ Property access and mutation MUST emit the appropriate audit events when the hos
 ### 6.3 Reference wrappers
 
 A reference used as an ordinary value MUST be unwrapped by getting its current value. A reference passed to a reference-aware function (such as `set`) MUST NOT be unwrapped, and MUST remain a reference until that operation consumes it.
+
+### 6.4 Access and descriptor references
+
+Indexing an object that provides an `__access__` method (see 1.3) MUST produce an _access reference_ and MUST NOT eagerly evaluate the property key expression. The `get` and `assign` operations MUST attempt to call `__access__` with the key expression (so the method's signature decides whether the key is evaluated); the return value is a descriptor object for the property, and the access then goes through that descriptor's `__get__` / `__set__` methods. Each operation MUST consult exactly one method and MUST ignore the others: indexing asserts `__access__`, reading a descriptor asserts `__get__`, and assigning to a descriptor asserts `__set__`. In particular, indexing never consults `__get__` / `__set__`: an object with those methods but no `__access__` is indexed as an ordinary object (the methods are just properties to it), and an object that wants to be its own descriptor returns itself from `__access__`. (This is the same sort of thing as Python's iterables vs. iterators: `__access__` is to indexing what `__iter__` is to iteration, and a descriptor is the iterator it returns.)
+
+A descriptor object MUST NOT be able to be assigned to or read on its own, it must go through some dereferencing mechanism. This is to allow a variable containing a reference to be changed; otherwise, if a bare reference was interpreted and its `__set__` method called, the variable would not be changed, as all attempts to change it would be redirected to its `__set__` method.
 
 ## 7. Blocks and Sequencing
 

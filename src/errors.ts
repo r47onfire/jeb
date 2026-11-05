@@ -347,7 +347,7 @@ export const wrapThrowToError = <T>(kind: ErrnoCode, f: () => T) => {
  * @param vm VM we're running in
  * @param value Value to check
  */
-export const checkNothingOrPush = <T extends JebVM>(vm: T, value: any) => {
+export const checkNothingOrPush = (vm: JebVM, value: any) => {
     if (value !== NOTHING) pushData(vm, value);
 };
 
@@ -355,8 +355,8 @@ export const checkNothingOrPush = <T extends JebVM>(vm: T, value: any) => {
  * Pauses the VM while the promise is pending, and then resumes it when it
  * resolves or rejects.
  */
-export const promisifyVM = <T extends JebVM>(
-    vm: T,
+export const promisifyVM = (
+    vm: JebVM,
     promise: Promise<any>,
 ): typeof NOTHING => {
     vm.paused = true;

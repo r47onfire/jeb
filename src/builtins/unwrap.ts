@@ -45,17 +45,25 @@ export const OP_unwrap = makeOpcode(
     "unwrap",
     (vm, { 0: flags, 1: only }: [string[], only?: boolean]) => {
         const top = peekData(vm);
-        if (top instanceof Wrapper && !flags.includes(top.flag) === !only) {
+        const unwrapper = vm.getProtocol(true, false, "unwrap", [top]);
+        if (!unwrapper) return;
+        // The implementation describes the value with its tag: a
+        // Wrapper's flag, or a wrapper object's __tag__ property. A tag
+        // is a plain property, never computed, so this is synchronous:
+        // no __access__ or descriptor reads happen here.
+        const tag = unwrapper.describe(vm, top);
+        if (typeof tag !== "string") return;
+        if (!flags.includes(tag) === !only) {
             popData(vm);
             pushCommand(vm, OP_unwrap, flags, only);
-            vm.getProtocol(false, true, "unwrap", [top]).run(vm, [top]);
+            unwrapper.run(vm, [top]);
         }
     },
     `.imm flags only
 .param {string[]} flags
 .param {boolean?} [only=false]
 .sed value -- unwrapped
-. Unwraps all wrappers from the value, when the value's wrapper has a tag in the given list of \`flags\` (when \`only\` is true) or when the value's wrapper has a flag *not* in the list of \`flags\` (when \`only\` is false).`,
+. Unwraps all wrappers from the value, when the value's wrapper has a tag in the given list of \`flags\` (when \`only\` is true) or when the value's wrapper has a tag *not* in the list of \`flags\` (when \`only\` is false). The tag is what the value's unwrap implementation describes it with (see the \`unwrap\` protocol): a \`Wrapper\`'s flag, or a wrapper object's \`__tag__\` property. A value no implementation describes is not a wrapper and is left alone.`,
 );
 
 export const loadUnwrappingBuiltins = (vm: JebVM) => {

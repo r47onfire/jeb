@@ -6,8 +6,10 @@ import { define, makeJSFun, NOTHING } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError, wrapThrowToError } from "../errors";
 import { float, numberOp, Relation } from "../math";
+import { protocolMethod } from "../protocol";
 import { theTypeName, typeOf, withType } from "../typecheck";
 import { JebVM, pushCommand, pushData } from "../vm";
+import { pushSyntheticCall } from "./callables";
 import { OP_eval } from "./eval";
 
 const None = Symbol("__none__");
@@ -46,10 +48,23 @@ const mathHelper = (
                         `${stringify(op2)} is not defined for one argument`,
                     );
                 }
-                f = () => vm.getProtocol(false, true, op1, [a]).run(vm, [a]);
+                // The object's own protocol method (e.g. __neg__) comes
+                // first; host implementations are the fallback.
+                const method = protocolMethod(a, op1);
+                if (method !== undefined) {
+                    pushSyntheticCall(vm, method, [a], false);
+                    return NOTHING;
+                }
+                const handler = vm.getProtocol(true, true, op1, [a]);
+                f = () => handler.run(vm, [a]);
             } else {
-                f = () =>
-                    vm.getProtocol(false, true, op2, [a, b]).run(vm, [a, b]);
+                const method = protocolMethod(a, op2);
+                if (method !== undefined) {
+                    pushSyntheticCall(vm, method, [a, b], false);
+                    return NOTHING;
+                }
+                const handler = vm.getProtocol(true, true, op2, [a, b]);
+                f = () => handler.run(vm, [a, b]);
             }
             return wrapThrowToError(ErrnoCode.EINVAL, f).else((e) => {
                 throw new JEBError(ErrnoCode.ERANGE, String(e));
@@ -198,7 +213,23 @@ export const B_shiftRight = mathHelper(
 export const B_bitInv = makeJSFun(
     "bitInv",
     ["a"],
-    (args) => ~withType(args.a, ["number", "bigint"], "a", args),
+    (args, vm) => {
+        const { a } = args;
+        if (typeof a === "number" || typeof a === "bigint") return ~a;
+        const method = protocolMethod(a, "bitNot");
+        if (method !== undefined) {
+            pushSyntheticCall(vm, method, [a], false);
+            return NOTHING;
+        }
+        const handler = vm.getProtocol(true, false, "bitNot", [a]);
+        if (handler)
+            return wrapThrowToError(ErrnoCode.EINVAL, () =>
+                handler.run(vm, [a], undefined),
+            ).else((e) => {
+                throw new JEBError(ErrnoCode.ERANGE, String(e));
+            });
+        return ~withType(a, ["number", "bigint"], "a", args);
+    },
     `.func (bitInv number)
 ..param {number} a
 .pure
@@ -211,8 +242,18 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
         op,
         ["a", "b"],
         ({ a, b }, vm) => {
+            // An object with a __cmp__ method takes over its own
+            // comparisons entirely, like the other operator methods:
+            // the method is consulted before the registry is. It
+            // receives the object, the other operand, and the Relation
+            // bitset being tested, and returns whether the relation holds.
+            const method = protocolMethod(a, "cmp");
+            if (method !== undefined) {
+                pushSyntheticCall(vm, method, [a, b, bits], false);
+                return NOTHING;
+            }
             return vm
-                .getProtocol(false, true, "cmp", [a, b, bits])
+                .getProtocol(true, true, "cmp", [a, b, bits])
                 .run(vm, [a, b, bits])
                 .else((err) => {
                     throw new JEBError(ErrnoCode.ENOTSUP, err);
@@ -263,16 +304,11 @@ const compareFn = (_: JebVM, { 0: a, 1: b, 2: c }: [any, any, Relation]) => {
     throw "unreachable";
 };
 const loadCompareProtocol = (vm: JebVM) => {
-    vm.addProtocol("cmp", {
-        type: [["number", "bigint"], ["number", "bigint"], ["number"]],
-        run: compareFn,
-        doc: "Compares numbers",
-    });
-    vm.addProtocol("cmp", {
-        type: [["string"], ["string"], ["number"]],
-        run: compareFn,
-        doc: "Compares strings",
-    });
+    // Registered first, so that under fast dispatch (reverse
+    // registration order, first match) the specific implementations
+    // below are found before it for the types they match: this is
+    // the identity catch-all, for values with no ordering of their
+    // own.
     vm.addProtocol("cmp", {
         type: [[true], [true], ["number"]],
         run(_, { 0: a, 1: b, 2: c }) {
@@ -284,6 +320,16 @@ const loadCompareProtocol = (vm: JebVM) => {
             return Ok(!!(c & Relation.LESS));
         },
         doc: "Compares any items",
+    });
+    vm.addProtocol("cmp", {
+        type: [["number", "bigint"], ["number", "bigint"], ["number"]],
+        run: compareFn,
+        doc: "Compares numbers",
+    });
+    vm.addProtocol("cmp", {
+        type: [["string"], ["string"], ["number"]],
+        run: compareFn,
+        doc: "Compares strings",
     });
 };
 

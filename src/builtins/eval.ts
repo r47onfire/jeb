@@ -10,10 +10,21 @@ import {
     NOTHING,
 } from "../define";
 import { OP_doargs } from "../doargs";
+import { Env } from "../env";
 import { ErrnoCode } from "../errno";
 import { checkNothingOrPush, JEBError, Location } from "../errors";
-import { AccessType, Reference } from "../protocol";
-import { CallableSignature, createSignature } from "../signature";
+import {
+    AccessReference,
+    AccessType,
+    protocolMethod,
+    SetFlags,
+} from "../protocol";
+import {
+    CallableSignature,
+    createSignature,
+    LonghandArgument,
+    Rest,
+} from "../signature";
 import { theTypeName, typecheck, typeOf, withType } from "../typecheck";
 import { Identifier } from "../utils";
 import {
@@ -33,6 +44,7 @@ import {
     OptionArg,
     SplatArg,
 } from "../wrapper";
+import { pushSyntheticCall } from "./callables";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap } from "./unwrap";
 
@@ -291,7 +303,12 @@ export const OP_apply = makeOpcode(
             1: location,
             2: tail,
             3: noEval,
-        }: [any[], location?: Location, tail?: boolean, noEval?: boolean],
+        }: [
+            any[],
+            location?: Location,
+            tail?: boolean,
+            noEval?: boolean | boolean[],
+        ],
     ) => {
         const func = popData(vm);
         const applier = vm.getProtocol(true, false, "apply", [func]);
@@ -329,12 +346,148 @@ export const OP_apply = makeOpcode(
 ..param {code[]} expressions
 ..param {Location?} location
 ..param {boolean?} [tailcall=false]
-..param {boolean?} noEval
+..param {boolean | boolean[]?} noEval
 .sed functor -- result
 .throws EINVAL - when the object is not callable
 .throws ERANGE - when the argument count is wrong
 . Pops the top value from the stack and calls it with the provided arguments.
-The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not.`,
+The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not. \`noEval\` says which arguments are already-computed values instead: either a single boolean, applying to all the arguments, or an array of booleans, one per argument.`,
+);
+/**
+ * Partially applies a callable to its first parameter: returns a callable that
+ * calls `callee` with `value` filled in for that parameter. The callee's
+ * signature and closure environment come from the `apply` protocol's metadata,
+ * so how the callee is implemented doesn't matter.
+ */
+export const curry = (vm: JebVM, callee: any, value: any) => {
+    const { name, signature, closureEnv } = vm
+        .getProtocol(true, true, "apply", [callee])
+        .describe(vm, callee);
+    const first = signature[0];
+    if (!first) return callee;
+    if (first.rest)
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            "a callable's first parameter can't be a rest parameter",
+        );
+    const calleeName = Symbol.for("__callee__");
+    const forward = (p: LonghandArgument<any, any>): any =>
+        p.rest === Rest.POSITIONAL
+            ? ["splat", ["local", p.name]]
+            : p.rest === Rest.KEYWORD
+              ? ["splat", ["local", p.name], true]
+              : ["local", p.name];
+    return new Fun(
+        false,
+        name,
+        signature.slice(1),
+        new Block(
+            new Env(
+                { [first.name]: value, [calleeName]: callee },
+                closureEnv ? [closureEnv] : [],
+            ),
+            [
+                [
+                    ["local", calleeName],
+                    ["local", first.name],
+                    ...signature.slice(1).map(forward),
+                ],
+            ],
+        ),
+        "",
+    );
+};
+/**
+ * Schedules the `__access__` call for an {@link AccessReference}: the object
+ * itself is an already-computed value, and the key expression is passed
+ * verbatim, so whether it is evaluated is up to the method's signature. The
+ * descriptor object the method returns is left on the data stack for the next
+ * command to consume.
+ */
+export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
+    pushData(vm, protocolMethod(ref.obj, "access")!);
+    pushCommand(vm, OP_apply, [ref.obj, ref.key.body[0]], undefined, false, [
+        true,
+        false,
+    ]);
+};
+/**
+ * The `__get__` method of a descriptor returned by `__access__`; throws if the
+ * property cannot be read through it. `property` is the accessed property's
+ * name, when it is statically known.
+ */
+export const accessedGetter = (
+    descriptor: any,
+    property: string | undefined,
+) => {
+    const get = protocolMethod(descriptor, "get");
+    if (!get)
+        throw new JEBError(
+            ErrnoCode.ENODEV,
+            property === undefined
+                ? `property is not readable`
+                : `property ${property} is not readable`,
+        );
+    return get;
+};
+/**
+ * The `__set__` method of a descriptor returned by `__access__`; throws if the
+ * property cannot be assigned through it. `property` is the accessed property's
+ * name, when it is statically known.
+ */
+export const accessedSetter = (
+    descriptor: any,
+    property: string | undefined,
+) => {
+    const set = protocolMethod(descriptor, "set");
+    if (!set)
+        throw new JEBError(
+            ErrnoCode.ENODEV,
+            property === undefined
+                ? `property is not writable`
+                : `property ${property} is not writable`,
+        );
+    return set;
+};
+/**
+ * Continuation of a read through an {@link AccessReference}: the descriptor
+ * object returned by `__access__` is on top of the data stack; read through its
+ * `__get__` method.
+ */
+export const OP_accessed_get = makeOpcode(
+    null,
+    (vm: JebVM, { 0: property }: [string | undefined]) => {
+        const descriptor = popData(vm);
+        pushSyntheticCall(
+            vm,
+            accessedGetter(descriptor, property),
+            [descriptor],
+            false,
+        );
+    },
+    null,
+);
+/**
+ * Continuation of an assignment through an {@link AccessReference} from the
+ * `assign` opcode: the descriptor object returned by `__access__` is on top of
+ * the data stack and the value being assigned, already computed, is below it;
+ * assign through the descriptor's `__set__` method, leaving the value on the
+ * stack (like the `assign` opcode does). (The `assign` builtin's continuation
+ * is `OP_assign_accessed` in variables.ts: its value is still an unevaluated
+ * expression, for the method's signature to evaluate or not.)
+ */
+export const OP_accessed_set = makeOpcode(
+    null,
+    (vm: JebVM, { 0: property }: [string | undefined]) => {
+        const descriptor = popData(vm);
+        pushSyntheticCall(
+            vm,
+            accessedSetter(descriptor, property),
+            [descriptor, peekData(vm)],
+            true,
+        );
+    },
+    null,
 );
 export const B_atLocation = makeJSFun(
     "at",
@@ -498,31 +651,59 @@ export const OP_index = makeOpcode(
 export const OP_get = makeOpcode(
     "get",
     (vm: JebVM, { 0: shouldBind }: [boolean]) => {
-        checkNothingOrPush(vm, (popData(vm) as Reference).get(vm, shouldBind));
+        const lvalue = popData(vm);
+        const getter = vm.getProtocol(true, false, "get", [lvalue]);
+        if (!getter)
+            throw new JEBError(
+                ErrnoCode.EINVAL,
+                `${theTypeName(typeOf(lvalue))} is not a reference`,
+            );
+        checkNothingOrPush(vm, getter.run(vm, [lvalue], { shouldBind }));
     },
     `.imm accessType shouldBind
 ..param {AccessType} accessType
 ..param {boolean?} [shouldBind=false]
 .sed lvalue -- value
-. Takes an LValue on the top of the stack and unwraps it by calling its get() method.`,
+. Takes an LValue on the top of the stack and unwraps it: a reference by calling its get() method, and a descriptor (an object with a \`__get__\` protocol method) by calling that method.`,
 );
+/**
+ * Runs the `set` protocol implementation for an lvalue, or throws if there is
+ * none.
+ */
+export const runSetter = (
+    vm: JebVM,
+    lvalue: any,
+    value: any,
+    flags: SetFlags,
+) => {
+    const setter = vm.getProtocol(true, false, "set", [lvalue, value]);
+    if (!setter)
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            `cannot assign to ${theTypeName(typeOf(lvalue))}`,
+        );
+    setter.run(vm, [lvalue, value], flags);
+};
 export const OP_assign = makeOpcode(
     "assign",
     (
         vm: JebVM,
         { 0: create, 1: readonly }: [create?: boolean, readonly_?: boolean],
     ) => {
-        const lvalue = popData(vm) as Reference;
-        lvalue.set(vm, peekData(vm), create ?? false, readonly ?? false);
+        const lvalue = popData(vm);
+        const value = peekData(vm);
+        runSetter(vm, lvalue, value, {
+            create: create ?? false,
+            readonly: readonly ?? false,
+        });
     },
     `.imm accessType create readonly
 ..param {AccessType} accessType
 ..param {boolean?} [create=false]
 ..param {boolean?} [readonly=false]
 .sed value lvalue -- value
-. Takes an LValue on the top of the stack and calls the \`set()\` method with the next item in the stack as the value to set.`,
+. Takes an LValue on the top of the stack and assigns the next item in the stack to it: a reference by calling its set() method, and a descriptor (an object with a \`__set__\` protocol method) by calling that method with the value.`,
 );
-
 // MARK: logic
 export const OP_if = makeOpcode(
     "if",

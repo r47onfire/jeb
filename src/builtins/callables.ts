@@ -4,14 +4,15 @@ import { Block } from "../block";
 import { Fun } from "../callable";
 import { Continuation } from "../continuation";
 import { define, defineApplier, makeJSFun, makeOpcode } from "../define";
-import { withType } from "../typecheck";
 import {
     createSignature,
     Laziness,
     Rest,
     ShorthandArgument,
 } from "../signature";
+import { withType } from "../typecheck";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
+import { OP_apply, OP_shuffle } from "./eval";
 import { OP_block_invoke } from "./variables";
 
 // MARK: fn/block applier
@@ -137,4 +138,21 @@ export const loadCallablesBuiltins = (vm: JebVM) => {
     define(vm, "fn", B_fn);
     loadFunBlockAppliers(vm);
     loadContinuationApplier(vm);
+};
+
+/**
+ * Schedules a call to a function with already-computed argument values: the
+ * method is applied through `OP_apply` with `noEval` set, so `OP_doargs` binds
+ * the values as they are. If `dropResult` is set, the value the method returns
+ * is discarded.
+ */
+export const pushSyntheticCall = (
+    vm: JebVM,
+    method: any,
+    args: any[],
+    dropResult: boolean,
+) => {
+    if (dropResult) pushCommand(vm, OP_shuffle, 1, []);
+    pushData(vm, method);
+    pushCommand(vm, OP_apply, args, undefined, false, true);
 };

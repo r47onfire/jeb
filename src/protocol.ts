@@ -1,15 +1,22 @@
-import { stringify } from "lib0/json";
 import { pow } from "lib0/math";
 import { Result } from "ts-res";
+import { Block } from "./block";
 import { NOTHING } from "./define";
 import { Env } from "./env";
 import { ErrnoCode } from "./errno";
 import { JEBError, Location } from "./errors";
 import { Relation } from "./math";
 import { CallableSignature } from "./signature";
-import { Type, TypeMap, typeMatches } from "./typecheck";
+import {
+    isPlainObject,
+    predicateToClass,
+    Type,
+    TypeMap,
+    typeMatches,
+} from "./typecheck";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";
+import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "./well_known";
 import { Wrapper } from "./wrapper";
 
 /** The Typescript type of the values matched by the {@link Type} specifier `T`. */
@@ -175,6 +182,30 @@ export interface AccessFlags {
     type: AccessType;
 }
 
+/** Flags passed to a `get` protocol implementation for a single read. */
+export interface GetFlags {
+    /** Whether a lazy binding is bound (evaluated) by the read. */
+    shouldBind: boolean;
+}
+
+/** Flags passed to a `set` protocol implementation for a single assignment. */
+export interface SetFlags {
+    /** Whether the slot is created if it doesn't exist yet. */
+    create: boolean;
+    /** Whether the slot becomes read-only. */
+    readonly: boolean;
+    /**
+     * The value argument is an unevaluated `Block` (the `assign` builtin's
+     * right-hand side): the implementation arranges its evaluation, with `_`
+     * bound to the old value, unless the assignment target's own signature
+     * takes it unevaluated. Absent for the `assign` opcode, whose value is
+     * already computed.
+     */
+    unevaluated?: boolean;
+    /** With `unevaluated`: the assignment's result is the old value. */
+    old?: boolean;
+}
+
 /** The capacity in which a {@link Reference} is accessed. */
 export const enum AccessType {
     VARIABLE,
@@ -205,8 +236,8 @@ export abstract class Reference {
 /**
  * The protocol registry of a VM: maps each protocol name to the list of its
  * registered implementations. The runtime protocols (`apply`, `eval`, `access`,
- * `unwrap`, `name`) drive evaluation; the rest implement the overloadable math
- * operations.
+ * `get`, `set`, `unwrap`, `name`) drive evaluation; the rest implement the
+ * overloadable math operations.
  */
 export interface JEBProtocols<V extends JebVM> {
     [x: PropertyKey]: ProtocolsList<V, unknown, any, any, any, any>;
@@ -221,7 +252,9 @@ export interface JEBProtocols<V extends JebVM> {
         void,
         AccessFlags
     >;
-    unwrap: ProtocolsList<V, void, [(typeof Wrapper)[]], {}, void, void>;
+    get: ProtocolsList<V, any, [Type[]], {}, void, GetFlags>;
+    set: ProtocolsList<V, void, [Type[], Type[]], {}, void, SetFlags>;
+    unwrap: ProtocolsList<V, void, [(typeof Wrapper)[]], {}, string, void>;
     name: ProtocolsList<V, void, [Type[]], {}, void, { name: Identifier }>;
     // Math protocols
     add: BinaryProtocolToResult<V>;
@@ -250,7 +283,71 @@ export interface JEBProtocols<V extends JebVM> {
     bitNot: ProtocolsList<V, Result<any, string>>;
 }
 
+/**
+ * Returns the protocol method that `obj` itself provides for the protocol
+ * `name`: the callable stored on the object under the protocol's symbol, or
+ * `undefined` if the object doesn't provide one.
+ */
+export const protocolMethod = (
+    obj: any,
+    name: ProtocolSymbolName,
+): any | undefined => {
+    if (!isPlainObject(obj)) return undefined;
+    return obj[PROTOCOL_SYMBOLS[name]];
+};
+
+/**
+ * A reference to a property of an object that provides an `__access__` protocol
+ * method. The method has not been called yet: the key is kept as the
+ * unevaluated {@link Block} it arrived as, so when the reference is read or
+ * assigned, the `get` / `assign` opcodes can pass the key expression straight
+ * to `__access__` and let the method's signature decide whether it is
+ * evaluated. The method returns a descriptor object whose own `__get__` /
+ * `__set__` methods the access then goes through. (An object that wants to be
+ * its own descriptor returns itself from `__access__`; `__get__` / `__set__`
+ * methods alone do not make an object indexable.)
+ *
+ * The synchronous accessors throw: all real access goes through the opcodes,
+ * which call the methods.
+ */
+export class AccessReference {
+    constructor(
+        readonly obj: any,
+        readonly key: Block,
+    ) {}
+    /**
+     * The name of the property being accessed, when the key is a literal
+     * string, number or symbol; used in error messages. A computed key
+     * expression has no static name.
+     */
+    get propertyName(): string | undefined {
+        const form = this.key.body[0];
+        switch (typeof form) {
+            case "string":
+                return form;
+            case "number":
+            case "symbol":
+                return String(form);
+            default:
+                return undefined;
+        }
+    }
+}
+
 /** The number of arguments the protocol `N` takes. */
+/**
+ * Pseudoclass matching the values that are wrappers by providing the two
+ * wrapper properties: a `__tag__` (their tag, as a plain property -- a tag is
+ * never computed, so reading it is synchronous) and a `__unwrap__` method.
+ * References are read and assigned, never unwrapped, so they do not match.
+ */
+export const Unwrappable = predicateToClass(
+    (x): x is Record<PropertyKey, any> =>
+        isPlainObject(x) &&
+        Reflect.has(x, PROTOCOL_SYMBOLS.tag) &&
+        Reflect.has(x, PROTOCOL_SYMBOLS.unwrap),
+);
+
 export type ArgcForName<V extends JebVM, N extends keyof JEBProtocols<V>> =
     JEBProtocols<V>[N] extends ProtocolsList<V, any, infer N, any, any>
         ? N["length"]
@@ -285,7 +382,7 @@ export type FnTypeForName<
  * matches at all is used instead of searching for the best-scoring one.
  *
  * @returns The chosen implementation, or `undefined` if none of them matches
- * @throws A {@link JEBError} (`ENOSYS`) if the protocol itself doesn't exist
+ *   (or if the protocol has no implementations registered at all)
  */
 export const getProtocolHandler = <V extends JebVM>(
     protocols: Partial<JEBProtocols<V>>,
@@ -294,11 +391,7 @@ export const getProtocolHandler = <V extends JebVM>(
     args: any[],
 ): ProtocolObj<V, any, any[], {}, any, any> | undefined => {
     const implList = protocols[name];
-    if (!implList)
-        throw new JEBError(
-            ErrnoCode.ENOSYS,
-            `protocol ${stringify(name)} doesn't exist`,
-        );
+    if (!implList) return undefined;
     var bestScore = 0,
         bestHandler = undefined;
     handlers: for (var i = implList.length - 1; i >= 0; i--) {
