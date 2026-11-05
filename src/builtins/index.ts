@@ -14,6 +14,7 @@ import { loadSymbolBuiltins } from "./symbols";
 import { loadUnwrappingBuiltins } from "./unwrap";
 import { loadVariablesBuiltins } from "./variables";
 
+export { pushSyntheticCall } from "./callables";
 export { B_err, B_throw, B_with, OP_throw } from "./control";
 export {
     B_atLocation,
@@ -35,7 +36,6 @@ export {
     OP_tbPop,
     OP_tbPush,
     pushAccessCall,
-    pushMethodApply,
 } from "./eval";
 export { B_is_nil } from "./ffi";
 export { B_jsonparse, B_jsonstringify } from "./json";

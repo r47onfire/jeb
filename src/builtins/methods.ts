@@ -18,6 +18,7 @@ import { Laziness } from "../signature";
 import { isPlainObject, predicateToClass } from "../typecheck";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
+import { pushSyntheticCall } from "./callables";
 import {
     accessedSetter,
     curry,
@@ -26,7 +27,6 @@ import {
     OP_apply,
     OP_shuffle,
     pushAccessCall,
-    pushMethodApply,
 } from "./eval";
 import { OP_unwrap } from "./unwrap";
 import { OP_assign_internal, OP_push_value } from "./variables";
@@ -107,7 +107,7 @@ const loadNameMethod = (vm: JebVM) =>
     vm.addProtocol("name", {
         type: [[hasMethod("name")]],
         run(vm, { 0: value }, { name }) {
-            pushMethodApply(
+            pushSyntheticCall(
                 vm,
                 protocolMethod(value, "name")!,
                 [value, name],
@@ -130,9 +130,12 @@ const loadUnwrapMethod = (vm: JebVM) =>
         // protocol's Wrapper-typed signature.
         type: [[Unwrappable]] as any,
         run: (vm, { 0: wrapper }) => {
-            pushMethodApply(vm, (wrapper as any)[PROTOCOL_SYMBOLS.unwrap], [
-                wrapper,
-            ]);
+            pushSyntheticCall(
+                vm,
+                (wrapper as any)[PROTOCOL_SYMBOLS.unwrap],
+                [wrapper],
+                false,
+            );
         },
         describe: (vm, wrapper) => (wrapper as any)[PROTOCOL_SYMBOLS.tag],
         doc: "Unwraps a wrapper by calling its __unwrap__ protocol method.",
@@ -177,11 +180,12 @@ const loadReferenceGetSet = (vm: JebVM) => {
  */
 /**
  * Assigns `value` to a descriptor through its `__set__` method (the
- * `[hasMethod("set")]` implementation of the `set` protocol). The method
- * is handed in by the caller -- dispatch found it, or {@link
- * accessedSetter} did -- so it is only ever looked up once. With the
- * `unevaluated` flag the value is still a block: the method's signature
- * decides whether it is evaluated (see the body for the two paths).
+ * `[hasMethod("set")]` implementation of the `set` protocol). The method is
+ * handed in by the caller -- dispatch found it, or {@link
+ * accessedSetter} did
+ * -- so it is only ever looked up once. With the `unevaluated` flag the value
+ * is still a block: the method's signature decides whether it is evaluated (see
+ * the body for the two paths).
  */
 const descriptorSet = (
     vm: JebVM,
@@ -191,7 +195,7 @@ const descriptorSet = (
     { unevaluated, old }: SetFlags,
 ) => {
     if (!unevaluated) {
-        pushMethodApply(vm, set, [obj, value], true);
+        pushSyntheticCall(vm, set, [obj, value], true);
         return;
     }
     // The value is still an unevaluated block: the method's
@@ -222,7 +226,7 @@ const descriptorSet = (
             const get = protocolMethod(obj, "get");
             if (get) {
                 pushCommand(vm, OP_unwrap, []);
-                pushMethodApply(vm, get, [obj]);
+                pushSyntheticCall(vm, get, [obj], false);
             } else pushCommand(vm, OP_push_value, undefined);
         }
         return;
@@ -237,7 +241,7 @@ const loadMethodGetSet = (vm: JebVM) => {
         [hasMethod("get")],
         (vm, { 0: obj }) => {
             pushCommand(vm, OP_unwrap, []);
-            pushMethodApply(vm, protocolMethod(obj, "get")!, [obj]);
+            pushSyntheticCall(vm, protocolMethod(obj, "get")!, [obj], false);
             return NOTHING;
         },
         "Reads a descriptor by calling its __get__ protocol method.",

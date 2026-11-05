@@ -1,5 +1,5 @@
 import { stringify } from "lib0/json";
-import { OP_apply, OP_shuffle, pushMethodApply } from ".";
+import { pushSyntheticCall } from ".";
 import { Fun } from "../callable";
 import { NOTHING } from "../define";
 import { Env } from "../env";
@@ -7,7 +7,7 @@ import { ErrnoCode } from "../errno";
 import { JEBError, wrapThrowToError } from "../errors";
 import { AccessType, protocolMethod, Reference } from "../protocol";
 import { Identifier } from "../utils";
-import { JebVM, pushCommand, pushData } from "../vm";
+import { JebVM } from "../vm";
 
 /**
  * A reference to a property of a plain JavaScript object (host-language
@@ -43,7 +43,7 @@ export class ObjectPropertyReference extends Reference {
         }
         const member = protocolMethod(this.obj, "member");
         if (!member) return undefined;
-        pushMethodApply(vm, member, [this.obj, this.name]);
+        pushSyntheticCall(vm, member, [this.obj, this.name], false);
         return NOTHING;
     }
     /**
@@ -106,11 +106,9 @@ export class VariableReference extends Reference {
                     `${stringify(this.name)} is a constant`,
                 );
             } else {
-                didSet.watchers[this.name]?.forEach((w) => {
-                    pushCommand(vm, OP_shuffle, 1, []);
-                    pushCommand(vm, OP_apply, [], undefined, false);
-                    pushData(vm, w);
-                });
+                didSet.watchers[this.name]?.forEach((w) =>
+                    pushSyntheticCall(vm, w, [], true),
+                );
             }
         }
         vm.getProtocol(true, false, "name", [value])?.run(vm, [value], {

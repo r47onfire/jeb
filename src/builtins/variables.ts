@@ -15,7 +15,8 @@ import { theTypeName, typeOf, withType } from "../typecheck";
 import { Identifier } from "../utils";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { ReferenceWrapper } from "../wrapper";
-import { OP_apply, OP_assign, OP_index, OP_shuffle, runSetter } from "./eval";
+import { pushSyntheticCall } from "./callables";
+import { OP_assign, OP_index, OP_shuffle, runSetter } from "./eval";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap, OP_wrap } from "./unwrap";
 
@@ -242,12 +243,8 @@ export const B_always = makeJSFun(
             "derived",
             args,
         );
-        if (shouldRunInitially) {
-            pushCommand(vm, OP_shuffle, 1, []);
-            pushCommand(vm, OP_apply, [], undefined, false);
-        }
         pushData(vm, () => watches.forEach((w) => w()));
-        if (shouldRunInitially) pushData(vm, onchange);
+        if (shouldRunInitially) pushSyntheticCall(vm, onchange, [], true);
         return NOTHING;
     },
     `.func (always block vars...)

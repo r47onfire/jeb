@@ -6,6 +6,7 @@ import { JEBError } from "../errors";
 import { withType } from "../typecheck";
 import { Identifier, isIdentifier } from "../utils";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
+import { pushSyntheticCall } from "./callables";
 import { OP_apply, OP_if, OP_shuffle } from "./eval";
 import { OP_block_invoke } from "./variables";
 
@@ -21,8 +22,7 @@ export const OP_throw = makeOpcode(
             dw.restore(vm);
             if (dw.handler?.exit) {
                 pushCommand(vm, OP_if, null, [OP_throw, err], true);
-                pushCommand(vm, OP_apply, [false, err], undefined, false, true);
-                pushData(vm, dw.handler.exit);
+                pushSyntheticCall(vm, dw.handler.exit, [false, err], false);
                 return;
             }
         }
@@ -132,8 +132,7 @@ const OP_with_setup = makeOpcode(
             pushData(vm, {});
             return;
         }
-        pushCommand(vm, OP_apply, [false], undefined);
-        pushData(vm, context.enter);
+        pushSyntheticCall(vm, context.enter, [false], false);
     },
     null,
 );
@@ -166,10 +165,7 @@ const OP_with_teardown = makeOpcode(
         const dw = vm.curDynamicWind;
         vm.curDynamicWind = dw.parent!;
         if (!dw.handler?.exit) return;
-        // discard the exit handler's result
-        pushCommand(vm, OP_shuffle, 1, []);
-        pushCommand(vm, OP_apply, [false, null], undefined);
-        pushData(vm, dw.handler.exit);
+        pushSyntheticCall(vm, dw.handler.exit, [false, null], true);
     },
     null,
 );

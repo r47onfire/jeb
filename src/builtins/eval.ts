@@ -17,7 +17,6 @@ import {
     AccessReference,
     AccessType,
     protocolMethod,
-    Reference,
     SetFlags,
 } from "../protocol";
 import {
@@ -45,6 +44,7 @@ import {
     OptionArg,
     SplatArg,
 } from "../wrapper";
+import { pushSyntheticCall } from "./callables";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap } from "./unwrap";
 
@@ -354,22 +354,6 @@ export const OP_apply = makeOpcode(
 The arguments expressions are expected to be unevaluated, and the signature of the thing being called will determine whether the argument given is evaluated or not. \`noEval\` says which arguments are already-computed values instead: either a single boolean, applying to all the arguments, or an array of booleans, one per argument.`,
 );
 /**
- * Schedules a call to a protocol method with already-computed argument values:
- * the method is applied through `OP_apply` with `noEval` set, so `OP_doargs`
- * binds the values as they are. If `dropResult` is set, the value the method
- * returns is discarded.
- */
-export const pushMethodApply = (
-    vm: JebVM,
-    method: any,
-    args: any[],
-    dropResult = false,
-) => {
-    if (dropResult) pushCommand(vm, OP_shuffle, 1, []);
-    pushData(vm, method);
-    pushCommand(vm, OP_apply, args, undefined, false, true);
-};
-/**
  * Partially applies a callable to its first parameter: returns a callable that
  * calls `callee` with `value` filled in for that parameter. The callee's
  * signature and closure environment come from the `apply` protocol's metadata,
@@ -474,7 +458,12 @@ export const OP_accessed_get = makeOpcode(
     null,
     (vm: JebVM, { 0: property }: [string | undefined]) => {
         const descriptor = popData(vm);
-        pushMethodApply(vm, accessedGetter(descriptor, property), [descriptor]);
+        pushSyntheticCall(
+            vm,
+            accessedGetter(descriptor, property),
+            [descriptor],
+            false,
+        );
     },
     null,
 );
@@ -491,7 +480,7 @@ export const OP_accessed_set = makeOpcode(
     null,
     (vm: JebVM, { 0: property }: [string | undefined]) => {
         const descriptor = popData(vm);
-        pushMethodApply(
+        pushSyntheticCall(
             vm,
             accessedSetter(descriptor, property),
             [descriptor, peekData(vm)],
@@ -679,8 +668,8 @@ export const OP_get = makeOpcode(
 );
 /**
  * Runs the `set` protocol implementation for an lvalue, or throws if there is
- * none: the one place "cannot assign" is decided, shared by the `assign`
- * opcode and the `assign` builtin.
+ * none: the one place "cannot assign" is decided, shared by the `assign` opcode
+ * and the `assign` builtin.
  */
 export const runSetter = (
     vm: JebVM,

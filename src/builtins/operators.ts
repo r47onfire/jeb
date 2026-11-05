@@ -6,10 +6,11 @@ import { define, makeJSFun, NOTHING } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError, wrapThrowToError } from "../errors";
 import { float, numberOp, Relation } from "../math";
-import { theTypeName, typeOf, withType } from "../typecheck";
 import { protocolMethod } from "../protocol";
+import { theTypeName, typeOf, withType } from "../typecheck";
 import { JebVM, pushCommand, pushData } from "../vm";
-import { OP_eval, pushMethodApply } from "./eval";
+import { pushSyntheticCall } from "./callables";
+import { OP_eval } from "./eval";
 
 const None = Symbol("__none__");
 
@@ -51,7 +52,7 @@ const mathHelper = (
                 // first; host implementations are the fallback.
                 const method = protocolMethod(a, op1);
                 if (method !== undefined) {
-                    pushMethodApply(vm, method, [a]);
+                    pushSyntheticCall(vm, method, [a], false);
                     return NOTHING;
                 }
                 const handler = vm.getProtocol(true, true, op1, [a]);
@@ -59,7 +60,7 @@ const mathHelper = (
             } else {
                 const method = protocolMethod(a, op2);
                 if (method !== undefined) {
-                    pushMethodApply(vm, method, [a, b]);
+                    pushSyntheticCall(vm, method, [a, b], false);
                     return NOTHING;
                 }
                 const handler = vm.getProtocol(true, true, op2, [a, b]);
@@ -217,7 +218,7 @@ export const B_bitInv = makeJSFun(
         if (typeof a === "number" || typeof a === "bigint") return ~a;
         const method = protocolMethod(a, "bitNot");
         if (method !== undefined) {
-            pushMethodApply(vm, method, [a]);
+            pushSyntheticCall(vm, method, [a], false);
             return NOTHING;
         }
         const handler = vm.getProtocol(true, false, "bitNot", [a]);
@@ -248,7 +249,7 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
             // bitset being tested, and returns whether the relation holds.
             const method = protocolMethod(a, "cmp");
             if (method !== undefined) {
-                pushMethodApply(vm, method, [a, b, bits]);
+                pushSyntheticCall(vm, method, [a, b, bits], false);
                 return NOTHING;
             }
             return vm
