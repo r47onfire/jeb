@@ -255,10 +255,7 @@ const loadMethodGetSet = (vm: JebVM) => {
 /**
  * An {@link AccessReference} reads and assigns through the descriptor its
  * object's `__access__` method returns: the handlers schedule the access call
- * and then read or assign through the returned descriptor. (Registered last of
- * the `get` / `set` implementations: an access reference is also a
- * {@link Reference}, and its own implementation must win over the reference
- * one.)
+ * and then read or assign through the returned descriptor.
  */
 const loadAccessReferenceGetSet = (vm: JebVM) => {
     defineGetter(
