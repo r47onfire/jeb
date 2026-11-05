@@ -66,10 +66,10 @@ export const ErrnoParent: Record<ErrnoCode, ErrnoCode[] | undefined> = {
     [ErrnoCode.EBUSY]: [ErrnoCode.EIO], // Device/resource busy
 
     // Device/file type errors
-    [ErrnoCode.ENODEV]: [ErrnoCode.EFAIL], // Root
+    [ErrnoCode.ENODEV]: [ErrnoCode.ENOTSUP], // Root
     [ErrnoCode.ENOTBLK]: [ErrnoCode.ENODEV], // Block device required
     [ErrnoCode.ENOTTY]: [ErrnoCode.ENODEV], // Wrong ioctl
-    [ErrnoCode.EFBIG]: [ErrnoCode.ENODEV], // File too large
+    [ErrnoCode.EFBIG]: [ErrnoCode.ENODEV, ErrnoCode.ERANGE], // File too large
     [ErrnoCode.EFTYPE]: [ErrnoCode.ENODEV], // Inappropriate file type
     [ErrnoCode.EDEVERR]: [ErrnoCode.ENODEV], // Device error
     [ErrnoCode.EPWROFF]: [ErrnoCode.ENODEV], // Device power off
