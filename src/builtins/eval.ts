@@ -428,6 +428,44 @@ export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
     ]);
 };
 /**
+ * The `__get__` method of a descriptor returned by `__access__`; throws if the
+ * property cannot be read through it. `property` is the accessed property's
+ * name, when it is statically known.
+ */
+export const accessedGetter = (
+    descriptor: any,
+    property: string | undefined,
+) => {
+    const get = protocolMethod(descriptor, "get");
+    if (!get)
+        throw new JEBError(
+            ErrnoCode.ENODEV,
+            property === undefined
+                ? `property is not readable`
+                : `property ${property} is not readable`,
+        );
+    return get;
+};
+/**
+ * The `__set__` method of a descriptor returned by `__access__`; throws if the
+ * property cannot be assigned through it. `property` is the accessed property's
+ * name, when it is statically known.
+ */
+export const accessedSetter = (
+    descriptor: any,
+    property: string | undefined,
+) => {
+    const set = protocolMethod(descriptor, "set");
+    if (!set)
+        throw new JEBError(
+            ErrnoCode.ENODEV,
+            property === undefined
+                ? `property is not writable`
+                : `property ${property} is not writable`,
+        );
+    return set;
+};
+/**
  * Continuation of a read through an {@link AccessReference}: the descriptor
  * object returned by `__access__` is on top of the data stack; read through its
  * `__get__` method.
@@ -436,15 +474,7 @@ export const OP_accessed_get = makeOpcode(
     null,
     (vm: JebVM, { 0: property }: [string | undefined]) => {
         const descriptor = popData(vm);
-        const get = protocolMethod(descriptor, "get");
-        if (!get)
-            throw new JEBError(
-                ErrnoCode.ENODEV,
-                property === undefined
-                    ? `property is not readable`
-                    : `property ${property} is not readable`,
-            );
-        pushMethodApply(vm, get, [descriptor]);
+        pushMethodApply(vm, accessedGetter(descriptor, property), [descriptor]);
     },
     null,
 );
@@ -461,15 +491,12 @@ export const OP_accessed_set = makeOpcode(
     null,
     (vm: JebVM, { 0: property }: [string | undefined]) => {
         const descriptor = popData(vm);
-        const set = protocolMethod(descriptor, "set");
-        if (!set)
-            throw new JEBError(
-                ErrnoCode.ENODEV,
-                property === undefined
-                    ? `property is not writable`
-                    : `property ${property} is not writable`,
-            );
-        pushMethodApply(vm, set, [descriptor, peekData(vm)], true);
+        pushMethodApply(
+            vm,
+            accessedSetter(descriptor, property),
+            [descriptor, peekData(vm)],
+            true,
+        );
     },
     null,
 );
@@ -653,7 +680,7 @@ export const OP_get = makeOpcode(
 /**
  * Runs the `set` protocol implementation for an lvalue, or throws if there is
  * none: the one place "cannot assign" is decided, shared by the `assign`
- * opcode, the `assign` builtin, and the accessed-descriptor continuation.
+ * opcode and the `assign` builtin.
  */
 export const runSetter = (
     vm: JebVM,

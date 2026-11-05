@@ -11,6 +11,7 @@ import {
     ApplyMetadata,
     protocolMethod,
     Reference,
+    SetFlags,
     Unwrappable,
 } from "../protocol";
 import { Laziness } from "../signature";
@@ -18,6 +19,7 @@ import { isPlainObject, predicateToClass } from "../typecheck";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { PROTOCOL_SYMBOLS, ProtocolSymbolName } from "../well_known";
 import {
+    accessedSetter,
     curry,
     OP_accessed_get,
     OP_accessed_set,
@@ -25,7 +27,6 @@ import {
     OP_shuffle,
     pushAccessCall,
     pushMethodApply,
-    runSetter,
 } from "./eval";
 import { OP_unwrap } from "./unwrap";
 import { OP_assign_internal, OP_push_value } from "./variables";
@@ -174,6 +175,62 @@ const loadReferenceGetSet = (vm: JebVM) => {
  * assignment flags only apply to references, so the `__set__` implementation
  * doesn't see them.)
  */
+/**
+ * Assigns `value` to a descriptor through its `__set__` method (the
+ * `[hasMethod("set")]` implementation of the `set` protocol). The method
+ * is handed in by the caller -- dispatch found it, or {@link
+ * accessedSetter} did -- so it is only ever looked up once. With the
+ * `unevaluated` flag the value is still a block: the method's signature
+ * decides whether it is evaluated (see the body for the two paths).
+ */
+const descriptorSet = (
+    vm: JebVM,
+    obj: any,
+    set: any,
+    value: any,
+    { unevaluated, old }: SetFlags,
+) => {
+    if (!unevaluated) {
+        pushMethodApply(vm, set, [obj, value], true);
+        return;
+    }
+    // The value is still an unevaluated block: the method's
+    // signature decides whether it is evaluated. A lazy value
+    // parameter takes the expression verbatim (through OP_apply,
+    // so the signature does the binding) and the assignment
+    // returns the method's own result -- or the old value, read
+    // through __get__ first, if that was requested. Otherwise
+    // the shared dance evaluates it, with `_` bound to the old
+    // value, and this implementation is re-entered with the
+    // computed value.
+    const { signature } = vm
+        .getProtocol(true, true, "apply", [set])
+        .describe(vm, set);
+    const valueParam = signature[1];
+    if (valueParam && valueParam.lazy !== Laziness.NONE) {
+        if (old) pushCommand(vm, OP_shuffle, 1, []); // the __set__ result is dropped
+        pushData(vm, set);
+        pushCommand(
+            vm,
+            OP_apply,
+            [obj, (value as Block).body[0]],
+            undefined,
+            false,
+            [true, false],
+        );
+        if (old) {
+            const get = protocolMethod(obj, "get");
+            if (get) {
+                pushCommand(vm, OP_unwrap, []);
+                pushMethodApply(vm, get, [obj]);
+            } else pushCommand(vm, OP_push_value, undefined);
+        }
+        return;
+    }
+    pushCommand(vm, OP_assign_internal, value as Block, old ?? false);
+    pushData(vm, obj);
+};
+
 const loadMethodGetSet = (vm: JebVM) => {
     defineGetter(
         vm,
@@ -188,48 +245,9 @@ const loadMethodGetSet = (vm: JebVM) => {
     defineSetter(
         vm,
         [hasMethod("set")],
-        (vm, { 0: obj, 1: value }, { unevaluated, old }) => {
-            const set = protocolMethod(obj, "set")!;
-            if (!unevaluated) {
-                pushMethodApply(vm, set, [obj, value], true);
-                return;
-            }
-            // The value is still an unevaluated block: the method's
-            // signature decides whether it is evaluated. A lazy value
-            // parameter takes the expression verbatim (through OP_apply,
-            // so the signature does the binding) and the assignment
-            // returns the method's own result -- or the old value, read
-            // through __get__ first, if that was requested. Otherwise
-            // the shared dance evaluates it, with `_` bound to the old
-            // value, and this implementation is re-entered with the
-            // computed value.
-            const { signature } = vm
-                .getProtocol(true, true, "apply", [set])
-                .describe(vm, set);
-            const valueParam = signature[1];
-            if (valueParam && valueParam.lazy !== Laziness.NONE) {
-                if (old) pushCommand(vm, OP_shuffle, 1, []); // the __set__ result is dropped
-                pushData(vm, set);
-                pushCommand(
-                    vm,
-                    OP_apply,
-                    [obj, (value as Block).body[0]],
-                    undefined,
-                    false,
-                    [true, false],
-                );
-                if (old) {
-                    const get = protocolMethod(obj, "get");
-                    if (get) {
-                        pushCommand(vm, OP_unwrap, []);
-                        pushMethodApply(vm, get, [obj]);
-                    } else pushCommand(vm, OP_push_value, undefined);
-                }
-                return;
-            }
-            pushCommand(vm, OP_assign_internal, value as Block, old ?? false);
-            pushData(vm, obj);
-        },
+        (vm, { 0: obj, 1: value }, flags) =>
+            // hasMethod matched, so the method exists
+            descriptorSet(vm, obj, protocolMethod(obj, "set")!, value, flags),
         "Assigns to a descriptor by calling its __set__ protocol method.",
     );
 };
@@ -298,12 +316,13 @@ const OP_assign_accessed = makeOpcode(
         }: [Block, boolean, string | undefined],
     ) => {
         const descriptor = popData(vm);
-        runSetter(vm, descriptor, value, {
-            create: false,
-            readonly: false,
-            unevaluated: true,
-            old: wantOld,
-        });
+        descriptorSet(
+            vm,
+            descriptor,
+            accessedSetter(descriptor, property),
+            value,
+            { create: false, readonly: false, unevaluated: true, old: wantOld },
+        );
     },
     null,
 );
