@@ -169,12 +169,6 @@ const loadReferenceGetSet = (vm: JebVM) => {
 };
 
 /**
- * A descriptor (an object with `__get__` / `__set__` methods) is read and
- * assigned through those methods, which receive the descriptor itself. (The
- * assignment flags only apply to references, so the `__set__` implementation
- * doesn't see them.)
- */
-/**
  * Assigns `value` to a descriptor through its `__set__` method (the
  * `[hasMethod("set")]` implementation of the `set` protocol). The method is
  * handed in by the caller -- dispatch found it, or {@link
@@ -231,6 +225,12 @@ const descriptorSet = (
     pushData(vm, obj);
 };
 
+/**
+ * A descriptor (an object with `__get__` / `__set__` methods) is read and
+ * assigned through those methods, which receive the descriptor itself. (The
+ * assignment flags only apply to references, so the `__set__` implementation
+ * doesn't see them.)
+ */
 const loadMethodGetSet = (vm: JebVM) => {
     defineGetter(
         vm,
