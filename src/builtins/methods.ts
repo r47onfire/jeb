@@ -56,13 +56,9 @@ import { OP_assign_internal, OP_push_value } from "./variables";
  *
  * @see {@link PROTOCOL_SYMBOLS}
  */
-const hasMethod = <
-    T extends Record<PropertyKey, any> = Record<PropertyKey, any>,
->(
-    name: ProtocolSymbolName,
-) =>
+const hasMethod = (name: ProtocolSymbolName) =>
     predicateToClass(
-        (x): x is T =>
+        (x): x is Record<PropertyKey, any> =>
             isPlainObject(x) && Reflect.has(x, PROTOCOL_SYMBOLS[name]),
     );
 
