@@ -1155,7 +1155,7 @@ describe("location tracking", () => {
 });
 
 describe("protocol methods", () => {
-    // shared setup forms, folded into each test's single run() as needed
+    // shared setup forms, interpolated as needed
     const bumpDef = ["define", ["bump"], ["begin",
         ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
         99,
@@ -1169,12 +1169,6 @@ describe("protocol methods", () => {
         [Symbol.for("__get__")]: ["fn", ["self"], ["local", "stored"]],
         [Symbol.for("__set__")]: ["fn", ["self", "v"], ["assign", ["local", "stored"], ["local", "v"]]],
     });
-    // a variable assigned from a (local ...) form can hold the reference
-    // wrapper raw; read it the way a value position would
-    const derefVar = (vm: any, name: string) => {
-        const v = vm.currentEnv.get(name).throw();
-        return v instanceof ReferenceWrapper ? v.obj.get() : v;
-    };
     const makePlainDef = ["define", ["makePlain"], ["begin",
         ["define", "c", ["object",
             ["sym", "__get__"], ["fn", ["self", "k"], 1],
@@ -1241,27 +1235,21 @@ describe("protocol methods", () => {
     testTest(test, "an object without an overload gets the usual error", vm => {
         expect(() => run(vm, ["add", ["object"], 1])).toThrow("No overload of add exists for types object, number");
     });
-    testTest(test, "eq dispatches to __cmp__", vm => {
+    testTest(test, "comparison operators dispatch to __cmp__", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", "o", {
                 [Symbol.for("__cmp__")]: ["fn", ["self", "other", "rel"], 42],
             }],
-            ["eq", ["local", "o"], 1],
+            ["print", ["eq", ["local", "o"], 1]],
+            ["print", ["less", ["local", "o"], 1]],
         ])).toBeTrue();
-        expect(popData(vm)).toBe(42);
-    });
-    testTest(test, "less dispatches to __cmp__", vm => {
-        expect(run(vm, ["begin",
-            ["define", "o", {
-                [Symbol.for("__cmp__")]: ["fn", ["self", "other", "rel"], 42],
-            }],
-            ["less", ["local", "o"], 1],
-        ])).toBeTrue();
-        expect(popData(vm)).toBe(42);
+        expect(out).toEqual(["42", "42"]);
     });
     testTest(test, "a descriptor reads through OP_get", vm => {
-        vm.currentEnv.add("stored", 7);
-        expect(run(vm, ["define", "cell", cellCode()])).toBeTrue();
+        expect(run(vm, ["begin",
+            ["letIn", "stored", 7],
+            ["define", "cell", cellCode()],
+        ])).toBeTrue();
         const cell = vm.currentEnv.get("cell").throw();
         pushData(vm, cell);
         pushCommand(vm, OP_get, false);
@@ -1269,29 +1257,38 @@ describe("protocol methods", () => {
         expect(popData(vm)).toBe(7);
     });
     testTest(test, "a descriptor assigns through OP_set, value stays on the stack", vm => {
-        vm.currentEnv.add("stored", 7);
-        expect(run(vm, ["define", "cell", cellCode()])).toBeTrue();
+        expect(run(vm, ["begin",
+            ["letIn", "stored", 7],
+            ["define", "cell", cellCode()],
+        ])).toBeTrue();
         const cell = vm.currentEnv.get("cell").throw();
         pushData(vm, 42);
         pushData(vm, cell);
         pushCommand(vm, OP_set);
         while (vm.step());
         expect(popData(vm)).toBe(42);
-        expect(derefVar(vm, "stored")).toBe(42);
+        // and the value landed in the variable behind the descriptor
+        pushData(vm, cell);
+        pushCommand(vm, OP_get, false);
+        while (vm.step());
+        expect(popData(vm)).toBe(42);
     });
     testTest(test, "deref reads a descriptor", vm => {
-        vm.currentEnv.add("stored", 42);
         expect(run(vm, ["begin",
+            ["letIn", "stored", 42],
             ["define", "cell", cellCode()],
             ["deref", ["local", "cell"]],
         ])).toBeTrue();
         expect(popData(vm)).toBe(42);
     });
-    testTest(test, "the assign builtin accepts a bare descriptor", vm => {
-        vm.currentEnv.add("stored", 7);
-        expect(run(vm, ["assign", cellCode(), 9])).toBeTrue();
+    testTest(test, "the assign builtin accepts a bare descriptor", (vm, out) => {
+        expect(run(vm, ["begin",
+            ["letIn", "stored", 7],
+            ["print", ["assign", cellCode(), 9]],
+            ["local", "stored"],
+        ])).toBeTrue();
+        expect(out).toEqual(["9"]);
         expect(popData(vm)).toBe(9);
-        expect(derefVar(vm, "stored")).toBe(9);
     });
     testTest(test, "ref returns a descriptor as-is", vm => {
         // a descriptor is its own reference
@@ -1367,25 +1364,16 @@ describe("protocol methods", () => {
             ["assign", ["index", ["local", "bad"], ["add", "x", ""]], 1],
         ])).toThrow("property is not writable");
     });
-    testTest(test, "__member__ answers a missing property", vm => {
+    testTest(test, "__member__ answers a missing property, a real one is read directly", (vm, out) => {
         expect(run(vm, ["begin",
             ["define", "o", ["object",
                 ["sym", "__member__"], ["fn", ["self", "k"], ["add", "member:", ["local", "k"]]],
                 "real", "direct",
             ]],
-            ["index", ["local", "o"], "ghost"],
+            ["print", ["index", ["local", "o"], "ghost"]],
+            ["print", ["index", ["local", "o"], "real"]],
         ])).toBeTrue();
-        expect(popData(vm)).toBe("member:ghost");
-    });
-    testTest(test, "a real property is read directly, not through __member__", vm => {
-        expect(run(vm, ["begin",
-            ["define", "o", ["object",
-                ["sym", "__member__"], ["fn", ["self", "k"], ["add", "member:", ["local", "k"]]],
-                "real", "direct",
-            ]],
-            ["index", ["local", "o"], "real"],
-        ])).toBeTrue();
-        expect(popData(vm)).toBe("direct");
+        expect(out).toEqual(["member:ghost", "direct"]);
     });
     testTest(test, "__access__ comes before __member__", vm => {
         expect(run(vm, ["begin",
@@ -1405,8 +1393,9 @@ describe("protocol methods", () => {
         expect(popData(vm)).toBeUndefined();
     });
     testTest(test, "a lazy __access__ key is never evaluated", vm => {
-        vm.currentEnv.add("count", 0);
-        expect(run(vm, ["begin", bumpDef,
+        expect(run(vm, ["begin",
+            ["letIn", "count", 0],
+            bumpDef,
             ["define", "lazyTracker", {
                 [Symbol.for("__access__")]: ["fn", ["self", [false, "k"]], ["object",
                     ["sym", "__get__"], ["fn", ["s"], "seen"],
@@ -1418,8 +1407,9 @@ describe("protocol methods", () => {
         expect(vm.currentEnv.get("count").throw()).toBe(0);
     });
     testTest(test, "an evaluated __access__ key is passed to the method", vm => {
-        vm.currentEnv.add("count", 0);
-        expect(run(vm, ["begin", bumpDef,
+        expect(run(vm, ["begin",
+            ["letIn", "count", 0],
+            bumpDef,
             ["define", "eagerTracker", {
                 [Symbol.for("__access__")]: ["fn", ["self", "k"], ["object",
                     ["sym", "__get__"], ["fn", ["s"], ["local", "k"]],
@@ -1431,9 +1421,10 @@ describe("protocol methods", () => {
         expect(vm.currentEnv.get("count").throw()).toBe(1);
     });
     testTest(test, "a lazy __set__ value is never evaluated", vm => {
-        vm.currentEnv.add("count", 0);
         // the assignment also returns the method's own result
-        expect(run(vm, ["begin", bumpDef,
+        expect(run(vm, ["begin",
+            ["letIn", "count", 0],
+            bumpDef,
             ["define", "sink", {
                 [Symbol.for("__access__")]: ["fn", ["self", "k"], ["object",
                     ["sym", "__set__"], ["fn", ["s", [false, "v"]], 12345],
@@ -1445,10 +1436,12 @@ describe("protocol methods", () => {
         expect(vm.currentEnv.get("count").throw()).toBe(0);
     });
     testTest(test, "calling a self-returning object does not evaluate the argument", vm => {
-        vm.currentEnv.add("count", 0);
         // identity is checked in a value position (an eq argument),
         // where the returned reference unwraps to the object itself
-        expect(run(vm, ["begin", bumpDef, holeDef,
+        expect(run(vm, ["begin",
+            ["letIn", "count", 0],
+            bumpDef,
+            holeDef,
             ["eq", ["local", "hole"], [["local", "hole"], ["bump"]]],
         ])).toBeTrue();
         expect(popData(vm)).toBeTrue();
@@ -1461,8 +1454,9 @@ describe("protocol methods", () => {
         expect(popData(vm)).toBeTrue();
     });
     testTest(test, "assigning to a self-returning object does not evaluate the value", vm => {
-        vm.currentEnv.add("count", 0);
-        expect(run(vm, ["begin", bumpDef, holeDef,
+        expect(run(vm, ["begin",
+            ["letIn", "count", 0],
+            bumpDef, holeDef,
             ["eq", ["local", "hole"], ["assign", ["index", ["local", "hole"], "x"], ["bump"]]],
         ])).toBeTrue();
         expect(popData(vm)).toBeTrue();
@@ -1495,9 +1489,9 @@ describe("protocol methods", () => {
         ])).toBeTrue();
         expect(popData(vm)).toBe(42);
     });
-    testTest(test, "currying keeps the receiver for a later default", vm => {
+    testTest(test, "currying keeps the receiver for a later default", (vm, out) => {
         // y's default mentions the receiver: it must still find it after
-        // the receiver is curried away
+        // the receiver is curried away; an explicit argument wins over it
         expect(run(vm, ["begin",
             ["define", "o", ["object",
                 "inc", 10,
@@ -1505,21 +1499,10 @@ describe("protocol methods", () => {
                     ["self", "x", ["y", ["index", ["local", "self"], "inc"]]],
                     ["local", "y"]],
             ]],
-            [["local", "o"], 1],
+            ["print", [["local", "o"], 1]],
+            ["print", [["local", "o"], 1, 5]],
         ])).toBeTrue();
-        expect(popData(vm)).toBe(10);
-    });
-    testTest(test, "currying forwards an argument over the default", vm => {
-        expect(run(vm, ["begin",
-            ["define", "o", ["object",
-                "inc", 10,
-                ["sym", "__call__"], ["fn",
-                    ["self", "x", ["y", ["index", ["local", "self"], "inc"]]],
-                    ["local", "y"]],
-            ]],
-            [["local", "o"], 1, 5],
-        ])).toBeTrue();
-        expect(popData(vm)).toBe(5);
+        expect(out).toEqual(["10", "5"]);
     });
     testTest(test, "currying forwards a positional rest parameter", vm => {
         expect(run(vm, ["begin",
@@ -1542,11 +1525,14 @@ describe("protocol methods", () => {
         expect(popData(vm)).toBe(7);
     });
     testTest(test, "__name__ runs when a value is named", vm => {
-        vm.currentEnv.add("seen", null);
-        expect(run(vm, ["define", "thing", {
-            [Symbol.for("__name__")]: ["fn", ["self", "n"], ["assign", ["local", "seen"], ["local", "n"]]],
-        }])).toBeTrue();
-        expect(derefVar(vm, "seen")).toBe("thing");
+        expect(run(vm, ["begin",
+            ["letIn", "seen", null],
+            ["define", "thing", {
+                [Symbol.for("__name__")]: ["fn", ["self", "n"], ["assign", ["local", "seen"], ["local", "n"]]],
+            }],
+            ["local", "seen"],
+        ])).toBeTrue();
+        expect(popData(vm)).toBe("thing");
     });
     testTest(test, "__unwrap__ method", vm => {
         class TestWrapper {
@@ -1636,10 +1622,10 @@ describe("null chaining", () => {
         expect(popData(vm)).toBeNull();
     });
     testTest(test, "index_null on a null receiver does not evaluate the key", vm => {
-        vm.currentEnv.add("count", 0);
         // the hole is fished out of an object literal, since unwrapped
         // positions -- arguments, top-level results -- would unwrap it
         expect(run(vm, ["begin", bumpDef,
+            ["letIn", "count", 0],
             ["define", "container", { "h": ["index_null", null, ["bump"]] }],
         ])).toBeTrue();
         const hole = (vm.currentEnv.get("container") as any).data.h;
@@ -1648,8 +1634,8 @@ describe("null chaining", () => {
         expect(vm.currentEnv.get("count").throw()).toBe(0);
     });
     testTest(test, "index_null on an undefined receiver wraps undefined", vm => {
-        vm.currentEnv.add("nothing", undefined);
         expect(run(vm, ["begin", captureDef,
+            ["letIn", "nothing", undefined],
             ["capture", ["index_null", ["local", "nothing"], "x"]],
         ])).toBeTrue();
         expect(popData(vm)).toBeUndefined();
@@ -1657,18 +1643,19 @@ describe("null chaining", () => {
     testTest(test, "the hole unwraps to what it wrapped as an argument", vm => {
         vm.currentEnv.add("h", new NullHole(null));
         expect(run(vm, ["begin", captureDef,
+            ["letIn", "count", 0],
             ["capture", ["local", "h"]],
         ])).toBeTrue();
         expect(popData(vm)).toBeNull();
     });
     testTest(test, "calling the hole returns it and skips the arguments", vm => {
-        vm.currentEnv.add("count", 0);
         const hole = new NullHole(null);
         vm.currentEnv.add("h", hole);
         expect(run(vm, ["begin", bumpDef,
+            ["letIn", "count", 0],
             ["define", "c", { "h": [["local", "h"], ["bump"]] }],
         ])).toBeTrue();
-        expect((vm.currentEnv.get("c") as any).data.h).toBe(hole);
+        expect(vm.currentEnv.get("c").throw().h).toBe(hole);
         expect(vm.currentEnv.get("count").throw()).toBe(0);
     });
     testTest(test, "indexing the hole returns it as its own reference", vm => {
@@ -1676,8 +1663,10 @@ describe("null chaining", () => {
         // hole's reference wraps the hole itself
         const hole = new NullHole(null);
         vm.currentEnv.add("h", hole);
-        expect(run(vm, ["define", "c", { "h": ["index", ["local", "h"], "x"] }])).toBeTrue();
-        const ref = (vm.currentEnv.get("c") as any).data.h;
+        expect(run(vm, ["begin",
+            ["define", "c", { "h": ["index", ["local", "h"], "x"] }],
+        ])).toBeTrue();
+        const ref = vm.currentEnv.get("c").throw().h;
         expect(ref).toBeInstanceOf(ReferenceWrapper);
         expect(ref.obj).toBe(hole);
     });
@@ -1689,23 +1678,23 @@ describe("null chaining", () => {
         expect(popData(vm)).toBeNull();
     });
     testTest(test, "assigning into the hole skips the value and returns the hole", vm => {
-        vm.currentEnv.add("count", 0);
         const hole = new NullHole(null);
         vm.currentEnv.add("h", hole);
         expect(run(vm, ["begin", bumpDef,
+            ["letIn", "count", 0],
             ["define", "c", { "h": ["assign", ["index", ["local", "h"], "x"], ["bump"]] }],
         ])).toBeTrue();
-        expect((vm.currentEnv.get("c") as any).data.h).toBe(hole);
+        expect(vm.currentEnv.get("c").throw().h).toBe(hole);
         expect(vm.currentEnv.get("count").throw()).toBe(0);
     });
     testTest(test, "index_null on the hole returns it and skips the key", vm => {
-        vm.currentEnv.add("count", 0);
         const hole = new NullHole(null);
         vm.currentEnv.add("h", hole);
         expect(run(vm, ["begin", bumpDef,
+            ["letIn", "count", 0],
             ["define", "c", { "h": ["index_null", ["local", "h"], ["bump"]] }],
         ])).toBeTrue();
-        expect((vm.currentEnv.get("c") as any).data.h).toBe(hole);
+        expect(vm.currentEnv.get("c").throw().h).toBe(hole);
         expect(vm.currentEnv.get("count").throw()).toBe(0);
     });
     testTest(test, "a plain index after index_null keeps chaining", vm => {
@@ -1717,25 +1706,20 @@ describe("null chaining", () => {
         expect(popData(vm)).toBeUndefined();
     });
     testTest(test, "a call in the middle of a chain is absorbed", vm => {
-        vm.currentEnv.add("count", 0);
-        expect(run(vm, ["begin", bumpDef, captureDef,
+        expect(run(vm, ["begin",
+            ["letIn", "count", 0],
+            bumpDef, captureDef,
             ["capture", ["index", [["index_null", null, "a"], ["bump"]], "b"]],
         ])).toBeTrue();
         expect(popData(vm)).toBeNull();
         expect(vm.currentEnv.get("count").throw()).toBe(0);
     });
-    testTest(test, "assigning through index_null returns the new value", vm => {
+    testTest(test, "assigning through index_null on a real object assigns", (vm, out) => {
         expect(run(vm, ["begin", o2Def,
-            ["assign", ["index_null", ["local", "o2"], "x"], 5],
+            ["print", ["assign", ["index_null", ["local", "o2"], "x"], 5]],
+            ["print", ["index", ["local", "o2"], "x"]],
         ])).toBeTrue();
-        expect(popData(vm)).toBe(5);
-    });
-    testTest(test, "assigning through index_null stores the value", vm => {
-        expect(run(vm, ["begin", o2Def,
-            ["assign", ["index_null", ["local", "o2"], "x"], 5],
-            ["index", ["local", "o2"], "x"],
-        ])).toBeTrue();
-        expect(popData(vm)).toBe(5);
+        expect(out).toEqual(["5", "5"]);
     });
     testTest(test, "assigning through index_null with old returns the previous value", vm => {
         expect(run(vm, ["begin", o2Def,
@@ -1744,9 +1728,10 @@ describe("null chaining", () => {
         expect(popData(vm)).toBe(1);
     });
     testTest(test, "assigning through index_null on a null receiver is absorbed", vm => {
-        vm.currentEnv.add("count", 0);
         // the right-hand side is not evaluated
-        expect(run(vm, ["begin", bumpDef,
+        expect(run(vm, ["begin",
+            ["letIn", "count", 0],
+            bumpDef,
             ["define", "container", { "h": ["assign", ["index_null", null, "x"], ["bump"]] }],
         ])).toBeTrue();
         expect((vm.currentEnv.get("container") as any).data.h).toBeInstanceOf(NullHole);
