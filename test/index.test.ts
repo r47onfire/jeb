@@ -1000,151 +1000,6 @@ describe("fns", () => {
     });
 });
 
-describe("recursion stress tests", () => {
-    testTest(test, "A000142 (factorial)", vm => {
-        const x = 5000n;
-        const factorial = (a: bigint): bigint => a > 1 ? a * factorial(a - 1n) : 1n;
-        expect(run(vm, ["begin",
-            ["define", ["factorial", "a"],
-                ["if", ["greater", ["local", "a"], 1],
-                    ["mul", ["factorial", ["sub", ["local", "a"], 1n]], ["local", "a"]],
-                    1n]],
-            ["factorial", x]
-        ], undefined, 10000000)).toBeTrue();
-        expect(popData(vm)).toEqual(factorial(x));
-    });
-    const MEMOIZE_F = (f: (a: bigint) => bigint) => { const cache: Record<number, bigint> = {}; return (a: bigint) => (cache[a as any] ??= f(a)) }
-    const MEMOIZE = ["define", ["memoize", "f"],
-        ["let", [["cache", {}]],
-            ["fn", ["a"],
-                ["let", [["cached", ["index", ["local", "cache"], ["local", "a"]]]],
-                    ["if", ["isNil", ["local", "cached"]],
-                        ["assign", ["index", ["local", "cache"], ["local", "a"]], ["f", ["local", "a"]]],
-                        ["local", "cached"]]]]]
-    ];
-    const fibonacci = MEMOIZE_F(a => a < 2 ? a : fibonacci(a - 1n) + fibonacci(a - 2n));
-    testTest(test, "A000045 (Fibonacci sequence)", vm => {
-        const x = 5000n;
-        expect(run(vm, ["begin",
-            MEMOIZE,
-            ["define", "fibonacci", ["memoize", ["fn", ["a"],
-                ["if", ["less", ["local", "a"], 2],
-                    ["local", "a"],
-                    ["add",
-                        ["fibonacci", ["sub", ["local", "a"], 1]],
-                        ["fibonacci", ["sub", ["local", "a"], 2]]]]]]],
-            ["fibonacci", x]
-        ], undefined, 10000000)).toBeTrue();
-        expect(popData(vm)).toEqual(fibonacci(x));
-    });
-    const tribonacci = MEMOIZE_F(a => a < 3 ? [0n, 0n, 1n][a as any]! : tribonacci(a - 1n) + tribonacci(a - 2n) + tribonacci(a - 3n));
-    testTest(test, "A000073 (Tribonacci sequence)", vm => {
-        const x = 5000n;
-        expect(run(vm, ["begin",
-            MEMOIZE,
-            ["define", "tribonacci", ["memoize", ["fn", ["a"],
-                ["if", ["less", ["local", "a"], 3],
-                    ["index", ["list", 0, 0, 1], ["local", "a"]],
-                    ["add",
-                        ["add",
-                            ["tribonacci", ["sub", ["local", "a"], 1]],
-                            ["tribonacci", ["sub", ["local", "a"], 2]]],
-                        ["tribonacci", ["sub", ["local", "a"], 3]]]]]]],
-            ["tribonacci", x]
-        ], undefined, 10000000)).toBeTrue();
-        expect(popData(vm)).toEqual(tribonacci(x));
-    });
-    const q = MEMOIZE_F(a => a < 3 ? 1n : q(a - q(a - 1n)) + q(a - q(a - 2n)));
-    testTest(test, "A005185 (Hofstadter 'Q' sequence)", vm => {
-        const x = 5000n;
-        expect(run(vm, ["begin",
-            MEMOIZE,
-            ["define", "q", ["memoize", ["fn", ["a"],
-                ["if", ["less", ["local", "a"], 3],
-                    1,
-                    ["add",
-                        ["q", ["sub", ["local", "a"], ["q", ["sub", ["local", "a"], 1]]]],
-                        ["q", ["sub", ["local", "a"], ["q", ["sub", ["local", "a"], 2]]]]]]]]],
-            ["q", x]
-        ], undefined, 10000000)).toBeTrue();
-        expect(popData(vm)).toEqual(Number(q(x)));
-    });
-    const collatz = MEMOIZE_F(a => a < 2 ? 0n : 1n + (a & 1n ? collatz(1n + 3n * a) : collatz(a >> 1n)));
-    testTest(test, "A006577 (Collatz conjecture)", vm => {
-        const x = 50000000000n;
-        expect(run(vm, ["begin",
-            MEMOIZE,
-            ["define", "collatz", ["memoize", ["fn", ["a"],
-                ["if", ["less", ["local", "a"], 2],
-                    0,
-                    ["add",
-                        1,
-                        ["if", ["bitAnd", ["local", "a"], 1],
-                            ["collatz", ["add", 1, ["mul", 3, ["local", "a"]]]],
-                            ["collatz", ["shr", ["local", "a"], 1]]]]]]]],
-            ["collatz", x]
-        ], undefined, 10000000)).toBeTrue();
-        expect(popData(vm)).toEqual(Number(collatz(x)));
-    });
-    const A063510 = (a: number): number => a < 2 ? 1 : 1 + A063510(a ** 0.5 | 0);
-    testTest(test, "A063510", vm => {
-        const x = 1e20;
-        expect(run(vm, ["begin",
-            ["define", ["A063510", "a"],
-                ["if", ["less", ["local", "a"], 2],
-                    1,
-                    ["add", 1, ["A063510", ["bitOr", 0, ["pow", ["local", "a"], 0.5]]]]]],
-            ["A063510", x],
-        ])).toBeTrue();
-        expect(popData(vm)).toEqual(A063510(x));
-    });
-    describe("unlambda", () => {
-        const unlambda = (name: string, program: string, expectedOutput: string, autostop = false) => {
-            testTest(test, name, vm => {
-                var i = 0;
-                var out: string = "";
-                const next = () => program[i++];
-                const parse = (): any[] => {
-                    const x = next();
-                    switch (x) {
-                        case "`":
-                            return [parse(), parse()];
-                        case "s":
-                        case "k":
-                        case "i":
-                        case "d":
-                        case "c":
-                        case "v":
-                        case "r":
-                            return ["local", x];
-                        case ".":
-                            return ["fn", ["x"], ["out", next()], ["local", "x"]];
-                        default:
-                            throw "invalid character " + x;
-                    }
-                }
-                expect(run(vm, ["begin",
-                    ["define", ["out", "c"], [(c: string) => { out += c; if (autostop && out.length === expectedOutput.length) vm.commandStack = null; }, ["local", "c"]]],
-                    ["define", ["s", "x"], ["fn", ["y"], ["fn", ["z"], [["x", ["local", "z"]], ["y", ["local", "z"]]]]]],
-                    ["define", ["k", "x"], ["fn", ["_"], ["local", "x"]]],
-                    ["define", ["i", "x"], ["local", "x"]],
-                    ["define", ["v", "x"], ["local", "v"]],
-                    ["define", ["r", "x"], ["out", "\n"], ["local", "x"]],
-                    ["define", ["d", [false, "x"]], ["fn", ["y"], [["x"], ["local", "y"]]]],
-                    ["define", ["c", "x"], ["x", ["local", "return"]]],
-                    parse(),
-                ])).toBeTrue();
-                expect(out).toEqual(expectedOutput);
-            });
-        }
-        unlambda("hello world", "`````````````.H.e.l.l.o.,. .w.o.r.l.d.!i", "Hello, world!");
-        unlambda("hello world 2", "`.!`.d`.l`.r``.w`. `.,``.l`c`.H.e.oi", "Hello, world!");
-        unlambda("defer", "`.c``d`.bi`.ai", "abc");
-        unlambda("yin-yang", "``r`ci`.*`ci", new Array(200).fill(0).map((_, i) => "*".repeat(i)).join("\n"), true);
-        unlambda("fibonacci printer", "```s``s``sii`ki`k.*``s``s`ks``s`k`s`ks``s``s`ks``s`k`s`kr``s`k`sikk`k``s`ksk", new Array(20).fill(0).map((_, i) => "*".repeat(float(fibonacci(int(i))))).join("\n"), true);
-    });
-});
-
 describe("FFI", () => {
     testTest(test, "FFI calling functions", (vm, out) => {
         expect(run(vm, ["begin",
@@ -1299,30 +1154,17 @@ describe("location tracking", () => {
     });
 });
 
-testTest(test, "async test", async vm => {
-    const TIME = 1000;
-    const a = Date.now();
-    expect(await runAsync(vm, [
-        makeJSFun("wait", ["time"], ({ time }, vm) =>
-            promisifyVM(vm, new Promise(resolve =>
-                setTimeout(resolve, withType(time, ["number"], "time")))), ""),
-        TIME])).toBeTrue();
-    const b = Date.now();
-    expect(Math.abs(b - a - TIME)).toBeLessThan(10);
-});
-
-testTest(test, "names stick on functions", vm => {
-    expect(run(vm, ["begin",
-        ["letIn", "foo", ["fn", []], "bar", null],
-        ["assign", ["local", "bar"], ["local", "foo"]],
-        ["local", "bar"],
-    ])).toBeTrue();
-    const i = popData(vm);
-    expect(i).toBeInstanceOf(Fun);
-    expect(i.name).toEqual("foo");
-});
-
 describe("protocol methods", () => {
+    testTest(test, "names stick on functions", vm => {
+        expect(run(vm, ["begin",
+            ["letIn", "foo", ["fn", []], "bar", null],
+            ["assign", ["local", "bar"], ["local", "foo"]],
+            ["local", "bar"],
+        ])).toBeTrue();
+        const i = popData(vm);
+        expect(i).toBeInstanceOf(Fun);
+        expect(i.name).toEqual("foo");
+    });
     testTest(test, "__call__ enables calling", vm => {
         expect(run(vm, ["define", "c", {
             n: 5,
@@ -1539,106 +1381,6 @@ describe("protocol methods", () => {
         expect(run(vm, ["local", "count"])).toBeTrue();
         expect(popData(vm)).toBe(0);
     });
-    testTest(test, "null chaining hole", vm => {
-        vm.currentEnv.add("count", 0);
-        expect(run(vm, ["define", ["bump"], ["begin",
-            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
-            99,
-        ]])).toBeTrue();
-        // capture returns its argument; arguments are a place the hole
-        // unwraps, so what capture returns is what the hole wrapped
-        expect(run(vm, ["define", ["capture", "x"], ["local", "x"]])).toBeTrue();
-        expect(run(vm, ["define", "o", ["object",
-            "a", ["object", "b", 42],
-            "n", null,
-        ]])).toBeTrue();
-        // index_null on a real object fetches normally
-        expect(run(vm, ["index", ["index_null", ["local", "o"], "a"], "b"])).toBeTrue();
-        expect(popData(vm)).toBe(42);
-        // a missing property becomes the hole, which unwraps to undefined
-        expect(run(vm, ["capture", ["index_null", ["local", "o"], "missing"]])).toBeTrue();
-        expect(popData(vm)).toBeUndefined();
-        // a null property becomes the hole, which unwraps to null: the
-        // specific value is preserved
-        expect(run(vm, ["capture", ["index_null", ["local", "o"], "n"]])).toBeTrue();
-        expect(popData(vm)).toBeNull();
-        // a nullish receiver becomes the hole without evaluating the key
-        // (fished out of an object literal, since unwrapped positions --
-        // arguments, top-level results -- would unwrap it on the way)
-        expect(run(vm, ["define", "container", { "h": ["index_null", null, ["bump"]] }])).toBeTrue();
-        const hole = (vm.currentEnv.get("container") as any).data.h;
-        expect(hole).toBeInstanceOf(NullHole);
-        expect(run(vm, ["local", "count"])).toBeTrue();
-        expect(popData(vm)).toBe(0);
-        vm.currentEnv.add("h", hole);
-        // the hole unwraps back to what it wrapped when it is used as a value
-        expect(run(vm, ["capture", ["local", "h"]])).toBeTrue();
-        expect(popData(vm)).toBeNull();
-        // calling the hole does not evaluate the arguments, and returns
-        // the hole itself (fished out of object literals, like above)
-        expect(run(vm, ["define", "c1", { "h": [["local", "h"], ["bump"]] }])).toBeTrue();
-        expect((vm.currentEnv.get("c1") as any).data.h).toBe(hole);
-        // indexing the hole produces the hole itself as the reference
-        // (an index expression's value is a reference, as usual), and
-        // reading it unwraps to what the hole wraps
-        expect(run(vm, ["define", "c2", { "h": ["index", ["local", "h"], "x"] }])).toBeTrue();
-        const ref = (vm.currentEnv.get("c2") as any).data.h;
-        expect(ref).toBeInstanceOf(ReferenceWrapper);
-        expect(ref.obj).toBe(hole);
-        expect(run(vm, ["capture", ["index", ["local", "h"], "x"]])).toBeTrue();
-        expect(popData(vm)).toBeNull();
-        // assigning to the hole does not evaluate the right-hand side, and returns it
-        expect(run(vm, ["define", "c3", { "h": ["assign", ["index", ["local", "h"], "x"], ["bump"]] }])).toBeTrue();
-        expect((vm.currentEnv.get("c3") as any).data.h).toBe(hole);
-        expect(run(vm, ["local", "count"])).toBeTrue();
-        expect(popData(vm)).toBe(0);
-        // a plain index into a value index_null holed is still absorbed,
-        // key and all: the hole from a missing property keeps chaining,
-        // and the chain reads back as the undefined it came from, not
-        // the earlier hole's null
-        expect(run(vm, ["capture", ["index", ["index_null", ["local", "o"], "missing"], "b"]])).toBeTrue();
-        expect(popData(vm)).toBeUndefined();
-        expect(run(vm, ["local", "count"])).toBeTrue();
-        expect(popData(vm)).toBe(0);
-    });
-    testTest(test, "null chaining through calls and assignments", vm => {
-        vm.currentEnv.add("count", 0);
-        expect(run(vm, ["define", ["bump"], ["begin",
-            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
-            99,
-        ]])).toBeTrue();
-        // a call link in the middle of a chain is absorbed too (the
-        // chain's value unwraps to null at the end of it)
-        expect(run(vm, ["define", ["capture", "x"], ["local", "x"]])).toBeTrue();
-        expect(run(vm, ["capture", ["index", [["index_null", null, "a"], ["bump"]], "b"]])).toBeTrue();
-        expect(popData(vm)).toBeNull();
-        expect(run(vm, ["local", "count"])).toBeTrue();
-        expect(popData(vm)).toBe(0);
-        // assignment through index_null on a real object assigns as usual
-        expect(run(vm, ["define", "o2", ["object", "x", 1]])).toBeTrue();
-        expect(run(vm, ["assign", ["index_null", ["local", "o2"], "x"], 5])).toBeTrue();
-        expect(popData(vm)).toBe(5);
-        expect(run(vm, ["index", ["local", "o2"], "x"])).toBeTrue();
-        expect(popData(vm)).toBe(5);
-        expect(run(vm, ["assign", ["index_null", ["local", "o2"], "x"], 7, true])).toBeTrue();
-        expect(popData(vm)).toBe(5);
-        // assignment through index_null on a nullish receiver is absorbed
-        // by the hole: the right-hand side is not evaluated
-        expect(run(vm, ["define", "container", { "h": ["assign", ["index_null", null, "x"], ["bump"]] }])).toBeTrue();
-        expect((vm.currentEnv.get("container") as any).data.h).toBeInstanceOf(NullHole);
-        expect(run(vm, ["local", "count"])).toBeTrue();
-        expect(popData(vm)).toBe(0);
-        // the hole is also produced on the __access__ path when the
-        // fetched value is null
-        expect(run(vm, ["define", "acc", ["object",
-            ["sym", "__access__"], ["fn", ["self", "k"], ["object",
-                ["sym", "__get__"], ["fn", ["s"], null],
-                ["sym", "__set__"], ["fn", ["s", "v"], ["local", "v"]],
-            ]],
-        ]])).toBeTrue();
-        expect(run(vm, ["capture", ["index_null", ["local", "acc"], "k"]])).toBeTrue();
-        expect(popData(vm)).toBeNull();
-    });
     testTest(test, "other methods can be a thing with a __call__", vm => {
         // the __access__ "method" stored on this object is itself an
         // object, callable through its own __call__ (whose parameters are
@@ -1747,5 +1489,265 @@ describe("protocol methods", () => {
             [Symbol.for("__unwrap__")]: makeJSFun("unwrapAccessed", ["self"], () => 42, "test unwrapper"),
         };
         expect(unwrapAll(accessedTagged)).toBe(accessedTagged);
+    });
+});
+describe("null chaining", () => {
+    testTest(test, "null chaining hole", vm => {
+        vm.currentEnv.add("count", 0);
+        expect(run(vm, ["define", ["bump"], ["begin",
+            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
+            99,
+        ]])).toBeTrue();
+        // capture returns its argument; arguments are a place the hole
+        // unwraps, so what capture returns is what the hole wrapped
+        expect(run(vm, ["define", ["capture", "x"], ["local", "x"]])).toBeTrue();
+        expect(run(vm, ["define", "o", ["object",
+            "a", ["object", "b", 42],
+            "n", null,
+        ]])).toBeTrue();
+        // index_null on a real object fetches normally
+        expect(run(vm, ["index", ["index_null", ["local", "o"], "a"], "b"])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+        // a missing property becomes the hole, which unwraps to undefined
+        expect(run(vm, ["capture", ["index_null", ["local", "o"], "missing"]])).toBeTrue();
+        expect(popData(vm)).toBeUndefined();
+        // a null property becomes the hole, which unwraps to null: the
+        // specific value is preserved
+        expect(run(vm, ["capture", ["index_null", ["local", "o"], "n"]])).toBeTrue();
+        expect(popData(vm)).toBeNull();
+        // a nullish receiver becomes the hole without evaluating the key
+        // (fished out of an object literal, since unwrapped positions --
+        // arguments, top-level results -- would unwrap it on the way)
+        expect(run(vm, ["define", "container", { "h": ["index_null", null, ["bump"]] }])).toBeTrue();
+        const hole = (vm.currentEnv.get("container") as any).data.h;
+        expect(hole).toBeInstanceOf(NullHole);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+        vm.currentEnv.add("h", hole);
+        // the hole unwraps back to what it wrapped when it is used as a value
+        expect(run(vm, ["capture", ["local", "h"]])).toBeTrue();
+        expect(popData(vm)).toBeNull();
+        // calling the hole does not evaluate the arguments, and returns
+        // the hole itself (fished out of object literals, like above)
+        expect(run(vm, ["define", "c1", { "h": [["local", "h"], ["bump"]] }])).toBeTrue();
+        expect((vm.currentEnv.get("c1") as any).data.h).toBe(hole);
+        // indexing the hole produces the hole itself as the reference
+        // (an index expression's value is a reference, as usual), and
+        // reading it unwraps to what the hole wraps
+        expect(run(vm, ["define", "c2", { "h": ["index", ["local", "h"], "x"] }])).toBeTrue();
+        const ref = (vm.currentEnv.get("c2") as any).data.h;
+        expect(ref).toBeInstanceOf(ReferenceWrapper);
+        expect(ref.obj).toBe(hole);
+        expect(run(vm, ["capture", ["index", ["local", "h"], "x"]])).toBeTrue();
+        expect(popData(vm)).toBeNull();
+        // assigning to the hole does not evaluate the right-hand side, and returns it
+        expect(run(vm, ["define", "c3", { "h": ["assign", ["index", ["local", "h"], "x"], ["bump"]] }])).toBeTrue();
+        expect((vm.currentEnv.get("c3") as any).data.h).toBe(hole);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+        // a plain index into a value index_null holed is still absorbed,
+        // key and all: the hole from a missing property keeps chaining,
+        // and the chain reads back as the undefined it came from, not
+        // the earlier hole's null
+        expect(run(vm, ["capture", ["index", ["index_null", ["local", "o"], "missing"], "b"]])).toBeTrue();
+        expect(popData(vm)).toBeUndefined();
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+    });
+    testTest(test, "null chaining through calls and assignments", vm => {
+        vm.currentEnv.add("count", 0);
+        expect(run(vm, ["define", ["bump"], ["begin",
+            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
+            99,
+        ]])).toBeTrue();
+        // a call link in the middle of a chain is absorbed too (the
+        // chain's value unwraps to null at the end of it)
+        expect(run(vm, ["define", ["capture", "x"], ["local", "x"]])).toBeTrue();
+        expect(run(vm, ["capture", ["index", [["index_null", null, "a"], ["bump"]], "b"]])).toBeTrue();
+        expect(popData(vm)).toBeNull();
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+        // assignment through index_null on a real object assigns as usual
+        expect(run(vm, ["define", "o2", ["object", "x", 1]])).toBeTrue();
+        expect(run(vm, ["assign", ["index_null", ["local", "o2"], "x"], 5])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        expect(run(vm, ["index", ["local", "o2"], "x"])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        expect(run(vm, ["assign", ["index_null", ["local", "o2"], "x"], 7, true])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        // assignment through index_null on a nullish receiver is absorbed
+        // by the hole: the right-hand side is not evaluated
+        expect(run(vm, ["define", "container", { "h": ["assign", ["index_null", null, "x"], ["bump"]] }])).toBeTrue();
+        expect((vm.currentEnv.get("container") as any).data.h).toBeInstanceOf(NullHole);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+        // the hole is also produced on the __access__ path when the
+        // fetched value is null
+        expect(run(vm, ["define", "acc", ["object",
+            ["sym", "__access__"], ["fn", ["self", "k"], ["object",
+                ["sym", "__get__"], ["fn", ["s"], null],
+                ["sym", "__set__"], ["fn", ["s", "v"], ["local", "v"]],
+            ]],
+        ]])).toBeTrue();
+        expect(run(vm, ["capture", ["index_null", ["local", "acc"], "k"]])).toBeTrue();
+        expect(popData(vm)).toBeNull();
+    });
+});
+
+// Keep these at the bottom since they take a long time to run
+testTest(test, "async test", async vm => {
+    const TIME = 1000;
+    const a = Date.now();
+    expect(await runAsync(vm, [
+        makeJSFun("wait", ["time"], ({ time }, vm) =>
+            promisifyVM(vm, new Promise(resolve =>
+                setTimeout(resolve, withType(time, ["number"], "time")))), ""),
+        TIME])).toBeTrue();
+    const b = Date.now();
+    expect(Math.abs(b - a - TIME)).toBeLessThan(10);
+});
+
+describe("recursion stress tests", () => {
+    testTest(test, "A000142 (factorial)", vm => {
+        const x = 5000n;
+        const factorial = (a: bigint): bigint => a > 1 ? a * factorial(a - 1n) : 1n;
+        expect(run(vm, ["begin",
+            ["define", ["factorial", "a"],
+                ["if", ["greater", ["local", "a"], 1],
+                    ["mul", ["factorial", ["sub", ["local", "a"], 1n]], ["local", "a"]],
+                    1n]],
+            ["factorial", x]
+        ], undefined, 10000000)).toBeTrue();
+        expect(popData(vm)).toEqual(factorial(x));
+    });
+    const MEMOIZE_F = (f: (a: bigint) => bigint) => { const cache: Record<number, bigint> = {}; return (a: bigint) => (cache[a as any] ??= f(a)) }
+    const MEMOIZE = ["define", ["memoize", "f"],
+        ["let", [["cache", {}]],
+            ["fn", ["a"],
+                ["let", [["cached", ["index", ["local", "cache"], ["local", "a"]]]],
+                    ["if", ["isNil", ["local", "cached"]],
+                        ["assign", ["index", ["local", "cache"], ["local", "a"]], ["f", ["local", "a"]]],
+                        ["local", "cached"]]]]]
+    ];
+    const fibonacci = MEMOIZE_F(a => a < 2 ? a : fibonacci(a - 1n) + fibonacci(a - 2n));
+    testTest(test, "A000045 (Fibonacci sequence)", vm => {
+        const x = 5000n;
+        expect(run(vm, ["begin",
+            MEMOIZE,
+            ["define", "fibonacci", ["memoize", ["fn", ["a"],
+                ["if", ["less", ["local", "a"], 2],
+                    ["local", "a"],
+                    ["add",
+                        ["fibonacci", ["sub", ["local", "a"], 1]],
+                        ["fibonacci", ["sub", ["local", "a"], 2]]]]]]],
+            ["fibonacci", x]
+        ], undefined, 10000000)).toBeTrue();
+        expect(popData(vm)).toEqual(fibonacci(x));
+    });
+    const tribonacci = MEMOIZE_F(a => a < 3 ? [0n, 0n, 1n][a as any]! : tribonacci(a - 1n) + tribonacci(a - 2n) + tribonacci(a - 3n));
+    testTest(test, "A000073 (Tribonacci sequence)", vm => {
+        const x = 5000n;
+        expect(run(vm, ["begin",
+            MEMOIZE,
+            ["define", "tribonacci", ["memoize", ["fn", ["a"],
+                ["if", ["less", ["local", "a"], 3],
+                    ["index", ["list", 0, 0, 1], ["local", "a"]],
+                    ["add",
+                        ["add",
+                            ["tribonacci", ["sub", ["local", "a"], 1]],
+                            ["tribonacci", ["sub", ["local", "a"], 2]]],
+                        ["tribonacci", ["sub", ["local", "a"], 3]]]]]]],
+            ["tribonacci", x]
+        ], undefined, 10000000)).toBeTrue();
+        expect(popData(vm)).toEqual(tribonacci(x));
+    });
+    const q = MEMOIZE_F(a => a < 3 ? 1n : q(a - q(a - 1n)) + q(a - q(a - 2n)));
+    testTest(test, "A005185 (Hofstadter 'Q' sequence)", vm => {
+        const x = 5000n;
+        expect(run(vm, ["begin",
+            MEMOIZE,
+            ["define", "q", ["memoize", ["fn", ["a"],
+                ["if", ["less", ["local", "a"], 3],
+                    1,
+                    ["add",
+                        ["q", ["sub", ["local", "a"], ["q", ["sub", ["local", "a"], 1]]]],
+                        ["q", ["sub", ["local", "a"], ["q", ["sub", ["local", "a"], 2]]]]]]]]],
+            ["q", x]
+        ], undefined, 10000000)).toBeTrue();
+        expect(popData(vm)).toEqual(Number(q(x)));
+    });
+    const collatz = MEMOIZE_F(a => a < 2 ? 0n : 1n + (a & 1n ? collatz(1n + 3n * a) : collatz(a >> 1n)));
+    testTest(test, "A006577 (Collatz conjecture)", vm => {
+        const x = 50000000000n;
+        expect(run(vm, ["begin",
+            MEMOIZE,
+            ["define", "collatz", ["memoize", ["fn", ["a"],
+                ["if", ["less", ["local", "a"], 2],
+                    0,
+                    ["add",
+                        1,
+                        ["if", ["bitAnd", ["local", "a"], 1],
+                            ["collatz", ["add", 1, ["mul", 3, ["local", "a"]]]],
+                            ["collatz", ["shr", ["local", "a"], 1]]]]]]]],
+            ["collatz", x]
+        ], undefined, 10000000)).toBeTrue();
+        expect(popData(vm)).toEqual(Number(collatz(x)));
+    });
+    const A063510 = (a: number): number => a < 2 ? 1 : 1 + A063510(a ** 0.5 | 0);
+    testTest(test, "A063510", vm => {
+        const x = 1e20;
+        expect(run(vm, ["begin",
+            ["define", ["A063510", "a"],
+                ["if", ["less", ["local", "a"], 2],
+                    1,
+                    ["add", 1, ["A063510", ["bitOr", 0, ["pow", ["local", "a"], 0.5]]]]]],
+            ["A063510", x],
+        ])).toBeTrue();
+        expect(popData(vm)).toEqual(A063510(x));
+    });
+    describe("unlambda", () => {
+        const unlambda = (name: string, program: string, expectedOutput: string, autostop = false) => {
+            testTest(test, name, vm => {
+                var i = 0;
+                var out: string = "";
+                const next = () => program[i++];
+                const parse = (): any[] => {
+                    const x = next();
+                    switch (x) {
+                        case "`":
+                            return [parse(), parse()];
+                        case "s":
+                        case "k":
+                        case "i":
+                        case "d":
+                        case "c":
+                        case "v":
+                        case "r":
+                            return ["local", x];
+                        case ".":
+                            return ["fn", ["x"], ["out", next()], ["local", "x"]];
+                        default:
+                            throw "invalid character " + x;
+                    }
+                }
+                expect(run(vm, ["begin",
+                    ["define", ["out", "c"], [(c: string) => { out += c; if (autostop && out.length === expectedOutput.length) vm.commandStack = null; }, ["local", "c"]]],
+                    ["define", ["s", "x"], ["fn", ["y"], ["fn", ["z"], [["x", ["local", "z"]], ["y", ["local", "z"]]]]]],
+                    ["define", ["k", "x"], ["fn", ["_"], ["local", "x"]]],
+                    ["define", ["i", "x"], ["local", "x"]],
+                    ["define", ["v", "x"], ["local", "v"]],
+                    ["define", ["r", "x"], ["out", "\n"], ["local", "x"]],
+                    ["define", ["d", [false, "x"]], ["fn", ["y"], [["x"], ["local", "y"]]]],
+                    ["define", ["c", "x"], ["x", ["local", "return"]]],
+                    parse(),
+                ])).toBeTrue();
+                expect(out).toEqual(expectedOutput);
+            });
+        }
+        unlambda("hello world", "`````````````.H.e.l.l.o.,. .w.o.r.l.d.!i", "Hello, world!");
+        unlambda("hello world 2", "`.!`.d`.l`.r``.w`. `.,``.l`c`.H.e.oi", "Hello, world!");
+        unlambda("defer", "`.c``d`.bi`.ai", "abc");
+        unlambda("yin-yang", "``r`ci`.*`ci", new Array(200).fill(0).map((_, i) => "*".repeat(i)).join("\n"), true);
+        unlambda("fibonacci printer", "```s``s``sii`ki`k.*``s``s`ks``s`k`s`ks``s``s`ks``s`k`s`kr``s`k`sikk`k``s`ksk", new Array(20).fill(0).map((_, i) => "*".repeat(float(fibonacci(int(i))))).join("\n"), true);
     });
 });
