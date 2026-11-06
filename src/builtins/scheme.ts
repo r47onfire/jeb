@@ -59,6 +59,7 @@ export const B_let = makeJSFun(
         // TODO: rewrite this transformation using Block ??
         if (isIdentifier(args[0])) {
             const loopname = args[0];
+            // TODO: #38
             const { 0: params, 1: initializers } = extractParts(
                 withType(args[1], [Array], "let.bindings"),
             );
@@ -100,6 +101,7 @@ export const B_let = makeJSFun(
                 0,
             ]);
         } else {
+            // TODO: #38
             const { 0: params, 1: initializers } = extractParts(
                 withType(args[0], [Array], "let.bindings"),
             );
@@ -124,6 +126,7 @@ export const B_let_in = makeJSFun(
     ({ pairs }, vm) => {
         const len = pairs.length;
         if ((len & 1) > 0) {
+            // TODO: #38
             throw new JEBError(
                 ErrnoCode.ESYNTAX,
                 "letIn should have an even number of arguments",
@@ -136,6 +139,7 @@ export const B_let_in = makeJSFun(
             const name = pairs[i];
             value = pairs[i + 1];
             if (!isIdentifier(name)) {
+                // TODO: #38
                 throw new JEBError(
                     ErrnoCode.ESYNTAX,
                     "letIn name must be a valid identifier",
@@ -185,7 +189,10 @@ export const B_define = makeJSFun(
             const params = name.slice(1) as string[];
             const body = args.slice(1);
             setHelper(funcName, [B_fn, params, ...body]);
-        } else throw new JEBError(ErrnoCode.ESYNTAX, "invalid define syntax");
+        } else {
+            // TODO: #38
+            throw new JEBError(ErrnoCode.ESYNTAX, "invalid define syntax");
+        }
         pushCommand(vm, OP_assign, true, true);
         pushCommand(vm, OP_shuffle, 2, [1, 0]);
         pushCommand(vm, OP_eval, location);

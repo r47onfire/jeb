@@ -72,6 +72,7 @@ export const B_fn = makeJSFun(
         var isImplicit = false;
         if (!isArray(params)) {
             isImplicit = params as any;
+            // TODO: #38
             params = withType(body![0], [Array], "fn.params");
             body = body!.slice(1);
         }
@@ -83,6 +84,7 @@ export const B_fn = makeJSFun(
         return new Fun(
             isImplicit,
             undefined,
+            // TODO: #38 - this throws based on which parameter
             createSignature(params as readonly ShorthandArgument<any, any>[]),
             new Block(vm.currentEnv, body!),
             docstring,

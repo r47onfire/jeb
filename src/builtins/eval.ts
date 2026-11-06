@@ -47,6 +47,7 @@ import {
 import { pushSyntheticCall } from "./callables";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap } from "./unwrap";
+import { B_local } from "./variables";
 
 export const OP_audit = makeOpcode(
     "audit",
@@ -365,18 +366,18 @@ export const curry = (vm: JebVM, callee: any, value: any) => {
         .describe(vm, callee);
     const first = signature[0];
     if (!first) return callee;
-    if (first.rest)
+    if (first.rest === Rest.KEYWORD)
         throw new JEBError(
             ErrnoCode.EINVAL,
-            "a callable's first parameter can't be a rest parameter",
+            "can't curry a function that accepts only keyword arguments",
         );
     const calleeName = Symbol.for("__callee__");
     const forward = (p: LonghandArgument<any, any>): any =>
         p.rest === Rest.POSITIONAL
-            ? ["splat", ["local", p.name]]
+            ? [B_splat, [B_local, p.name]]
             : p.rest === Rest.KEYWORD
-              ? ["splat", ["local", p.name], true]
-              : ["local", p.name];
+              ? [B_splat, [B_local, p.name], true]
+              : [B_local, p.name];
     return new Fun(
         false,
         name,
@@ -388,9 +389,11 @@ export const curry = (vm: JebVM, callee: any, value: any) => {
             ),
             [
                 [
-                    ["local", calleeName],
-                    ["local", first.name],
-                    ...signature.slice(1).map(forward),
+                    [B_local, calleeName],
+                    [B_local, first.name],
+                    ...(first.rest ? signature : signature.slice(1)).map(
+                        forward,
+                    ),
                 ],
             ],
         ),
