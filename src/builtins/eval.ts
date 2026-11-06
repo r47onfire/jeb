@@ -246,7 +246,7 @@ const arrayEval = (
     location: Location | undefined,
 ) => {
     pushCommand(vm, OP_apply, code.slice(1), location, tail);
-    pushCommand(vm, OP_unwrap, []);
+    pushCommand(vm, OP_unwrap, ["hole"]);
     pushCommand(vm, OP_eval, location);
     pushData(vm, code[0]);
 };
@@ -587,7 +587,7 @@ const loadStringApplier = (vm: JebVM) => {
             // (not to a callable function), but if it's in head position, we implicitly look it up.
             pushCommand(vm, OP_apply_id_trampoline, tail, location);
             pushCommand(vm, OP_tbPop);
-            pushCommand(vm, OP_unwrap, []);
+            pushCommand(vm, OP_unwrap, ["hole"]);
             pushCommand(vm, OP_get, false);
             pushCommand(vm, OP_shuffle, 2, [1, 0]);
             pushCommand(

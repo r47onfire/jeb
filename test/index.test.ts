@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { parse, stringify } from "lib0/json";
-import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, OP_get, OP_set, OP_shuffle, OP_unwrap, popData, promisifyVM, pushCommand, pushData, StackEntryKind, typecheck, typeMatches, withType } from "../src";
+import { argumentLocation, define, ErrnoCode, float, Fun, int, JEBError, JebVM, makeJSFun, NullHole, OP_get, OP_set, OP_shuffle, OP_unwrap, popData, promisifyVM, pushCommand, pushData, ReferenceWrapper, StackEntryKind, typecheck, typeMatches, withType } from "../src";
 import { makeTestRun, rawTraceback, run, runAsync } from "../src/indextest";
 
 const testTest = makeTestRun(JebVM);
@@ -1538,6 +1538,106 @@ describe("protocol methods", () => {
         expect(popData(vm)).toBe(hole);
         expect(run(vm, ["local", "count"])).toBeTrue();
         expect(popData(vm)).toBe(0);
+    });
+    testTest(test, "null chaining hole", vm => {
+        vm.currentEnv.add("count", 0);
+        expect(run(vm, ["define", ["bump"], ["begin",
+            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
+            99,
+        ]])).toBeTrue();
+        // capture returns its argument; arguments are a place the hole
+        // unwraps, so what capture returns is what the hole wrapped
+        expect(run(vm, ["define", ["capture", "x"], ["local", "x"]])).toBeTrue();
+        expect(run(vm, ["define", "o", ["object",
+            "a", ["object", "b", 42],
+            "n", null,
+        ]])).toBeTrue();
+        // index_null on a real object fetches normally
+        expect(run(vm, ["index", ["index_null", ["local", "o"], "a"], "b"])).toBeTrue();
+        expect(popData(vm)).toBe(42);
+        // a missing property becomes the hole, which unwraps to undefined
+        expect(run(vm, ["capture", ["index_null", ["local", "o"], "missing"]])).toBeTrue();
+        expect(popData(vm)).toBeUndefined();
+        // a null property becomes the hole, which unwraps to null: the
+        // specific value is preserved
+        expect(run(vm, ["capture", ["index_null", ["local", "o"], "n"]])).toBeTrue();
+        expect(popData(vm)).toBeNull();
+        // a nullish receiver becomes the hole without evaluating the key
+        // (fished out of an object literal, since unwrapped positions --
+        // arguments, top-level results -- would unwrap it on the way)
+        expect(run(vm, ["define", "container", { "h": ["index_null", null, ["bump"]] }])).toBeTrue();
+        const hole = (vm.currentEnv.get("container") as any).data.h;
+        expect(hole).toBeInstanceOf(NullHole);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+        vm.currentEnv.add("h", hole);
+        // the hole unwraps back to what it wrapped when it is used as a value
+        expect(run(vm, ["capture", ["local", "h"]])).toBeTrue();
+        expect(popData(vm)).toBeNull();
+        // calling the hole does not evaluate the arguments, and returns
+        // the hole itself (fished out of object literals, like above)
+        expect(run(vm, ["define", "c1", { "h": [["local", "h"], ["bump"]] }])).toBeTrue();
+        expect((vm.currentEnv.get("c1") as any).data.h).toBe(hole);
+        // indexing the hole produces the hole itself as the reference
+        // (an index expression's value is a reference, as usual), and
+        // reading it unwraps to what the hole wraps
+        expect(run(vm, ["define", "c2", { "h": ["index", ["local", "h"], "x"] }])).toBeTrue();
+        const ref = (vm.currentEnv.get("c2") as any).data.h;
+        expect(ref).toBeInstanceOf(ReferenceWrapper);
+        expect(ref.obj).toBe(hole);
+        expect(run(vm, ["capture", ["index", ["local", "h"], "x"]])).toBeTrue();
+        expect(popData(vm)).toBeNull();
+        // assigning to the hole does not evaluate the right-hand side, and returns it
+        expect(run(vm, ["define", "c3", { "h": ["assign", ["index", ["local", "h"], "x"], ["bump"]] }])).toBeTrue();
+        expect((vm.currentEnv.get("c3") as any).data.h).toBe(hole);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+        // a plain index into a value index_null holed is still absorbed,
+        // key and all: the hole from a missing property keeps chaining,
+        // and the chain reads back as the undefined it came from, not
+        // the earlier hole's null
+        expect(run(vm, ["capture", ["index", ["index_null", ["local", "o"], "missing"], "b"]])).toBeTrue();
+        expect(popData(vm)).toBeUndefined();
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+    });
+    testTest(test, "null chaining through calls and assignments", vm => {
+        vm.currentEnv.add("count", 0);
+        expect(run(vm, ["define", ["bump"], ["begin",
+            ["assign", ["local", "count"], ["add", ["local", "count"], 1]],
+            99,
+        ]])).toBeTrue();
+        // a call link in the middle of a chain is absorbed too (the
+        // chain's value unwraps to null at the end of it)
+        expect(run(vm, ["define", ["capture", "x"], ["local", "x"]])).toBeTrue();
+        expect(run(vm, ["capture", ["index", [["index_null", null, "a"], ["bump"]], "b"]])).toBeTrue();
+        expect(popData(vm)).toBeNull();
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+        // assignment through index_null on a real object assigns as usual
+        expect(run(vm, ["define", "o2", ["object", "x", 1]])).toBeTrue();
+        expect(run(vm, ["assign", ["index_null", ["local", "o2"], "x"], 5])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        expect(run(vm, ["index", ["local", "o2"], "x"])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        expect(run(vm, ["assign", ["index_null", ["local", "o2"], "x"], 7, true])).toBeTrue();
+        expect(popData(vm)).toBe(5);
+        // assignment through index_null on a nullish receiver is absorbed
+        // by the hole: the right-hand side is not evaluated
+        expect(run(vm, ["define", "container", { "h": ["assign", ["index_null", null, "x"], ["bump"]] }])).toBeTrue();
+        expect((vm.currentEnv.get("container") as any).data.h).toBeInstanceOf(NullHole);
+        expect(run(vm, ["local", "count"])).toBeTrue();
+        expect(popData(vm)).toBe(0);
+        // the hole is also produced on the __access__ path when the
+        // fetched value is null
+        expect(run(vm, ["define", "acc", ["object",
+            ["sym", "__access__"], ["fn", ["self", "k"], ["object",
+                ["sym", "__get__"], ["fn", ["s"], null],
+                ["sym", "__set__"], ["fn", ["s", "v"], ["local", "v"]],
+            ]],
+        ]])).toBeTrue();
+        expect(run(vm, ["capture", ["index_null", ["local", "acc"], "k"]])).toBeTrue();
+        expect(popData(vm)).toBeNull();
     });
     testTest(test, "other methods can be a thing with a __call__", vm => {
         // the __access__ "method" stored on this object is itself an

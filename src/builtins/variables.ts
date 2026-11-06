@@ -55,7 +55,10 @@ export const B_local = makeJSFun(
 );
 export const B_index = makeJSFun(
     "index",
-    ["obj", [false, "name"]],
+    [
+        [["hole"], "obj"],
+        [false, "name"],
+    ],
     ({ obj, name }, vm) => {
         const key = name as Block;
         if (protocolMethod(obj, "access")) {
@@ -139,7 +142,7 @@ export const OP_push_value = makeOpcode(
 export const B_assign = makeJSFun(
     "assign",
     [
-        [["ref"], "ref"],
+        [["ref", "hole"], "ref"],
         [false, "value"],
         ["old", false],
     ],

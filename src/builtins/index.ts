@@ -6,6 +6,7 @@ import { loadFFIBuiltins } from "./ffi";
 import { loadJsonBuiltins } from "./json";
 import { loadDataBuiltins } from "./lists";
 import { loadProtocolMethods } from "./methods";
+import { loadNullChainBuiltins } from "./nullchain";
 import { loadOperatorsBuiltins } from "./operators";
 import { loadQuoteBuiltins } from "./quote";
 import { loadVarNamingBuiltins } from "./reference";
@@ -38,6 +39,7 @@ export {
     pushAccessCall,
 } from "./eval";
 export { B_is_nil } from "./ffi";
+export { B_index_null, NullChainReference, NullHole } from "./nullchain";
 export { B_jsonparse, B_jsonstringify } from "./json";
 export { B_concat, B_head, B_list, B_tail } from "./lists";
 export {
@@ -91,6 +93,7 @@ export const loadBuiltins = (vm: JebVM) => {
     loadUnwrappingBuiltins(vm);
     loadVariablesBuiltins(vm);
     loadProtocolMethods(vm);
+    loadNullChainBuiltins(vm);
     loadVarNamingBuiltins(vm);
     loadControlBuiltins(vm);
     loadFFIBuiltins(vm);
