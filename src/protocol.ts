@@ -3,8 +3,7 @@ import { Result } from "ts-res";
 import { Block } from "./block";
 import { NOTHING } from "./define";
 import { Env } from "./env";
-import { ErrnoCode } from "./errno";
-import { JEBError, Location } from "./errors";
+import { Location } from "./errors";
 import { Relation } from "./math";
 import { CallableSignature } from "./signature";
 import {
@@ -352,26 +351,6 @@ export type ArgcForName<V extends JebVM, N extends keyof JEBProtocols<V>> =
     JEBProtocols<V>[N] extends ProtocolsList<V, any, infer N, any, any>
         ? N["length"]
         : number;
-/** The result type of the protocol `N`. */
-export type ResultForName<V extends JebVM, N extends keyof JEBProtocols<V>> =
-    JEBProtocols<V>[N] extends ProtocolsList<V, infer N, any, any, any>
-        ? N
-        : unknown;
-/** The flags type passed to implementations of the protocol `N`. */
-export type FlagsForName<V extends JebVM, N extends keyof JEBProtocols<V>> =
-    JEBProtocols<V>[N] extends ProtocolsList<V, any, any, any, any, infer N>
-        ? N
-        : [];
-/** The metadata type (`describe` result) of the protocol `N`. */
-export type InfoForName<V extends JebVM, N extends keyof JEBProtocols<V>> =
-    JEBProtocols<V>[N] extends ProtocolsList<V, any, any, any, any, infer N>
-        ? N
-        : never;
-/** The `run` function type of implementations of the protocol `N`. */
-export type FnTypeForName<
-    V extends JebVM,
-    N extends keyof JEBProtocols<V>,
-> = JEBProtocols<V>[N][number]["run"];
 
 /**
  * Selects the implementation of the protocol `name` to use for the given
