@@ -1,0 +1,58 @@
+- `object` - top type - base for all classes - implements the default `__getattribute__` and `__hash__` / `__eq__` / `__ne__` / comparison / `__bool__` - but not arithmetic values
+    - `type` - base for all metaclasses
+        - `singleton` - base for all singleton types. The `__init_subclass__` constructs the instance and then sets the class `__instance__` to it; then it overrides `__new__` to always just return the `__instance__`
+    - `classmethod`
+    - `staticmethod`
+    - `property`
+    - `NoneType` - unit type (metaclass=`singleton`)
+        - `NoneHole` - has the hole absorption methods (also subclass of `types.Wrapper`)
+    - `NotImplementedType` - sentinel to say an overloaded method doesn't apply (metaclass=`singleton`)
+    - `EmptyType` - placeholder to signify to argument machinery that default value is to be used (metaclass=`singleton`)
+    - `DoneType` - sentinel at the end of iterators (metaclass=`singleton`)
+    - `types.Number`
+        - `int` - wraps JS `BigInt`
+            - `bool` - wraps JS `Boolean` - specially returns `True` or `False` as a double-singleton thingy
+        - `float` - wraps JS `Number`
+    - `types.Collection` - abstract class (can't be instantiated)
+        - `types.Sequence` - abstract class (can't be instantiated)
+            - `str` - wraps JS `String`
+            - `tuple` - wraps JS `Array`, but immutable
+                - `list` - mutable tuple
+            - `bytes` - wraps JS `UInt8Array`
+                - `bytearray` - mutable bytes
+                    - `memoryview` - wraps JS `DataView`
+            - `collections.Stack` - wraps a game-math `LinkedList`
+        - `types.KeyedContainer` - abstract class (can't be instantiated)
+            - `frozendict` - like a normal dict, but without mutation methods
+                - `dict`
+                    - `types.Env` - has `__parents__`, a tuple of other Envs
+                        - `types.Module` - `__parents__` is empty; also contains `__file__` as both attribute and key
+            - `frozenset` - like `frozendict[T, True]`
+                - `set`
+    - `types.Function` - created by the fn statement; contains `__body__` (a `types.Block`), `__signature__` (a `types.Signature`) `__doc__`, and `__name__` (both `str`s)
+    - `types.BoundFunction` - bound member access
+    - `types.BuiltinFunction` - members TBD; `__signature__` (a `types.Signature`) `__doc__`, and `__name__` (both `str`s)
+    - `types.Wrapper` - abstract class (can't be instantiated)
+        - TODO: all the relevant wrapper classes
+    - `types.Signature`
+    - `types.Block` - has `__call__` method, as well as `__code__` property; actual type TBD
+
+- TODO: classes for VM and VM state itself (dynamic wind, traceback)
+- TODO: code classes
+- TODO: continuations
+- TODO: FFI
+- TODO: docstring parsing types
+- TODO: (Backolon) IO (fetch, localstorage, IDB, etc)
+- TODO: (Backolon) Parsing mechanism
+- TODO: (Backolon) import system in these types
+- TODO: (Backolon) game standard library
+    - `units.Quantity` (`float` subclass) - wraps hyperspace `Quantity` (though you have to create a `units.UnitSystem` manually and activate it with a context manager)
+    - `types.Matrix` - wraps game-math `Matrix`
+        - `mat2` - wraps game-math `Mat2`
+        - `mat2x3` - wraps game-math `Mat23`
+        - `mat3` - wraps game-math `Mat3`
+        - `mat4` - wraps game-math `Mat4`
+    - `types.Vector`
+        - `vec2` - wraps game-math `Vec2`
+        - `vec3` - wraps game-math `Vec3`
+        - `quat` - wraps game-math `Quaternion`
