@@ -10,7 +10,6 @@ import { min } from "lib0/math";
 import { JEBAuditEvents } from "./auditHookTypes";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
-import { ErrnoCode } from "./errno";
 import {
     createStackInnerNode,
     createStackLeafNode,
@@ -100,7 +99,7 @@ export class JebVM<
      * evaluates it. The core opcodes are installed by the constructor; hosts
      * and higher layers (e.g. Kuiper) register more with {@link defineOpcode}.
      */
-    opcodes: Map<string, OpcodeHandler> = new Map();
+    opcodes: Record<string, OpcodeHandler> = {};
     /**
      * Sources of the macro expansions the evaluator is currently inside,
      * outermost first. A node's own source link (`expandedFrom`) is pushed here
@@ -108,8 +107,16 @@ export class JebVM<
      * it was generated in.
      */
     expansionStack: SourceInfo<any>[] = [];
-    /** Environment that all builtins live in */
-    builtinsEnv = this.createEnv();
+    /**
+     * Registry of host-provided values and functions, by name. This is
+     * deliberately NOT an environment: the registry is not a scope, has no
+     * parent chain, and no program can mutate it. It is only a fallback for
+     * `var` lookups that no environment satisfies, so a program's own bindings
+     * always take precedence over it. The layer above (e.g. Kuiper) decides
+     * which of these names its own global environment re-exports as real
+     * variables.
+     */
+    hostRegistry: Map<Identifier, any> = new Map();
     /** The error that stopped the VM, if any; {@link step} rethrows it while set */
     error: JEBError | undefined;
     /**
@@ -131,21 +138,29 @@ export class JebVM<
      * already taken: there is only ever one handler per opcode.
      */
     defineOpcode(name: string, handler: OpcodeHandler) {
-        if (this.opcodes.has(name))
+        if (Reflect.has(this.opcodes, name))
             throw new Error(`opcode ${name} is already defined`);
-        this.opcodes.set(name, handler);
+        this.opcodes[name] = handler;
     }
-    /** Defines a host (Javascript) function in the builtins scope. */
+    /**
+     * Registers a host (Javascript) function under the given name in the
+     * {@link hostRegistry}. Throws if the name is already registered.
+     */
     defineHostFunction(name: Identifier, fn: HostFunction) {
-        if (this.builtinsEnv.get(name).ok)
-            throw new Error(`builtin ${String(name)} is already defined`);
-        this.builtinsEnv.addConst(name, fn);
+        if (this.hostRegistry.has(name))
+            throw new Error(
+                `host function ${String(name)} is already registered`,
+            );
+        this.hostRegistry.set(name, fn);
     }
-    /** Defines a value in the builtins scope. */
+    /**
+     * Registers a host value under the given name in the {@link hostRegistry}.
+     * Throws if the name is already registered.
+     */
     defineValue(name: Identifier, value: any) {
-        if (this.builtinsEnv.get(name).ok)
-            throw new Error(`builtin ${String(name)} is already defined`);
-        this.builtinsEnv.addConst(name, value);
+        if (this.hostRegistry.has(name))
+            throw new Error(`host value ${String(name)} is already registered`);
+        this.hostRegistry.set(name, value);
     }
     /** Pushes a value onto the data stack. */
     pushData(value: any) {
@@ -155,7 +170,7 @@ export class JebVM<
     /** Throws if the data stack holds fewer than `n` values. */
     #checkStack(n: number) {
         if (LinkedList_length(this.dataStack) < n)
-            throw new JEBError(ErrnoCode.EPANIC, "data stack underflow");
+            throw new JEBError("data stack underflow");
     }
     /**
      * Pops the top `n` values off the data stack, returned in the order they
@@ -197,7 +212,7 @@ export class JebVM<
      */
     popCommand() {
         if (LinkedList_length(this.commandStack) === 0)
-            throw new JEBError(ErrnoCode.EPANIC, "opcode stack underflow");
+            throw new JEBError("opcode stack underflow");
         const { 0: value, 1: rest } = LinkedList_pop(this.commandStack!);
         this.commandStack = rest;
         return value;
@@ -244,13 +259,14 @@ export class JebVM<
     }
     /**
      * Silently stops running the code, by resetting all stacks state back to
-     * the initial empty state. Does not clear the builtins env.
+     * the initial empty state. Does not clear the opcode table or the host
+     * registry.
      */
     reset() {
         this.paused = false;
         this.commandStack = this.dataStack = this.tracebackStack = null;
         this.expansionStack = [];
-        this.currentEnv = this.createEnv(this.builtinsEnv);
+        this.currentEnv = this.createEnv();
         this.curDynamicWind = new DynamicWind(this as any as T);
         this.error = undefined;
     }
@@ -270,7 +286,6 @@ export class JebVM<
             this.pushCommand(
                 OP_throw,
                 new JEBError(
-                    ErrnoCode.EPROCLIM,
                     "too much recursion",
                     {},
                     {},
@@ -375,8 +390,7 @@ export class JebVM<
     /** Drops all the tail-call entries off the stack, and then one more */
     popTraceback(dropTail = true) {
         var cur = this.tracebackStack;
-        if (!cur)
-            throw new JEBError(ErrnoCode.EPANIC, "traceback stack underflow");
+        if (!cur) throw new JEBError("traceback stack underflow");
 
         // drop all TCO'ed frames
         if (dropTail)

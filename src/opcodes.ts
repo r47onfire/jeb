@@ -1,6 +1,6 @@
+import { Block } from "./block";
 import { Closure } from "./closure";
 import { Continuation } from "./continuation";
-import { ErrnoCode } from "./errno";
 import { JEBError, promisifyVM, wrapThrowToError } from "./errors";
 import {
     IRNode,
@@ -54,8 +54,7 @@ export type OpcodeHandler<S = any> = (vm: JebVM, ctx: OpcodeContext<S>) => void;
 /** A host (Javascript) function callable from IR code through `call`. */
 export type HostFunction = (vm: JebVM, ...args: any[]) => any;
 
-const syntaxError = (message: string) =>
-    new JEBError(ErrnoCode.ESYNTAX, message);
+const syntaxError = (message: string) => new JEBError(message);
 
 // MARK: the evaluator
 
@@ -64,11 +63,14 @@ const syntaxError = (message: string) =>
  * commands below are the continuation steps the handlers schedule; they are not
  * opcodes and cannot appear in code.
  */
-export const OP_eval = (vm: JebVM, [node, tail]: [any, boolean]) => {
+export const OP_eval = (
+    vm: JebVM,
+    { 0: node, 1: tail }: [node: IRNode<any>, tail: boolean],
+) => {
     if (!isIRNode(node))
         throw syntaxError(`cannot evaluate a non-node: ${String(node)}`);
     const opName = node[0]!;
-    const handler = vm.opcodes.get(opName);
+    const handler = vm.opcodes[opName];
     if (!handler) throw syntaxError(`unknown opcode: ${opName}`);
     const source = nodeSource(node);
     const ctx: OpcodeContext = {
@@ -176,26 +178,37 @@ const OP_call_collect = (
 };
 
 /**
- * Invokes a callable value (a {@link Closure}, a host function, or a
- * {@link Continuation}) with already-evaluated arguments. Also used internally
- * wherever the runtime itself needs to call a value.
+ * Invokes a callable value (a {@link Closure}, a {@link Block}, a host function,
+ * or a {@link Continuation}) with already-evaluated arguments. Also used
+ * internally wherever the runtime itself needs to call a value.
  */
-export const OP_call_invoke = (vm: JebVM, [call]: [CallArgs]) => {
+export const OP_call_invoke = (vm: JebVM, { 0: call }: [call: CallArgs]) => {
     const { callee, args, tail, source, name } = call;
     if (callee instanceof Continuation) {
         callee.invoke(vm, args.length > 0 ? args[0] : undefined);
+        return;
+    }
+    if (callee instanceof Block) {
+        // Invoking a block evaluates its body, like a seq, in the
+        // environment it captured. Blocks take no arguments; this is the
+        // mechanism lazy parameters are built from.
+        if (args.length > 0)
+            throw new JEBError(
+                `too many arguments: a block takes none, got ${args.length}`,
+            );
+        pushCommand(vm, OP_call_return, vm.currentEnv, tail, false);
+        vm.currentEnv = callee.closureEnv;
+        seqStart(vm, [...callee.body], true);
         return;
     }
     if (callee instanceof Closure) {
         const { params, rest } = callee;
         if (args.length < params.length)
             throw new JEBError(
-                ErrnoCode.EINVAL,
                 `too few arguments: expected ${params.length}, got ${args.length}`,
             );
         if (rest === undefined && args.length > params.length)
             throw new JEBError(
-                ErrnoCode.EINVAL,
                 `too many arguments: expected ${params.length}, got ${args.length}`,
             );
         const env = vm.createEnv(callee.env);
@@ -204,11 +217,13 @@ export const OP_call_invoke = (vm: JebVM, [call]: [CallArgs]) => {
         const frameName = name ?? callee.name;
         if (frameName !== undefined)
             vm.pushTraceback(frameName, tail, source, StackEntryKind.FUNCTION);
-        pushCommand(vm, OP_call_return, {
-            env: vm.currentEnv,
+        pushCommand(
+            vm,
+            OP_call_return,
+            vm.currentEnv,
             tail,
-            framed: frameName !== undefined,
-        });
+            frameName !== undefined,
+        );
         vm.currentEnv = env;
         seqStart(vm, [...callee.body], true);
         return;
@@ -216,7 +231,7 @@ export const OP_call_invoke = (vm: JebVM, [call]: [CallArgs]) => {
     if (typeof callee === "function") {
         if (name !== undefined)
             vm.pushTraceback(name, tail, source, StackEntryKind.FUNCTION);
-        const result = wrapThrowToError(ErrnoCode.EJAVASCRIPT, () =>
+        const result = wrapThrowToError(() =>
             (callee as HostFunction)(vm, ...args),
         );
         if (result instanceof Promise) {
@@ -239,17 +254,16 @@ export const OP_call_invoke = (vm: JebVM, [call]: [CallArgs]) => {
         pushData(vm, result);
         return;
     }
-    throw new JEBError(
-        ErrnoCode.EFUNC,
-        `value is not callable: ${typeof callee}`,
-    );
+    throw new JEBError(`value is not callable: ${typeof callee}`);
 };
 
 const OP_call_return = (
     vm: JebVM,
-    [{ env, tail, framed }]: [
-        { env: JebVM["currentEnv"]; tail: boolean; framed: boolean },
-    ],
+    {
+        0: env,
+        1: tail,
+        2: framed,
+    }: [env: JebVM["currentEnv"], tail: boolean, framed: boolean],
 ) => {
     const value = popData(vm);
     vm.currentEnv = env;
@@ -336,14 +350,10 @@ const OP_assign_after = (vm: JebVM, [{ name }]: [{ name: Identifier }]) => {
     const scope = vm.currentEnv.set(name, value);
     if (scope === undefined)
         throw new JEBError(
-            ErrnoCode.ENAME,
             `cannot assign to undefined variable: ${String(name)}`,
         );
     if (scope === false)
-        throw new JEBError(
-            ErrnoCode.EPERM,
-            `cannot assign to constant: ${String(name)}`,
-        );
+        throw new JEBError(`cannot assign to constant: ${String(name)}`);
     pushData(vm, NO_VALUE);
 };
 
@@ -351,14 +361,12 @@ const OP_assign_after = (vm: JebVM, [{ name }]: [{ name: Identifier }]) => {
 
 const OP_if_after = (
     vm: JebVM,
-    [{ consequent, alternate, hasAlternate, tail }]: [
-        {
-            consequent: any;
-            alternate: any;
-            hasAlternate: boolean;
-            tail: boolean;
-        },
-    ],
+    {
+        0: consequent,
+        1: alternate,
+        2: hasAlternate,
+        3: tail,
+    }: [consequent: any, alternate: any, hasAlternate: boolean, tail: boolean],
 ) => {
     const condition = popData(vm);
     // The core `if` branches on host truthiness. Converting a language's
@@ -398,7 +406,7 @@ const OP_eval_after = (
 const OP_throw_value = (vm: JebVM) => {
     const value = popData(vm);
     if (value instanceof JEBError) throw value;
-    throw new JEBError(ErrnoCode.EFAIL, String(value));
+    throw new JEBError(String(value));
 };
 
 /**
@@ -524,7 +532,7 @@ const checkName = (ctx: OpcodeContext, operand: any): Identifier => {
  */
 export const loadCoreOpcodes = (vm: JebVM) => {
     const defineOpcode = (name: string, handler: OpcodeHandler) =>
-        vm.opcodes.set(name, handler);
+        vm.defineOpcode(name, handler)
 
     defineOpcode("const", (vm, ctx) => {
         checkArity(ctx, 1);
@@ -533,9 +541,8 @@ export const loadCoreOpcodes = (vm: JebVM) => {
         pushData(vm, ctx.operands[0]);
     });
 
-    defineOpcode("comment", (vm, ctx) => {
-        // The operands are never evaluated, and the result is no value, so
-        // a trailing comment cannot clobber a sequence's real result.
+    defineOpcode("comment", (vm) => {
+        // The operands are never evaluated, and the result is no value.
         pushData(vm, NO_VALUE);
     });
 
@@ -547,12 +554,16 @@ export const loadCoreOpcodes = (vm: JebVM) => {
         checkArity(ctx, 1);
         const name = checkName(ctx, ctx.operands[0]);
         const result = vm.currentEnv.get(name);
-        if (!result.ok)
-            throw new JEBError(
-                ErrnoCode.ENAME,
-                `no such variable: ${String(name)}`,
-            );
-        pushData(vm, result.data);
+        if (result.ok) {
+            pushData(vm, result.data);
+            return;
+        }
+        // no environment has the name: fall back to the host registry
+        if (vm.hostRegistry.has(name)) {
+            pushData(vm, vm.hostRegistry.get(name));
+            return;
+        }
+        throw new JEBError(`no such variable: ${String(name)}`);
     });
 
     defineOpcode("define", (vm, ctx) => {
@@ -626,8 +637,18 @@ export const loadCoreOpcodes = (vm: JebVM) => {
         });
         pushData(
             vm,
-            new Closure(params, rest, ctx.operands.slice(1), vm.currentEnv),
+            new Closure(
+                params,
+                rest,
+                new Block(vm.currentEnv, ctx.operands.slice(1)),
+            ),
         );
+    });
+
+    defineOpcode("block", (vm, ctx) => {
+        // The operands are the block's body: they are not evaluated now,
+        // only when the block is invoked.
+        pushData(vm, new Block(vm.currentEnv, ctx.operands));
     });
 
     defineOpcode("call", (vm, ctx) => {
@@ -651,12 +672,14 @@ export const loadCoreOpcodes = (vm: JebVM) => {
 
     defineOpcode("if", (vm, ctx) => {
         checkArity(ctx, 2, 3);
-        pushCommand(vm, OP_if_after, {
-            consequent: ctx.operands[1],
-            alternate: ctx.operands[2],
-            hasAlternate: ctx.operands.length > 2,
-            tail: ctx.tail,
-        });
+        pushCommand(
+            vm,
+            OP_if_after,
+            ctx.operands[1],
+            ctx.operands[2],
+            ctx.operands.length > 2,
+            ctx.tail,
+        );
         ctx.eval(ctx.operands[0]);
     });
 

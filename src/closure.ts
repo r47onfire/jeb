@@ -1,17 +1,22 @@
+import { Block } from "./block";
 import { Env } from "./env";
-import { IRNode } from "./ir";
 import { Identifier } from "./utils";
 
 /**
- * A function implemented as IR code: a parameter list, a body (a list of IR
- * nodes, evaluated like a `seq` whose last node is in tail position), and the
- * environment the `lambda` node was evaluated in.
+ * A function implemented as IR code. Every non-native function value is a
+ * `Closure` -- the only other callable values are native host functions and
+ * continuations.
  *
- * There are no signatures, laziness, or wrappers at this level: every argument
- * is evaluated by the `call` opcode before the closure is invoked, and special
+ * A closure is a parameter list wrapped around a {@link Block}: the block holds
+ * the body and the environment it was defined in, exactly like the blocks that
+ * lazy parameters are made of. Calling the closure binds the arguments in a
+ * child of the block's environment and invokes the block.
+ *
+ * There are no signatures or wrappers at this level: every argument is
+ * evaluated by the `call` opcode before the closure is invoked, and special
  * forms are opcodes, not functions. Semantics like keyword arguments, defaults,
- * and lazy parameters belong to the layer above (e.g. Kuiper), which can build
- * them out of these primitives.
+ * and lazy parameters belong to the layer above (e.g. Kuiper), which builds
+ * them out of closures and blocks.
  */
 export class Closure {
     constructor(
@@ -22,14 +27,20 @@ export class Closure {
          * the closure takes exactly {@link params}.
          */
         readonly rest: Identifier | undefined,
-        /** Body nodes, evaluated in a child of {@link env} per call. */
-        readonly body: readonly IRNode<any>[],
-        /** The environment captured where the `lambda` node was evaluated. */
-        readonly env: Env,
+        /** The wrapped block: the body and its defining environment. */
+        readonly block: Block,
         /**
          * Name to show in tracebacks. Set by `define`/`let` when the closure is
          * first bound to a name and it doesn't have one yet.
          */
         public name: Identifier | undefined = undefined,
     ) {}
+    /** The environment the body closes over (the block's). */
+    get env(): Env {
+        return this.block.closureEnv;
+    }
+    /** The body nodes (the block's). */
+    get body() {
+        return this.block.body;
+    }
 }

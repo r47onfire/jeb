@@ -10,12 +10,11 @@
     },
     "type": "module",
     "scripts": {
-        "build": "rm -rf dist/ && bun run regenerate-errno && bun run scripts/build.ts",
+        "build": "rm -rf dist/ && bun run scripts/build.ts",
         "test": "BUN_JSC_useTailCalls=0 bun test",
         "test:watch": "BUN_JSC_useTailCalls=0 bun test --watch",
         "clean-dist": "rm -rf dist/*",
-        "prepare": "bun run build --minify",
-        "regenerate-errno": "python3 scripts/regenerate_errno.py >src/errno.ts"
+        "prepare": "bun run build --minify"
     },
     "repository": {
         "type": "git",
@@ -25,15 +24,15 @@
     "author": "dragoncoder047",
     "license": "AGPL-3.0-only",
     "devDependencies": {
-        "@babel/parser": "^8.0.10",
-        "@babel/traverse": "^8.0.10",
-        "@babel/types": "^8.0.10",
+        "@babel/parser": "^8.1.0",
+        "@babel/traverse": "^8.1.0",
+        "@babel/types": "^8.1.0",
         "@types/bun": "^1.4.4",
         "nodemon": "^3.1.14"
     },
     "dependencies": {
         "@r47onfire/game-math": "github:r47onfire/game-math",
-        "lib0": "^0.2.119",
+        "lib0": "^0.2.120",
         "ts-res": "github:r47onfire/ts-res"
     }
 }

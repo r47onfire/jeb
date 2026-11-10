@@ -1,5 +1,4 @@
 import { javaHash, rotate32 } from "@r47onfire/game-math";
-import { ErrnoCode, ErrnoDesc } from "./errno";
 import { SourceInfo, sourceKey, sourcesEqual } from "./ir";
 import { Identifier } from "./utils";
 import { JebVM, pushCommand, pushData, StackEntryKind } from "./vm";
@@ -16,31 +15,36 @@ export interface JEBErrorOptions {
 
 /**
  * Arbitrary extra data attached to a {@link JEBError}. The `return` key is
- * special: it holds the restart continuation that error handlers (see `with`)
- * can invoke to resume execution at the expression that caused the error.
+ * special: it holds the restart continuation that a host error handler can
+ * invoke to resume execution at the expression that caused the error.
  */
 export interface JEBErrorContext {
     [x: string]: unknown;
     return?: Continuation<any>;
 }
 
-/** Generic base class for an error thrown by a JEB program. */
+/**
+ * Generic base class for an error thrown by a JEB program.
+ *
+ * JEB deliberately has no error taxonomy of its own: no numeric codes, no
+ * inheritance graph. Classifying errors (and giving them codes) is the
+ * embedding language's job (e.g. Kuiper's), which can subclass this or wrap it;
+ * the core only ever raises plain `JEBError`s with a message.
+ */
 export class JEBError extends Error {
     readonly children: JEBError[];
     constructor(
-        readonly code: ErrnoCode,
         message?: string,
         readonly options: ErrorOptions & JEBErrorOptions = {},
         readonly context: JEBErrorContext = {},
         public traceback?: StackTreeNode[],
     ) {
-        message ??= ErrnoDesc[code];
-        super(message, { cause: options.cause });
+        super(message ?? "unspecified error", { cause: options.cause });
         this.name = this.constructor.name;
         this.children = options.children ?? [];
     }
     toString(): string {
-        return `[${ErrnoCode[this.code] ?? this.code}] ${this.message}${
+        return `${this.name}: ${this.message}${
             this.traceback
                 ? `\ntraceback: ${formatStackTraceCompact(
                       compressStackTree(this.traceback),
@@ -268,19 +272,16 @@ export const formatStackTraceCompact = (nodes: StackTreeNode[]): string => {
  * function result.
  *
  * @example
- *     wrapThrowToError(vm, ErrnoCode.EJAVASCRIPT, () =>
- *         doSomethingThatMayThrow(vm, args[0]),
- *     );
+ *     wrapThrowToError(() => doSomethingThatMayThrow());
  *
- * @param kind Kind of JEB error a thrown error causes
  * @param f The function to catch errors from
  */
-export const wrapThrowToError = <T>(kind: ErrnoCode, f: () => T) => {
+export const wrapThrowToError = <T>(f: () => T) => {
     try {
         return f();
     } catch (e) {
         if (e instanceof JEBError) throw e;
-        throw new JEBError(kind, String(e), { cause: e });
+        throw new JEBError(String(e), { cause: e });
     }
 };
 

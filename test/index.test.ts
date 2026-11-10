@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
-    ErrnoCode,
+    Block,
+    Closure,
     IRNode,
     JEBError,
     JebVM,
@@ -41,7 +42,7 @@ const makeVM = () => {
         return NO_VALUE;
     });
     vm.defineHostFunction("boom", () => {
-        throw new JEBError(ErrnoCode.EFAIL, "boom");
+        throw new JEBError("boom");
     });
     return { vm, out };
 };
@@ -150,7 +151,7 @@ describe("variables and let", () => {
             ),
         ).toBe(2);
     });
-    test("assign to an undefined variable throws ENAME", () => {
+    test("assign to an undefined variable is an error", () => {
         const { vm } = makeVM();
         let err: any;
         try {
@@ -159,9 +160,11 @@ describe("variables and let", () => {
             err = e;
         }
         expect(err).toBeInstanceOf(JEBError);
-        expect(err.code).toBe(ErrnoCode.ENAME);
+        expect(err.message).toBe(
+            "cannot assign to undefined variable: nope",
+        );
     });
-    test("reading an undefined variable throws ENAME", () => {
+    test("reading an undefined variable is an error", () => {
         const { vm } = makeVM();
         expect(() => run(vm, v("nope"))).toThrow(JEBError);
     });
@@ -181,7 +184,7 @@ describe("variables and let", () => {
             err = e;
         }
         expect(err).toBeInstanceOf(JEBError);
-        expect(err.code).toBe(ErrnoCode.EPERM);
+        expect(err.message).toBe("cannot assign to constant: x");
     });
     test("let binds in a child scope and leaves the outer scope alone", () => {
         const { vm } = makeVM();
@@ -360,7 +363,7 @@ describe("functions", () => {
             run(vm2, n("call", n("lambda", ["a"], v("a")), c(1), c(2))),
         ).toThrow(JEBError);
     });
-    test("calling a non-callable throws EFUNC", () => {
+    test("calling a non-callable is an error", () => {
         const { vm } = makeVM();
         let err: any;
         try {
@@ -369,7 +372,7 @@ describe("functions", () => {
             err = e;
         }
         expect(err).toBeInstanceOf(JEBError);
-        expect(err.code).toBe(ErrnoCode.EFUNC);
+        expect(err.message).toBe("value is not callable: number");
     });
     test("a function body ending in a comment returns its real value", () => {
         const { vm } = makeVM();
@@ -428,6 +431,97 @@ describe("functions", () => {
         );
         expect(leaves[0]!.leaf && leaves[0]!.source?.span).toBe("inner");
         expect(leaves[1]!.leaf && leaves[1]!.source?.span).toBe("outer");
+    });
+});
+
+describe("blocks", () => {
+    test("a lambda's value is a closure wrapping a block", () => {
+        const { vm } = makeVM();
+        const result = run(vm, n("lambda", ["a"], v("a")));
+        expect(result).toBeInstanceOf(Closure);
+        expect(result.block).toBeInstanceOf(Block);
+        expect(result.block.body).toHaveLength(1);
+        expect(result.env).toBe(result.block.closureEnv);
+    });
+    test("creating a block does not evaluate its body", () => {
+        const { vm } = makeVM();
+        let count = 0;
+        vm.defineHostFunction("tick", () => ++count);
+        run(vm, n("block", call("tick")));
+        expect(count).toBe(0);
+    });
+    test("invoking a block evaluates it in its captured environment", () => {
+        const { vm } = makeVM();
+        expect(
+            run(
+                vm,
+                n(
+                    "seq",
+                    n("define", "b", c(null)),
+                    n(
+                        "let",
+                        n("bind", "x", c(2)),
+                        n("assign", "b", n("block", v("x"))),
+                    ),
+                    n("call", v("b")),
+                ),
+            ),
+        ).toBe(2);
+    });
+    test("a block can be invoked more than once", () => {
+        const { vm } = makeVM();
+        let count = 0;
+        vm.defineHostFunction("tick", () => ++count);
+        expect(
+            run(
+                vm,
+                n(
+                    "seq",
+                    n("define", "b", n("block", call("tick"))),
+                    n("call", v("b")),
+                    n("call", v("b")),
+                ),
+            ),
+        ).toBe(2);
+        expect(count).toBe(2);
+    });
+    test("a block passed as an argument is a lazy parameter", () => {
+        const { vm } = makeVM();
+        let count = 0;
+        vm.defineHostFunction("tick", () => ++count);
+        // the callee invokes the block: the argument is evaluated, once
+        expect(
+            run(
+                vm,
+                n(
+                    "call",
+                    n("lambda", ["b"], n("call", v("b"))),
+                    n("block", call("tick")),
+                ),
+            ),
+        ).toBe(1);
+        expect(count).toBe(1);
+        // the callee ignores the block: the argument is never evaluated
+        const { vm: vm2 } = makeVM();
+        let count2 = 0;
+        vm2.defineHostFunction("tick", () => ++count2);
+        expect(
+            run(
+                vm2,
+                n(
+                    "call",
+                    n("lambda", ["b"], c(0)),
+                    n("block", call("tick")),
+                ),
+            ),
+        ).toBe(0);
+        expect(count2).toBe(0);
+    });
+    test("blocks take no arguments", () => {
+        const { vm } = makeVM();
+        expect(() =>
+            run(vm, n("call", n("block", c(1)), c(2))),
+        ).toThrow(JEBError);
     });
 });
 
@@ -505,7 +599,34 @@ describe("host-defined opcodes", () => {
             err = e;
         }
         expect(err).toBeInstanceOf(JEBError);
-        expect(err.code).toBe(ErrnoCode.ESYNTAX);
+        expect(err.message).toBe("unknown opcode: frobnicate");
+    });
+});
+
+describe("host registry", () => {
+    test("host functions live in the registry, not in any environment", () => {
+        const { vm } = makeVM();
+        expect(vm.hostRegistry.has("+")).toBe(true);
+        expect(vm.currentEnv.get("+").ok).toBe(false);
+        // ...but a var lookup falls back to the registry
+        expect(run(vm, call("+", c(1), c(2)))).toBe(3);
+    });
+    test("host values are readable through var", () => {
+        const { vm } = makeVM();
+        vm.defineValue("answer", 42);
+        expect(run(vm, v("answer"))).toBe(42);
+    });
+    test("a program's own bindings take precedence over the registry", () => {
+        const { vm } = makeVM();
+        vm.defineValue("answer", 42);
+        expect(
+            run(vm, n("seq", n("define", "answer", c(1)), v("answer"))),
+        ).toBe(1);
+    });
+    test("names cannot be registered twice", () => {
+        const { vm } = makeVM();
+        expect(() => vm.defineHostFunction("+", () => 0)).toThrow(Error);
+        expect(() => vm.defineValue("+", 0)).toThrow(Error);
     });
 });
 
