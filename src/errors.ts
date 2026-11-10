@@ -5,12 +5,12 @@ import { JebVM, pushCommand, pushData, StackEntryKind } from "./vm";
 import { Continuation } from "./continuation";
 
 /** Extra options accepted when constructing a {@link JEBError}. */
-export interface JEBErrorOptions {
+export interface JEBErrorOptions<T extends JebVM<D, S>, D, S> {
     /**
      * Sub-errors bundled into this error, e.g. several failures reported
      * together.
      */
-    children?: JEBError[];
+    children?: JEBError<T, D, S>[];
 }
 
 /**
@@ -18,9 +18,9 @@ export interface JEBErrorOptions {
  * special: it holds the restart continuation that a host error handler can
  * invoke to resume execution at the expression that caused the error.
  */
-export interface JEBErrorContext {
+export interface JEBErrorContext<T extends JebVM<D, S>, D, S> {
     [x: string]: unknown;
-    return?: Continuation<any>;
+    return?: Continuation<T, D, S>;
 }
 
 /**
@@ -31,12 +31,12 @@ export interface JEBErrorContext {
  * embedding language's job (e.g. Kuiper's), which can subclass this or wrap it;
  * the core only ever raises plain `JEBError`s with a message.
  */
-export class JEBError extends Error {
-    readonly children: JEBError[];
+export class JEBError<T extends JebVM<D, S>, D, S> extends Error {
+    readonly children: JEBError<T, D, S>[];
     constructor(
         message?: string,
-        readonly options: ErrorOptions & JEBErrorOptions = {},
-        readonly context: JEBErrorContext = {},
+        readonly options: ErrorOptions & JEBErrorOptions<T, D, S> = {},
+        readonly context: JEBErrorContext<T, D, S> = {},
         public traceback?: StackTreeNode[],
     ) {
         super(message ?? "unspecified error", { cause: options.cause });
@@ -44,25 +44,23 @@ export class JEBError extends Error {
         this.children = options.children ?? [];
     }
     toString(): string {
-        return `${this.name}: ${this.message}${
-            this.traceback
+        return `${this.name}: ${this.message}${this.traceback
                 ? `\ntraceback: ${formatStackTraceCompact(
-                      compressStackTree(this.traceback),
-                  )}`
+                    compressStackTree(this.traceback),
+                )}`
                 : ""
-        }${
-            this.cause instanceof JEBError
+            }${this.cause instanceof JEBError
                 ? `\ncaused by: ${this.cause.toString()}`
                 : ""
-        }${this.children
-            .map((c) =>
-                c
-                    .toString()
-                    .split("\n")
-                    .map((l) => "  " + l)
-                    .join("\n"),
-            )
-            .join("\n\n")}`;
+            }${this.children
+                .map((c) =>
+                    c
+                        .toString()
+                        .split("\n")
+                        .map((l) => "  " + l)
+                        .join("\n"),
+                )
+                .join("\n\n")}`;
     }
 }
 
@@ -71,18 +69,18 @@ const STACKFRAME_JOINER = "<-";
 /** Tree node representing a compressed stack trace */
 export type StackTreeNode = Readonly<
     | {
-          leaf: false;
-          count: number;
-          children: StackTreeNode[];
-          hash: number;
-      }
+        leaf: false;
+        count: number;
+        children: StackTreeNode[];
+        hash: number;
+    }
     | {
-          leaf: true;
-          name: Identifier | undefined;
-          source: SourceInfo<any> | undefined;
-          kind: StackEntryKind;
-          hash: number;
-      }
+        leaf: true;
+        name: Identifier | undefined;
+        source: SourceInfo<any> | undefined;
+        kind: StackEntryKind;
+        hash: number;
+    }
 >;
 
 /**
@@ -186,9 +184,9 @@ export const compressStackTree = (nodes: StackTreeNode[]): StackTreeNode[] => {
                 node.leaf
                     ? node
                     : createStackInnerNode(
-                          node.count,
-                          compressStackTree(node.children),
-                      ),
+                        node.count,
+                        compressStackTree(node.children),
+                    ),
             );
             i++;
         }
@@ -290,7 +288,7 @@ export const wrapThrowToError = <T>(f: () => T) => {
  * resolves or rejects. A resolved value is pushed as the paused expression's
  * result as-is (including `NO_VALUE`); a rejection is rethrown inside the VM.
  */
-export const promisifyVM = (vm: JebVM, promise: Promise<any>): void => {
+export const promisifyVM = <T extends JebVM<D, S>, D, S> (vm: T, promise: Promise<D>): void => {
     vm.paused = true;
     const { promise: finish, resolve } = Promise.withResolvers<void>();
     vm.awaiting = finish;

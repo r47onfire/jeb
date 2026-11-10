@@ -1,7 +1,7 @@
 import { Block } from "./block";
 import { Closure } from "./closure";
-import { Continuation } from "./continuation";
-import { JEBError, promisifyVM, wrapThrowToError } from "./errors";
+import { DynamicWind } from "./continuation";
+import { JEBError } from "./errors";
 import {
     IRNode,
     isIRNode,
@@ -11,7 +11,7 @@ import {
     SourceInfo,
 } from "./ir";
 import { Identifier, isIdentifier } from "./utils";
-import { JebVM, popData, pushCommand, pushData, StackEntryKind } from "./vm";
+import { JebVM, popData, pushCommand, pushData } from "./vm";
 
 /**
  * The context handed to an opcode handler when its node is evaluated. The
@@ -32,29 +32,27 @@ export interface OpcodeContext<S = any> {
     /** The node's normalized source, if it has one. */
     readonly source: SourceInfo<S> | undefined;
     /** The node's operands (`node.slice(2)`), all unevaluated. */
-    readonly operands: any[];
+    readonly operands: IRNode<S>[];
     /** Whether this node is in tail position. */
     readonly tail: boolean;
     /**
      * Schedules evaluation of a child node. Its result is on the data stack
      * when the next command scheduled by this handler runs.
      */
-    eval(node: IRNode<any>, tail?: boolean): void;
+    eval(node: IRNode<S>, tail?: boolean): void;
     /**
      * Like {@link eval}, but for code produced by expanding this node (a macro
      * call, an `eval`, ...): the child is stamped with this node's source as
      * its expansion source before it is scheduled.
      */
-    evalExpanded(node: IRNode<any>): void;
+    evalExpanded(node: IRNode<S>): void;
 }
 
 /** Implements one opcode of the IR. See {@link OpcodeContext}. */
-export type OpcodeHandler<S = any> = (vm: JebVM, ctx: OpcodeContext<S>) => void;
-
-/** A host (Javascript) function callable from IR code through `call`. */
-export type HostFunction = (vm: JebVM, ...args: any[]) => any;
-
-const syntaxError = (message: string) => new JEBError(message);
+export type OpcodeHandler<D, S = any> = (
+    vm: JebVM<D, S>,
+    ctx: OpcodeContext<S>,
+) => void;
 
 // MARK: the evaluator
 
@@ -63,15 +61,15 @@ const syntaxError = (message: string) => new JEBError(message);
  * commands below are the continuation steps the handlers schedule; they are not
  * opcodes and cannot appear in code.
  */
-export const OP_eval = (
-    vm: JebVM,
+export const OP_eval = <D, S>(
+    vm: JebVM<D, S>,
     { 0: node, 1: tail }: [node: IRNode<any>, tail: boolean],
 ) => {
     if (!isIRNode(node))
-        throw syntaxError(`cannot evaluate a non-node: ${String(node)}`);
+        throw new JEBError(`cannot evaluate a non-node: ${String(node)}`);
     const opName = node[0]!;
     const handler = vm.opcodes[opName];
-    if (!handler) throw syntaxError(`unknown opcode: ${opName}`);
+    if (!handler) throw new JEBError(`unknown opcode: ${opName}`);
     const source = nodeSource(node);
     const ctx: OpcodeContext = {
         node,
@@ -91,7 +89,7 @@ export const OP_eval = (
     handler(vm, ctx);
 };
 
-const OP_pop_expansion = (vm: JebVM) => {
+const OP_pop_expansion = <D, S>(vm: JebVM<D, S>) => {
     const value = popData(vm);
     vm.expansionStack.pop();
     pushData(vm, value);
@@ -99,17 +97,28 @@ const OP_pop_expansion = (vm: JebVM) => {
 
 // MARK: seq
 
-interface SeqState {
-    nodes: any[];
+interface SeqState<D, S> {
+    nodes: IRNode<S>[];
     i: number;
-    last: any;
+    last: D;
     tail: boolean;
 }
 
-const seqStart = (vm: JebVM, nodes: any[], tail: boolean) =>
-    pushCommand(vm, OP_seq_step, { nodes, i: 0, last: NO_VALUE, tail });
+/**
+ * Schedules a list of nodes as a sequence (see the `seq` opcode). Exported for
+ * call-dispatch implementations (see {@link JebVM.dispatchCall}), which invoke
+ * block and closure bodies as sequences.
+ */
+export const seqStart = <D, S>(
+    vm: JebVM<D | typeof NO_VALUE, S>,
+    nodes: IRNode<S>[],
+    tail: boolean,
+) => pushCommand(vm, OP_seq_step, { nodes, i: 0, last: NO_VALUE, tail });
 
-const OP_seq_step = (vm: JebVM, [state]: [SeqState]) => {
+const OP_seq_step = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: state }: [SeqState<D | typeof NO_VALUE, S>],
+) => {
     if (state.i >= state.nodes.length) {
         pushData(vm, state.last);
         return;
@@ -121,7 +130,10 @@ const OP_seq_step = (vm: JebVM, [state]: [SeqState]) => {
     pushCommand(vm, OP_eval, child, state.tail && isLast);
 };
 
-const OP_seq_after = (vm: JebVM, [state]: [SeqState]) => {
+const OP_seq_after = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: state }: [SeqState<D | typeof NO_VALUE, S>],
+) => {
     const value = popData(vm);
     if (value !== NO_VALUE) state.last = value;
     pushCommand(vm, OP_seq_step, state);
@@ -129,11 +141,19 @@ const OP_seq_after = (vm: JebVM, [state]: [SeqState]) => {
 
 // MARK: calls
 
-interface CallArgs {
-    callee: any;
-    args: any[];
+/**
+ * One call to make: the callee value and its not-yet-evaluated arguments, plus
+ * the call site's context. This is what the VM's calling-dispatch point ({@link
+ * JebVM.dispatchCall}) receives.
+ */
+export interface CallArgs<D, S> {
+    callee: D;
+    args: IRNode<S>[];
+    /** Whether the call is in tail position. */
     tail: boolean;
-    source: SourceInfo<any> | undefined;
+    /** Source of the call site, for tracebacks. */
+    source: SourceInfo<S> | undefined;
+    /** Name the callee was referred to by at the call site, if known. */
     name: Identifier | undefined;
 }
 
@@ -146,13 +166,19 @@ interface CallCollectState {
     name: Identifier | undefined;
 }
 
-const OP_call_start = (vm: JebVM, [state]: [CallCollectState]) => {
+const OP_call_start = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: state }: [state: CallCollectState],
+) => {
     const callee = popData(vm);
     state.i = 0;
     pushCommand(vm, OP_call_step, state, callee);
 };
 
-const OP_call_step = (vm: JebVM, [state, callee]: [CallCollectState, any]) => {
+const OP_call_step = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: state, 1: callee }: [state: CallCollectState, callee: any],
+) => {
     if (state.i >= state.argNodes.length) {
         pushCommand(vm, OP_call_invoke, {
             callee,
@@ -169,101 +195,42 @@ const OP_call_step = (vm: JebVM, [state, callee]: [CallCollectState, any]) => {
     pushCommand(vm, OP_eval, argNode, false);
 };
 
-const OP_call_collect = (
-    vm: JebVM,
-    [state, callee]: [CallCollectState, any],
+const OP_call_collect = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: state, 1: callee }: [state: CallCollectState, callee: any],
 ) => {
     state.values.push(popData(vm));
     pushCommand(vm, OP_call_step, state, callee);
 };
 
 /**
- * Invokes a callable value (a {@link Closure}, a {@link Block}, a host function,
- * or a {@link Continuation}) with already-evaluated arguments. Also used
- * internally wherever the runtime itself needs to call a value.
+ * The calling-dispatch command: hands one fully-collected call to the VM's
+ * dispatch point ({@link JebVM.dispatchCall}). The core itself has no calling
+ * semantics -- the base dispatch point is abstract, and the layer above should
+ * provide the real implementation. This command is also used internally
+ * wherever the runtime itself needs to call a value.
  */
-export const OP_call_invoke = (vm: JebVM, { 0: call }: [call: CallArgs]) => {
-    const { callee, args, tail, source, name } = call;
-    if (callee instanceof Continuation) {
-        callee.invoke(vm, args.length > 0 ? args[0] : undefined);
-        return;
-    }
-    if (callee instanceof Block) {
-        // Invoking a block evaluates its body, like a seq, in the
-        // environment it captured. Blocks take no arguments; this is the
-        // mechanism lazy parameters are built from.
-        if (args.length > 0)
-            throw new JEBError(
-                `too many arguments: a block takes none, got ${args.length}`,
-            );
-        pushCommand(vm, OP_call_return, vm.currentEnv, tail, false);
-        vm.currentEnv = callee.closureEnv;
-        seqStart(vm, [...callee.body], true);
-        return;
-    }
-    if (callee instanceof Closure) {
-        const { params, rest } = callee;
-        if (args.length < params.length)
-            throw new JEBError(
-                `too few arguments: expected ${params.length}, got ${args.length}`,
-            );
-        if (rest === undefined && args.length > params.length)
-            throw new JEBError(
-                `too many arguments: expected ${params.length}, got ${args.length}`,
-            );
-        const env = vm.createEnv(callee.env);
-        params.forEach((param, i) => env.add(param, args[i]));
-        if (rest !== undefined) env.add(rest, args.slice(params.length));
-        const frameName = name ?? callee.name;
-        if (frameName !== undefined)
-            vm.pushTraceback(frameName, tail, source, StackEntryKind.FUNCTION);
-        pushCommand(
-            vm,
-            OP_call_return,
-            vm.currentEnv,
-            tail,
-            frameName !== undefined,
-        );
-        vm.currentEnv = env;
-        seqStart(vm, [...callee.body], true);
-        return;
-    }
-    if (typeof callee === "function") {
-        if (name !== undefined)
-            vm.pushTraceback(name, tail, source, StackEntryKind.FUNCTION);
-        const result = wrapThrowToError(() =>
-            (callee as HostFunction)(vm, ...args),
-        );
-        if (result instanceof Promise) {
-            // The frame stays up while the VM is paused on the promise, and
-            // is dropped when it resolves (on rejection it stays, so the
-            // error's traceback includes this call).
-            promisifyVM(
-                vm,
-                result.then((value) => {
-                    if (name !== undefined) vm.popTraceback(false);
-                    return value;
-                }),
-            );
-            return;
-        }
-        // A synchronous host call is a leaf: no frames were pushed above
-        // this one, so it can always be dropped directly. On a throw the
-        // frame is left in place for the error's traceback.
-        if (name !== undefined) vm.popTraceback(false);
-        pushData(vm, result);
-        return;
-    }
-    throw new JEBError(`value is not callable: ${typeof callee}`);
+export const OP_call_invoke = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: call }: [call: CallArgs<D, S>],
+) => {
+    vm.dispatchCall(call);
 };
 
-const OP_call_return = (
-    vm: JebVM,
+/**
+ * The return step for a call that switched environments: restores the caller's
+ * environment, drops the call's traceback frame (unless the call was in tail
+ * position, in which case the frame is dropped by the return it tail-called
+ * from), and leaves the body's result on the data stack. Exported for
+ * call-dispatch implementations (see {@link JebVM.dispatchCall}).
+ */
+export const OP_call_return = <V extends JebVM<D, S>, D, S>(
+    vm: V,
     {
         0: env,
         1: tail,
         2: framed,
-    }: [env: JebVM["currentEnv"], tail: boolean, framed: boolean],
+    }: [env: V["currentEnv"], tail: boolean, framed: boolean],
 ) => {
     const value = popData(vm);
     vm.currentEnv = env;
@@ -274,7 +241,10 @@ const OP_call_return = (
 };
 
 /** Calls a value and discards its result, leaving the data stack as it was. */
-export const OP_call_value = (vm: JebVM, [callee, args]: [any, any[]]) => {
+export const OP_call_and_ignore_result = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: callee, 1: args }: [D, IRNode<S>[]],
+) => {
     pushCommand(vm, OP_discard);
     pushCommand(vm, OP_call_invoke, {
         callee,
@@ -285,22 +255,25 @@ export const OP_call_value = (vm: JebVM, [callee, args]: [any, any[]]) => {
     });
 };
 
-const OP_discard = (vm: JebVM) => {
+const OP_discard = (vm: JebVM<any, any>) => {
     popData(vm);
 };
 
 // MARK: let
 
-interface LetState {
-    binds: [name: Identifier, valueNode: any][];
+interface LetState<V extends JebVM<D, S>, D, S> {
+    binds: [name: Identifier, valueNode: IRNode<S>][];
     i: number;
     values: any[];
     body: any[];
     tail: boolean;
-    outerEnv: JebVM["currentEnv"];
+    outerEnv: V["currentEnv"];
 }
 
-const OP_let_step = (vm: JebVM, [state]: [LetState]) => {
+const OP_let_step = <V extends JebVM<D, S>, D, S>(
+    vm: V,
+    { 0: state }: [LetState<V, D, S>],
+) => {
     if (state.i >= state.binds.length) {
         const env = vm.createEnv(state.outerEnv);
         state.binds.forEach(([name], i) => {
@@ -318,13 +291,19 @@ const OP_let_step = (vm: JebVM, [state]: [LetState]) => {
     pushCommand(vm, OP_eval, state.binds[state.i]![1], false);
 };
 
-const OP_let_collect = (vm: JebVM, [state]: [LetState]) => {
+const OP_let_collect = <V extends JebVM<D, S>, D, S>(
+    vm: V,
+    { 0: state }: [LetState<V, D, S>],
+) => {
     state.values.push(popData(vm));
     state.i++;
     pushCommand(vm, OP_let_step, state);
 };
 
-const OP_let_after = (vm: JebVM, [outerEnv]: [JebVM["currentEnv"]]) => {
+const OP_let_after = <V extends JebVM<D, S>, D, S>(
+    vm: V,
+    { 0: outerEnv }: [V["currentEnv"]],
+) => {
     const value = popData(vm);
     vm.currentEnv = outerEnv;
     pushData(vm, value);
@@ -332,12 +311,10 @@ const OP_let_after = (vm: JebVM, [outerEnv]: [JebVM["currentEnv"]]) => {
 
 // MARK: definition and assignment
 
-interface DefineArgs {
-    name: Identifier;
-    constant: boolean;
-}
-
-const OP_define_after = (vm: JebVM, [{ name, constant }]: [DefineArgs]) => {
+const OP_define_after = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: name, 1: constant }: [name: Identifier, constant: boolean],
+) => {
     const value = popData(vm);
     if (value instanceof Closure && value.name === undefined) value.name = name;
     if (constant) vm.currentEnv.addConst(name, value);
@@ -345,7 +322,10 @@ const OP_define_after = (vm: JebVM, [{ name, constant }]: [DefineArgs]) => {
     pushData(vm, NO_VALUE);
 };
 
-const OP_assign_after = (vm: JebVM, [{ name }]: [{ name: Identifier }]) => {
+const OP_assign_after = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: name }: [name: Identifier],
+) => {
     const value = popData(vm);
     const scope = vm.currentEnv.set(name, value);
     if (scope === undefined)
@@ -359,8 +339,8 @@ const OP_assign_after = (vm: JebVM, [{ name }]: [{ name: Identifier }]) => {
 
 // MARK: control opcodes' continuation steps
 
-const OP_if_after = (
-    vm: JebVM,
+const OP_if_after = <D, S>(
+    vm: JebVM<D, S>,
     {
         0: consequent,
         1: alternate,
@@ -370,16 +350,16 @@ const OP_if_after = (
 ) => {
     const condition = popData(vm);
     // The core `if` branches on host truthiness. Converting a language's
-    // values to booleans is that language's job (e.g. a Kuiper `bool` op),
+    // values to booleans is that language's job©,
     // not the core's.
     if (condition) pushCommand(vm, OP_eval, consequent, tail);
     else if (hasAlternate) pushCommand(vm, OP_eval, alternate, tail);
     else pushData(vm, NO_VALUE);
 };
 
-const OP_callcc_after = (
-    vm: JebVM,
-    [{ source }]: [{ source: SourceInfo<any> | undefined }],
+const OP_callcc_after = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: source }: [source: SourceInfo<S> | undefined],
 ) => {
     const callee = popData(vm);
     const continuation = vm.cc();
@@ -392,18 +372,20 @@ const OP_callcc_after = (
     });
 };
 
-const OP_eval_after = (
-    vm: JebVM,
-    [{ source, tail }]: [
-        { source: SourceInfo<any> | undefined; tail: boolean },
-    ],
+const OP_eval_after = <D, S>(
+    vm: JebVM<D, S>,
+    {
+        0: source,
+        1: tail,
+    }: [source: SourceInfo<any> | undefined, tail: boolean],
 ) => {
     const code = popData(vm);
-    if (!isIRNode(code)) throw syntaxError("eval: the value is not an IR node");
+    if (!isIRNode(code))
+        throw new JEBError("eval: the value is not an IR node");
     pushCommand(vm, OP_eval, markExpansion(code, source), tail);
 };
 
-const OP_throw_value = (vm: JebVM) => {
+const OP_throw_value = (vm: JebVM<any, any>) => {
     const value = popData(vm);
     if (value instanceof JEBError) throw value;
     throw new JEBError(String(value));
@@ -414,14 +396,17 @@ const OP_throw_value = (vm: JebVM) => {
  * thrown: runs each dynamic-wind exit handler it passes (with the error as its
  * argument) and finally parks the error on the VM for the host to see.
  */
-export const OP_throw = (vm: JebVM, [err]: [JEBError]) => {
+export const OP_throw = <T extends JebVM<D, S, T>, D, S> (
+    vm: T,
+    { 0: err }: [err: JEBError<T, D, S>],
+) => {
     while (vm.curDynamicWind.parent) {
         const dw = vm.curDynamicWind;
         vm.curDynamicWind = dw.parent!;
         dw.restore(vm);
         if (dw.handler?.exit) {
             pushCommand(vm, OP_throw, err);
-            pushCommand(vm, OP_call_value, dw.handler.exit, [err]);
+            pushCommand(vm, OP_call_and_ignore_result, dw.handler.exit, [err]);
             return;
         }
     }
@@ -431,20 +416,23 @@ export const OP_throw = (vm: JebVM, [err]: [JEBError]) => {
 
 // MARK: dynamic-wind
 
-interface WindCollectState {
-    nodes: any[];
+interface WindCollectState<D, S> {
+    nodes: IRNode<S>[];
     i: number;
-    values: any[];
-    source: SourceInfo<any> | undefined;
+    values: D[];
+    source: SourceInfo<S> | undefined;
 }
 
-const OP_wind_step = (vm: JebVM, [state]: [WindCollectState]) => {
+const OP_wind_step = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: state }: [state: WindCollectState<D, S>],
+) => {
     if (state.i >= state.nodes.length) {
-        const [enter, body, exit] = state.values as [any, any, any];
+        const { 0: enter, 1: body, 2: exit } = state.values as [any, any, any];
         const dw = vm.newDynamicWind();
         dw.setHandler({ enter, exit });
         vm.curDynamicWind = dw;
-        pushCommand(vm, OP_wind_body, { dw, body, source: state.source });
+        pushCommand(vm, OP_wind_body, dw, body, state.source);
         pushCommand(vm, OP_call_invoke, {
             callee: enter,
             args: [],
@@ -460,18 +448,22 @@ const OP_wind_step = (vm: JebVM, [state]: [WindCollectState]) => {
     pushCommand(vm, OP_eval, node, false);
 };
 
-const OP_wind_collect = (vm: JebVM, [state]: [WindCollectState]) => {
+const OP_wind_collect = <D, S>(
+    vm: JebVM<D, S>,
+    { 0: state }: [state: WindCollectState<D, S>],
+) => {
     state.values.push(popData(vm));
     pushCommand(vm, OP_wind_step, state);
 };
 
-interface WindBodyArgs {
-    dw: ReturnType<JebVM["newDynamicWind"]>;
-    body: any;
-    source: SourceInfo<any> | undefined;
-}
-
-const OP_wind_body = (vm: JebVM, [{ dw, body, source }]: [WindBodyArgs]) => {
+const OP_wind_body = <V extends JebVM<D, S>, D, S>(
+    vm: V,
+    {
+        0: dw,
+        1: body,
+        2: source,
+    }: [dw: DynamicWind<V>, body: any, sourceInfo: SourceInfo<S> | undefined],
+) => {
     popData(vm); // the enter handler's result
     pushCommand(vm, OP_wind_exit, { dw, source, result: NO_VALUE });
     pushCommand(vm, OP_call_invoke, {
@@ -483,13 +475,16 @@ const OP_wind_body = (vm: JebVM, [{ dw, body, source }]: [WindBodyArgs]) => {
     });
 };
 
-interface WindExitArgs {
-    dw: WindBodyArgs["dw"];
-    source: SourceInfo<any> | undefined;
+interface WindExitArgs<V extends JebVM<D, S>, D, S> {
+    dw: DynamicWind<V>;
+    source: SourceInfo<S> | undefined;
     result: any;
 }
 
-const OP_wind_exit = (vm: JebVM, [state]: [WindExitArgs]) => {
+const OP_wind_exit = <V extends JebVM<D, S>, D, S>(
+    vm: V,
+    { 0: state }: [state: WindExitArgs<V, D, S>],
+) => {
     state.result = popData(vm);
     pushCommand(vm, OP_wind_finish, state);
     pushCommand(vm, OP_call_invoke, {
@@ -501,7 +496,10 @@ const OP_wind_exit = (vm: JebVM, [state]: [WindExitArgs]) => {
     });
 };
 
-const OP_wind_finish = (vm: JebVM, [state]: [WindExitArgs]) => {
+const OP_wind_finish = <V extends JebVM<D, S>, D, S>(
+    vm: V,
+    [state]: [WindExitArgs<V, D, S>],
+) => {
     popData(vm); // the exit handler's result
     vm.curDynamicWind = state.dw.parent!;
     pushData(vm, state.result);
@@ -512,14 +510,14 @@ const OP_wind_finish = (vm: JebVM, [state]: [WindExitArgs]) => {
 const checkArity = (ctx: OpcodeContext, min: number, max = min) => {
     const n = ctx.operands.length;
     if (n < min || n > max)
-        throw syntaxError(
+        throw new JEBError(
             `${ctx.op}: expected ${min === max ? min : `${min} to ${max}`} operands, got ${n}`,
         );
 };
 
 const checkName = (ctx: OpcodeContext, operand: any): Identifier => {
     if (!isIdentifier(operand))
-        throw syntaxError(`${ctx.op}: expected a name operand`);
+        throw new JEBError(`${ctx.op}: expected a name operand`);
     return operand;
 };
 
@@ -530,9 +528,9 @@ const checkName = (ctx: OpcodeContext, operand: any): Identifier => {
  * keyword arguments, collections) belongs to the layer above, which registers
  * its own opcodes and host functions.
  */
-export const loadCoreOpcodes = (vm: JebVM) => {
-    const defineOpcode = (name: string, handler: OpcodeHandler) =>
-        vm.defineOpcode(name, handler)
+export const loadCoreOpcodes = <V extends JebVM<D, S>, D, S>(vm: V) => {
+    const defineOpcode = (name: string, handler: OpcodeHandler<D, S>) =>
+        vm.defineOpcode(name, handler);
 
     defineOpcode("const", (vm, ctx) => {
         checkArity(ctx, 1);
@@ -554,41 +552,33 @@ export const loadCoreOpcodes = (vm: JebVM) => {
         checkArity(ctx, 1);
         const name = checkName(ctx, ctx.operands[0]);
         const result = vm.currentEnv.get(name);
-        if (result.ok) {
-            pushData(vm, result.data);
-            return;
-        }
-        // no environment has the name: fall back to the host registry
-        if (vm.hostRegistry.has(name)) {
-            pushData(vm, vm.hostRegistry.get(name));
-            return;
-        }
-        throw new JEBError(`no such variable: ${String(name)}`);
+        if (!result.ok) throw new JEBError(`no such variable: ${String(name)}`);
+        pushData(vm, result.data);
     });
 
     defineOpcode("define", (vm, ctx) => {
         checkArity(ctx, 2);
         const name = checkName(ctx, ctx.operands[0]);
-        pushCommand(vm, OP_define_after, { name, constant: false });
-        ctx.eval(ctx.operands[1]);
+        pushCommand(vm, OP_define_after, name, false);
+        ctx.eval(ctx.operands[1]!);
     });
 
     defineOpcode("define-const", (vm, ctx) => {
         checkArity(ctx, 2);
         const name = checkName(ctx, ctx.operands[0]);
-        pushCommand(vm, OP_define_after, { name, constant: true });
-        ctx.eval(ctx.operands[1]);
+        pushCommand(vm, OP_define_after, name, true);
+        ctx.eval(ctx.operands[1]!);
     });
 
     defineOpcode("assign", (vm, ctx) => {
         checkArity(ctx, 2);
         const name = checkName(ctx, ctx.operands[0]);
-        pushCommand(vm, OP_assign_after, { name });
-        ctx.eval(ctx.operands[1]);
+        pushCommand(vm, OP_assign_after, name);
+        ctx.eval(ctx.operands[1]!);
     });
 
     defineOpcode("let", (vm, ctx) => {
-        const binds: LetState["binds"] = [];
+        const binds: LetState<V, D, S>["binds"] = [];
         let i = 0;
         while (
             i < ctx.operands.length &&
@@ -597,7 +587,7 @@ export const loadCoreOpcodes = (vm: JebVM) => {
         ) {
             const bind = ctx.operands[i]!;
             if (bind.length !== 4)
-                throw syntaxError("bind: expected a name and a value node");
+                throw new JEBError("bind: expected a name and a value node");
             binds.push([checkName(ctx, bind[2]), bind[3]]);
             i++;
         }
@@ -608,32 +598,32 @@ export const loadCoreOpcodes = (vm: JebVM) => {
             body: ctx.operands.slice(i),
             tail: ctx.tail,
             outerEnv: vm.currentEnv,
-        } satisfies LetState);
+        } satisfies LetState<V, D, S>);
     });
 
-    defineOpcode("bind", (vm, ctx) => {
-        throw syntaxError("bind: only meaningful as an operand of let");
+    defineOpcode("bind", () => {
+        throw new JEBError("bind: only meaningful as an operand of let");
     });
 
     defineOpcode("lambda", (vm, ctx) => {
         if (ctx.operands.length < 1)
-            throw syntaxError("lambda: expected a parameter list");
+            throw new JEBError("lambda: expected a parameter list");
         const paramsData = ctx.operands[0];
         if (!Array.isArray(paramsData))
-            throw syntaxError("lambda: parameters must be an array of names");
+            throw new JEBError("lambda: parameters must be an array of names");
         const params: Identifier[] = [];
         let rest: Identifier | undefined;
         paramsData.forEach((param, i) => {
             if (typeof param === "string" && param.startsWith("...")) {
                 if (i !== paramsData.length - 1)
-                    throw syntaxError(
+                    throw new JEBError(
                         "lambda: a rest parameter must come last",
                     );
                 rest = param.slice(3);
                 if (!rest)
-                    throw syntaxError("lambda: rest parameter needs a name");
+                    throw new JEBError("lambda: rest parameter needs a name");
             } else if (isIdentifier(param)) params.push(param);
-            else throw syntaxError("lambda: parameters must be names");
+            else throw new JEBError("lambda: parameters must be names");
         });
         pushData(
             vm,
@@ -653,8 +643,8 @@ export const loadCoreOpcodes = (vm: JebVM) => {
 
     defineOpcode("call", (vm, ctx) => {
         if (ctx.operands.length < 1)
-            throw syntaxError("call: expected at least a callee node");
-        const calleeNode = ctx.operands[0];
+            throw new JEBError("call: expected at least a callee node");
+        const calleeNode = ctx.operands[0]!;
         const state: CallCollectState = {
             argNodes: ctx.operands.slice(1),
             i: 0,
@@ -680,13 +670,13 @@ export const loadCoreOpcodes = (vm: JebVM) => {
             ctx.operands.length > 2,
             ctx.tail,
         );
-        ctx.eval(ctx.operands[0]);
+        ctx.eval(ctx.operands[0]!);
     });
 
     defineOpcode("callcc", (vm, ctx) => {
         checkArity(ctx, 1);
-        pushCommand(vm, OP_callcc_after, { source: ctx.source });
-        ctx.eval(ctx.operands[0]);
+        pushCommand(vm, OP_callcc_after, ctx.source);
+        ctx.eval(ctx.operands[0]!);
     });
 
     defineOpcode("dynamic-wind", (vm, ctx) => {
@@ -696,21 +686,18 @@ export const loadCoreOpcodes = (vm: JebVM) => {
             i: 0,
             values: [],
             source: ctx.source,
-        } satisfies WindCollectState);
+        } satisfies WindCollectState<D, S>);
     });
 
     defineOpcode("eval", (vm, ctx) => {
         checkArity(ctx, 1);
-        pushCommand(vm, OP_eval_after, {
-            source: ctx.source,
-            tail: ctx.tail,
-        });
-        ctx.eval(ctx.operands[0]);
+        pushCommand(vm, OP_eval_after, ctx.source, ctx.tail);
+        ctx.eval(ctx.operands[0]!);
     });
 
     defineOpcode("throw", (vm, ctx) => {
         checkArity(ctx, 1);
         pushCommand(vm, OP_throw_value);
-        ctx.eval(ctx.operands[0]);
+        ctx.eval(ctx.operands[0]!);
     });
 };

@@ -12,11 +12,11 @@ import { IRNode } from "./ir";
  * a block, and the callee invokes it if and when it wants the argument's
  * value.
  */
-export class Block {
+export class Block<D, S> {
     constructor(
         /** The environment the body is evaluated in when invoked. */
-        readonly closureEnv: Env,
+        readonly closureEnv: Env<D>,
         /** The deferred body nodes. */
-        readonly body: readonly IRNode<any>[],
+        readonly body: readonly IRNode<S>[],
     ) {}
 }

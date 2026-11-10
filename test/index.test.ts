@@ -1,7 +1,12 @@
 import { describe, expect, test } from "bun:test";
+import { Ok } from "ts-res";
 import {
     Block,
+    CallArgs,
     Closure,
+    Continuation,
+    Env,
+    Identifier,
     IRNode,
     JEBError,
     JebVM,
@@ -9,12 +14,18 @@ import {
     nodeSource,
     NO_VALUE,
     op,
+    OP_call_return,
     OP_eval,
     popData,
+    promisifyVM,
     pushCommand,
     pushData,
+    seqStart,
     sourcesEqual,
+    StackEntryKind,
     StackTreeNode,
+    wrapThrowToError,
+    OpcodeContext,
 } from "../src";
 
 // Tests use strings as spans (the IR is generic over the span type).
@@ -28,8 +39,141 @@ const v = (name: string): N => n("var", name);
 const call = (name: string, ...args: any[]): N =>
     n("call", v(name), ...args);
 
+// MARK: a test-only VM with calling and a host registry
+//
+// The core runtime does not call anything and has no host registry: calling
+// is the layer above's business (Kuiper's `__call__`). This subclass is the
+// tests' stand-in for that layer: it provides a `dispatchCall` that knows
+// how to call continuations, blocks, closures, and native host functions,
+// and a host registry that `var` lookups fall back to.
+
+/** A host (Javascript) function callable from IR code through `call`. */
+type HostFunction<D, S> = (vm: JebVM<D, S>, ...args: D[]) => any;
+
+/**
+ * An environment whose `get` falls back to the owning {@link TestVM}'s host
+ * registry when no scope in the chain has the name. The registry is not a
+ * scope: `scopeFor` (and therefore `assign`) never sees it.
+ */
+class RegistryEnv extends Env {
+    constructor(
+        private readonly owner: TestVM,
+        bindings: Record<Identifier, any> = {},
+        parents: readonly Env[] = [],
+    ) {
+        super(bindings, parents);
+    }
+    get(name: Identifier) {
+        const result = super.get(name);
+        if (result.ok) return result;
+        if (this.owner.hostRegistry.has(name))
+            return Ok(this.owner.hostRegistry.get(name));
+        return result;
+    }
+}
+
+class TestVM extends JebVM<any, string> {
+    /** Host-provided values and functions, by name. Not an environment. */
+    readonly hostRegistry = new Map<Identifier, any>();
+    override createEnv(...parents: Env[]) {
+        return new RegistryEnv(this, {}, parents);
+    }
+    /** Registers a host (Javascript) function in the {@link hostRegistry}. */
+    defineHostFunction(name: Identifier, fn: HostFunction<any, string>) {
+        if (this.hostRegistry.has(name))
+            throw new Error(
+                `host function ${String(name)} is already registered`,
+            );
+        this.hostRegistry.set(name, fn);
+    }
+    /** Registers a host value in the {@link hostRegistry}. */
+    defineValue(name: Identifier, value: any) {
+        if (this.hostRegistry.has(name))
+            throw new Error(`host value ${String(name)} is already registered`);
+        this.hostRegistry.set(name, value);
+    }
+    override dispatchCall({ callee, args, tail, source, name }: CallArgs<any, string>) {
+        if (callee instanceof Continuation) {
+            callee.invoke(this, args.length > 0 ? args[0] : undefined);
+            return;
+        }
+        if (callee instanceof Block) {
+            // Invoking a block evaluates its body, like a seq, in the
+            // environment it captured. Blocks take no arguments; this is the
+            // mechanism lazy parameters are built from.
+            if (args.length > 0)
+                throw new JEBError(
+                    `too many arguments: a block takes none, got ${args.length}`,
+                );
+            pushCommand(this, OP_call_return, this.currentEnv, tail, false);
+            this.currentEnv = callee.closureEnv;
+            seqStart(this, [...callee.body], true);
+            return;
+        }
+        if (callee instanceof Closure) {
+            const { params, rest } = callee;
+            if (args.length < params.length)
+                throw new JEBError(
+                    `too few arguments: expected ${params.length}, got ${args.length}`,
+                );
+            if (rest === undefined && args.length > params.length)
+                throw new JEBError(
+                    `too many arguments: expected ${params.length}, got ${args.length}`,
+                );
+            const env = this.createEnv(callee.env);
+            params.forEach((param, i) => env.add(param, args[i]));
+            if (rest !== undefined) env.add(rest, args.slice(params.length));
+            const frameName = name ?? callee.name;
+            if (frameName !== undefined)
+                this.pushTraceback(
+                    frameName,
+                    tail,
+                    source,
+                    StackEntryKind.FUNCTION,
+                );
+            pushCommand(
+                this,
+                OP_call_return,
+                this.currentEnv,
+                tail,
+                frameName !== undefined,
+            );
+            this.currentEnv = env;
+            seqStart(this, [...callee.body], true);
+            return;
+        }
+        if (typeof callee === "function") {
+            if (name !== undefined)
+                this.pushTraceback(name, tail, source, StackEntryKind.FUNCTION);
+            const result = wrapThrowToError(() =>
+                (callee as HostFunction<any, string>)(this, ...args),
+            );
+            if (result instanceof Promise) {
+                // The frame stays up while the VM is paused on the promise,
+                // and is dropped when it resolves (on rejection it stays, so
+                // the error's traceback includes this call).
+                promisifyVM(
+                    this,
+                    result.then((value) => {
+                        if (name !== undefined) this.popTraceback(false);
+                        return value;
+                    }),
+                );
+                return;
+            }
+            // A synchronous host call is a leaf: no frames were pushed above
+            // this one, so it can always be dropped directly. On a throw the
+            // frame is left in place for the error's traceback.
+            if (name !== undefined) this.popTraceback(false);
+            pushData(this, result);
+            return;
+        }
+        throw new JEBError(`value is not callable: ${typeof callee}`);
+    }
+}
+
 const makeVM = () => {
-    const vm = new JebVM();
+    const vm = new TestVM();
     const out: string[] = [];
     vm.defineHostFunction("+", (_vm, a, b) => a + b);
     vm.defineHostFunction("-", (_vm, a, b) => a - b);
@@ -47,14 +191,14 @@ const makeVM = () => {
     return { vm, out };
 };
 
-const run = (vm: JebVM, code: N) => {
+const run = (vm: JebVM<any, any>, code: N) => {
     vm.start(code);
     while (!vm.done && !vm.error) vm.step();
     if (vm.error) throw vm.error;
     return popData(vm);
 };
 
-const runAsync = async (vm: JebVM, code: N) => {
+const runAsync = async (vm: JebVM<any, any>, code: N) => {
     vm.start(code);
     while (!vm.done && !vm.error) {
         if (vm.paused) await vm.awaiting;
@@ -542,7 +686,7 @@ describe("if", () => {
 
 // test-only continuation step for the "twice" opcode: drops the first
 // result and evaluates the operand a second time
-const OP_twice_step = (vm: JebVM, [node]: [any]) => {
+const OP_twice_step = (vm: JebVM<any, any>, [node]: [any]) => {
     popData(vm);
     pushCommand(vm, OP_eval, node, false);
 };
@@ -552,16 +696,16 @@ describe("host-defined opcodes", () => {
         const { vm } = makeVM();
         let count = 0;
         vm.defineHostFunction("tick", () => ++count);
-        vm.defineOpcode("twice", (vm, ctx) => {
+        vm.defineOpcode("twice", (vm: JebVM<any, any>, ctx: OpcodeContext<any>) => {
             pushCommand(vm, OP_twice_step, ctx.operands[0]);
-            ctx.eval(ctx.operands[0]);
+            ctx.eval(ctx.operands[0]!);
         });
         expect(run(vm, n("twice", call("tick")))).toBe(2);
         expect(count).toBe(2);
     });
     test("an opcode can skip an operand (macro-style)", () => {
         const OP_unless_after = (
-            vm: JebVM,
+            vm: JebVM<any, any>,
             [{ then, els, tail }]: [{ then: any; els: any; tail: boolean }],
         ) => {
             const condition = popData(vm);
@@ -569,14 +713,14 @@ describe("host-defined opcodes", () => {
             else if (els !== undefined) pushCommand(vm, OP_eval, els, tail);
             else pushData(vm, NO_VALUE);
         };
-        const defineUnless = (vm: JebVM) =>
-            vm.defineOpcode("unless", (vm, ctx) => {
+        const defineUnless = (vm: JebVM<any, any>) =>
+            vm.defineOpcode("unless", (vm: JebVM<any, any>, ctx: OpcodeContext<any>) => {
                 pushCommand(vm, OP_unless_after, {
                     then: ctx.operands[1],
                     els: ctx.operands[2],
                     tail: ctx.tail,
                 });
-                ctx.eval(ctx.operands[0]);
+                ctx.eval(ctx.operands[0]!);
             });
         const { vm } = makeVM();
         defineUnless(vm);
@@ -607,7 +751,8 @@ describe("host registry", () => {
     test("host functions live in the registry, not in any environment", () => {
         const { vm } = makeVM();
         expect(vm.hostRegistry.has("+")).toBe(true);
-        expect(vm.currentEnv.get("+").ok).toBe(false);
+        expect(vm.currentEnv.scopeFor("+").ok).toBe(false);
+        expect(Reflect.has(vm.currentEnv.bindings, "+")).toBe(false);
         // ...but a var lookup falls back to the registry
         expect(run(vm, call("+", c(1), c(2)))).toBe(3);
     });

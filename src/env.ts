@@ -8,7 +8,7 @@ const hasOwn = Object.hasOwn;
  * environments.
  */
 
-export class Env {
+export class Env<D> {
     /**
      * Names defined as constants in this scope; {@link set} refuses to change
      * them
@@ -16,12 +16,12 @@ export class Env {
     readonly constants: Record<Identifier, true> = {};
     constructor(
         /** The bindings defined directly in this scope */
-        readonly bindings: Record<Identifier, any> = {},
+        readonly bindings: Record<Identifier, D> = {},
         /** Parent environments searched after this one, in order */
-        readonly parents: readonly Env[] = [],
+        readonly parents: readonly Env<D>[] = [],
     ) {}
     /** Returns the Env in which the given variable is defined. */
-    scopeFor(name: Identifier): Result<Env, void> {
+    scopeFor(name: Identifier): Result<Env<D>, void> {
         if (hasOwn(this.bindings, name)) {
             return Ok(this);
         }
@@ -37,23 +37,23 @@ export class Env {
      * Look up the value, and return its value (in an ok result) or an err
      * result if not found
      */
-    get(name: Identifier): Result<any, void> {
-        const res = this.scopeFor(name);
-        if (!res.ok) return res;
-        return Ok(res.data.bindings[name]);
+    get(name: Identifier): Result<D, void> {
+        const res = this.scopeFor(name)
+        if (!res.ok) return res as Result<never, void>;
+        return Ok(res.data.bindings[name] as D);
     }
     /**
      * Defines the value in this scope (always succeeds). Note: bailing on
      * trying to reassign a constant is not checked here.
      */
-    add(name: Identifier, value: any) {
+    add(name: Identifier, value: D) {
         this.bindings[name] = value;
     }
     /**
      * Defines the constant in this scope (always succeeds). Note: bailing on
      * trying to reassign a constant is not checked here.
      */
-    addConst(name: Identifier, value: any) {
+    addConst(name: Identifier, value: D) {
         this.add(name, value);
         this.constants[name] = true;
     }
@@ -63,7 +63,7 @@ export class Env {
      * constant and can't be changed, or undefined if it wasn't defined
      * anywhere.
      */
-    set(name: Identifier, value: any): Env | false | undefined {
+    set(name: Identifier, value: D): Env<D> | false | undefined {
         const res = this.scopeFor(name);
         if (!res.ok) return undefined;
         const env = res.data;
@@ -78,4 +78,4 @@ var n = 0;
  * Returns a new unique symbol with a unique number description (to
  * differentiate it in printouts).
  */
-export const gensym = (s = "$gensym") => Symbol(s + n++);
+export const gensym = (s = "_") => Symbol(s + n++);

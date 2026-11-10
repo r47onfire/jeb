@@ -18,7 +18,7 @@ import { Identifier } from "./utils";
  * and lazy parameters belong to the layer above (e.g. Kuiper), which builds
  * them out of closures and blocks.
  */
-export class Closure {
+export class Closure<D, S> {
     constructor(
         /** Positional parameter names, bound in order. */
         readonly params: readonly Identifier[],
@@ -28,7 +28,7 @@ export class Closure {
          */
         readonly rest: Identifier | undefined,
         /** The wrapped block: the body and its defining environment. */
-        readonly block: Block,
+        readonly block: Block<D, S>,
         /**
          * Name to show in tracebacks. Set by `define`/`let` when the closure is
          * first bound to a name and it doesn't have one yet.
@@ -36,7 +36,7 @@ export class Closure {
         public name: Identifier | undefined = undefined,
     ) {}
     /** The environment the body closes over (the block's). */
-    get env(): Env {
+    get env(): Env<D> {
         return this.block.closureEnv;
     }
     /** The body nodes (the block's). */
