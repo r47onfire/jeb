@@ -1,8 +1,8 @@
 import { javaHash, rotate32 } from "@r47onfire/game-math";
-import { NOTHING } from "./define";
 import { ErrnoCode, ErrnoDesc } from "./errno";
+import { SourceInfo, sourceKey, sourcesEqual } from "./ir";
 import { Identifier } from "./utils";
-import { JebVM, pushCommand, pushData, StackEntryKind, StackEntry } from "./vm";
+import { JebVM, pushCommand, pushData, StackEntryKind } from "./vm";
 import { Continuation } from "./continuation";
 
 /** Extra options accepted when constructing a {@link JEBError}. */
@@ -12,16 +12,6 @@ export interface JEBErrorOptions {
      * together.
      */
     children?: JEBError[];
-    /**
-     * Location of the specific call argument this error blames (see
-     * {@link JEBError.paramLocation}).
-     */
-    paramLocation?: Location;
-    /**
-     * Name of the parameter this error blames, used to name the frame the VM
-     * adds for it (see {@link JEBError.paramName}).
-     */
-    paramName?: Identifier;
 }
 
 /**
@@ -37,16 +27,6 @@ export interface JEBErrorContext {
 /** Generic base class for an error thrown by a JEB program. */
 export class JEBError extends Error {
     readonly children: JEBError[];
-    /**
-     * When set, the VM adds a frame for the blamed parameter (named from
-     * {@link JEBError.paramName}) with this location on top of the traceback as
-     * the traceback is attached, so the error points at the specific argument
-     * that was bad as well as at the call itself, whose frame keeps its own
-     * location. Set from {@link JEBErrorOptions.paramLocation}.
-     */
-    public paramLocation?: Location;
-    /** Name of the parameter blamed by this error, if it blames one. */
-    public paramName?: Identifier;
     constructor(
         readonly code: ErrnoCode,
         message?: string,
@@ -58,8 +38,6 @@ export class JEBError extends Error {
         super(message, { cause: options.cause });
         this.name = this.constructor.name;
         this.children = options.children ?? [];
-        this.paramLocation = options.paramLocation;
-        this.paramName = options.paramName;
     }
     toString(): string {
         return `[${ErrnoCode[this.code] ?? this.code}] ${this.message}${
@@ -86,12 +64,6 @@ export class JEBError extends Error {
 
 const STACKFRAME_JOINER = "<-";
 
-/**
- * A source location, as an `[id, file]` pair; either entry may be `undefined`
- * if it is not known.
- */
-export type Location = [id: number | undefined, file: number | undefined];
-
 /** Tree node representing a compressed stack trace */
 export type StackTreeNode = Readonly<
     | {
@@ -103,7 +75,7 @@ export type StackTreeNode = Readonly<
     | {
           leaf: true;
           name: Identifier | undefined;
-          location: Location | undefined;
+          source: SourceInfo<any> | undefined;
           kind: StackEntryKind;
           hash: number;
       }
@@ -111,25 +83,22 @@ export type StackTreeNode = Readonly<
 
 /**
  * Creates a leaf stack tree node for a single call frame. The node's hash is
- * precomputed from the frame name and location so that equal frames can be
+ * precomputed from the frame name and source so that equal frames can be
  * recognized (and folded together) by {@link compressStackTree}.
  */
 export const createStackLeafNode = (
     name: Identifier | undefined,
-    location: Location | undefined,
+    source: SourceInfo<any> | undefined,
     kind: StackEntryKind,
 ): StackTreeNode => {
     return {
         leaf: true,
         name,
-        location,
+        source,
         kind,
         hash:
             javaHash(String(name)) ^
-            (location
-                ? rotate32(javaHash(String(location[1])), 11) ^
-                  rotate32(location[0] ?? 0x103e4e, 23)
-                : 0xdeadbeef) ^
+            (source ? rotate32(javaHash(sourceKey(source)), 11) : 0xdeadbeef) ^
             rotate32(kind, 21),
     };
 };
@@ -223,22 +192,6 @@ export const compressStackTree = (nodes: StackTreeNode[]): StackTreeNode[] => {
     return result;
 };
 
-/**
- * Prepends a frame for the blamed parameter located at the argument that filled
- * it, so an error can point at the specific argument that caused it as well as
- * at the call itself (see {@link JEBError.paramLocation}).
- */
-export const blameParameter = (
-    nodes: StackTreeNode[],
-    location: Location,
-    param?: Identifier,
-): StackTreeNode[] => {
-    return [
-        createStackLeafNode(param, location, StackEntryKind.PARAMETER),
-        ...nodes,
-    ];
-};
-
 const patternsEqual = (
     nodes: StackTreeNode[],
     offset1: number,
@@ -261,7 +214,7 @@ const nodesEqual = (node1: StackTreeNode, node2: StackTreeNode) => {
     if (node1.leaf && node2.leaf) {
         if (node1.name !== node2.name) return false;
         if (node1.kind !== node2.kind) return false;
-        return locationsEqual(node1.location, node2.location);
+        return sourcesEqual(node1.source, node2.source);
     }
     if (!node1.leaf && !node2.leaf) {
         // For non-leaf nodes, count and structure must match
@@ -281,15 +234,6 @@ const childrenEqual = (
         children1.length === children2.length &&
         children1.every((child1, i) => nodesEqual(child1, children2[i]!))
     );
-};
-
-/** Whether two (possibly undefined) {@link Location}s denote the same place. */
-export const locationsEqual = (
-    location1: Location | undefined,
-    location2: Location | undefined,
-) => {
-    if (!location1 || !location2) return location1 === location2;
-    return location1.every((x, i) => location2[i] === x);
 };
 
 /**
@@ -341,33 +285,16 @@ export const wrapThrowToError = <T>(kind: ErrnoCode, f: () => T) => {
 };
 
 /**
- * Pushes the value to the VM's data stack, but only if the value is not
- * {@link NOTHING}.
- *
- * @param vm VM we're running in
- * @param value Value to check
- */
-export const checkNothingOrPush = (vm: JebVM, value: any) => {
-    if (value !== NOTHING) pushData(vm, value);
-};
-
-/**
  * Pauses the VM while the promise is pending, and then resumes it when it
- * resolves or rejects.
+ * resolves or rejects. A resolved value is pushed as the paused expression's
+ * result as-is (including `NO_VALUE`); a rejection is rethrown inside the VM.
  */
-export const promisifyVM = (
-    vm: JebVM,
-    promise: Promise<any>,
-): typeof NOTHING => {
+export const promisifyVM = (vm: JebVM, promise: Promise<any>): void => {
     vm.paused = true;
     const { promise: finish, resolve } = Promise.withResolvers<void>();
     vm.awaiting = finish;
     promise.then(
-        (result) => (
-            (vm.paused = false),
-            checkNothingOrPush(vm, result),
-            resolve()
-        ),
+        (result) => ((vm.paused = false), pushData(vm, result), resolve()),
         (error) => (
             (vm.paused = false),
             pushCommand(vm, () => {
@@ -376,5 +303,4 @@ export const promisifyVM = (
             resolve()
         ),
     );
-    return NOTHING;
 };

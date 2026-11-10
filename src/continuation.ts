@@ -1,6 +1,7 @@
 import { LinkedList, LinkedList_pushAll } from "@r47onfire/game-math";
-import { OP_apply, OP_shuffle } from "./builtins";
 import { Env } from "./env";
+import { SourceInfo } from "./ir";
+import { OP_call_value } from "./opcodes";
 import { Command, JebVM, pushCommand, pushData, StackCount } from "./vm";
 
 /** A continuation which holds all the VM state, and can restore it at any time */
@@ -15,6 +16,8 @@ export class Continuation<T extends JebVM> {
     winders: DynamicWind<T>;
     /** Closed-over traceback stack in progress */
     traceback: LinkedList<StackCount>;
+    /** Closed-over macro expansion context in progress */
+    expansion: SourceInfo<any>[];
     /** Other saved state */
     state: ReturnType<T["getState"]>;
     constructor(vm: T, extraOps: Command<T>[]) {
@@ -23,6 +26,7 @@ export class Continuation<T extends JebVM> {
         this.data = vm.dataStack;
         this.winders = vm.curDynamicWind;
         this.traceback = vm.tracebackStack;
+        this.expansion = [...vm.expansionStack];
         this.state = vm.getState();
     }
     /**
@@ -36,6 +40,7 @@ export class Continuation<T extends JebVM> {
         vm.commandStack = this.commands;
         vm.dataStack = this.data;
         vm.tracebackStack = this.traceback;
+        vm.expansionStack = [...this.expansion];
         vm.restoreState(this.state);
         pushData(vm, data);
         this.winders.processJumpHere(vm);
@@ -94,34 +99,27 @@ export class DynamicWind<T extends JebVM> {
             parentsOfTo.unshift(tp);
             tp = tp.parent;
         }
-        const intOps: Command<T>[] = [];
-        const intData = [];
-        // walk up the "from" stack, adding ops to run the exit handlers
-        // when we reach the common ancestor, add ops to run the enter handlers for the "to" stack
+        // the handler calls to run, in order: the exit handlers on the way
+        // up from the current wind stack to the common ancestor (exit
+        // handlers get `null` -- this jump is not an error), then the enter
+        // handlers on the way back down to this node
+        const calls: [callee: any, args: any[]][] = [];
         var i = -1;
         var fp: DynamicWind<T> | null = vm.curDynamicWind;
         while (fp) {
             i = parentsOfTo.indexOf(fp);
             if (i !== -1) break;
-            if (fp.handler?.exit) {
-                intOps.push([OP_apply, [true, null], undefined, true]);
-                intOps.push([OP_shuffle, 1, []]);
-                intData.push(fp.handler.exit);
-            }
+            if (fp.handler?.exit) calls.push([fp.handler.exit, [null]]);
             fp = fp.parent;
         }
         const len = parentsOfTo.length;
         for (var j = i + 1; j < len; j++) {
             const tp = parentsOfTo[j]!;
-            if (tp.handler?.enter) {
-                intOps.push([OP_apply, [true], undefined, true]);
-                intOps.push([OP_shuffle, 1, []]);
-                intData.push(tp.handler.enter);
-            }
+            if (tp.handler?.enter) calls.push([tp.handler.enter, []]);
         }
-        // then dump everything into the VM's opcode and data stacks
-        while (intOps.length > 0) pushCommand(vm, ...intOps.pop()!);
-        while (intData.length > 0) pushData(vm, intData.pop()!);
+        // commands run last-pushed-first, so push the calls in reverse
+        for (var k = calls.length - 1; k >= 0; k--)
+            pushCommand(vm, OP_call_value, calls[k]![0], calls[k]![1]);
         // restore values
         vm.curDynamicWind = this;
     }

@@ -1,15 +1,14 @@
 /**
  * @file Build script: bundles the package with Bun into `dist/` as ESM, with
- *   code splitting and sourcemaps. The entry points are the main module, the
- *   test module, and the standalone documentation module. Pass `--minify` on
- *   the command line to also minify the output.
+ *   code splitting and sourcemaps. The only entry point is the main module.
+ *   Pass `--minify` on the command line to also minify the output.
  */
 Bun.build({
     sourcemap: true,
     format: "esm",
     splitting: true,
     outdir: "dist/",
-    entrypoints: ["src/index.ts", "src/indextest.ts", "src/doc.ts"],
+    entrypoints: ["src/index.ts"],
     naming: {
         entry: "[dir]/[name].[ext]",
         chunk: "[dir]/[hash].[ext]",

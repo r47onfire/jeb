@@ -1,22 +1,11 @@
 export * from "./auditHookTypes";
-export * from "./block";
-export * from "./builtins";
-export * from "./callable";
+export * from "./closure";
 export * from "./continuation";
-export * from "./define";
-export * from "./doargs";
 export * from "./env";
 export * from "./errno";
 export * from "./errnoInheritance";
 export * from "./errors";
-export * from "./implicitBegin";
-export * from "./math";
-export * from "./reference";
-export * from "./signature";
-export * from "./typecheck";
+export * from "./ir";
+export * from "./opcodes";
 export * from "./utils";
 export * from "./vm";
-export * from "./wrapper";
-
-// purely for jsdoc purposes
-export type { HasDocstring } from "./doc";

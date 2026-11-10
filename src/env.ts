@@ -1,6 +1,4 @@
-import { RemovableSet } from "@r47onfire/game-math";
 import { Err, Ok, Result } from "ts-res";
-import { Block } from "./block";
 import { Identifier } from "./utils";
 
 const hasOwn = Object.hasOwn;
@@ -16,12 +14,6 @@ export class Env {
      * them
      */
     readonly constants: Record<Identifier, true> = {};
-    /**
-     * Handler blocks registered with {@link watch}, by variable name. The
-     * handlers run (in the environment where the variable lives) whenever the
-     * variable is assigned.
-     */
-    readonly watchers: Record<Identifier, RemovableSet<Block>> = {};
     constructor(
         /** The bindings defined directly in this scope */
         readonly bindings: Record<Identifier, any> = {},
@@ -40,14 +32,6 @@ export class Env {
             if (result.ok) return result;
         }
         return Err();
-    }
-    /**
-     * Registers a handler block to be run whenever the named variable is
-     * assigned in this environment (reactive `always`-style watchers). Returns
-     * a handle that removes the watcher when called.
-     */
-    watch(name: Identifier, handler: Block) {
-        return (this.watchers[name] ??= new RemovableSet()).push(handler);
     }
     /**
      * Look up the value, and return its value (in an ok result) or an err

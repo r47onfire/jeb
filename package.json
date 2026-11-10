@@ -6,12 +6,6 @@
     "exports": {
         ".": {
             "import": "./src/index.ts"
-        },
-        "./test": {
-            "import": "./src/indextest.ts"
-        },
-        "./doc": {
-            "import": "./src/doc.ts"
         }
     },
     "type": "module",

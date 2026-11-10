@@ -8,20 +8,23 @@ import {
 } from "@r47onfire/game-math";
 import { min } from "lib0/math";
 import { JEBAuditEvents } from "./auditHookTypes";
-import { loadBuiltins, OP_eval, OP_throw } from "./builtins";
-import { OP_unwrap } from "./builtins/unwrap";
 import { Continuation, DynamicWind } from "./continuation";
 import { Env } from "./env";
 import { ErrnoCode } from "./errno";
 import {
-    blameParameter,
     createStackInnerNode,
     createStackLeafNode,
     JEBError,
-    Location,
-    locationsEqual,
     StackTreeNode,
 } from "./errors";
+import { SourceInfo, sourcesEqual } from "./ir";
+import {
+    HostFunction,
+    loadCoreOpcodes,
+    OP_eval,
+    OP_throw,
+    OpcodeHandler,
+} from "./opcodes";
 import { Identifier } from "./utils";
 
 /** Data for the command */
@@ -40,8 +43,8 @@ export enum StackEntryKind {
 export interface StackEntry {
     /** Name of the function called, if known */
     readonly name: Identifier | undefined;
-    /** Location of the call site, if known */
-    readonly location: Location | undefined;
+    /** Source of the call site, if known */
+    readonly source: SourceInfo<any> | undefined;
     readonly kind: StackEntryKind;
 }
 
@@ -93,12 +96,18 @@ export class JebVM<
     /** Callstack entries */
     tracebackStack!: LinkedList<StackCount>;
     /**
-     * The call frame most recently popped by {@link popTraceback}: the call that
-     * just returned. Only the single latest frame is kept. Consumers that run
-     * immediately after a call returns (macro expansion, argument binding) read
-     * this to learn which call produced the value at hand.
+     * The opcode table: maps an IR node's opcode name to the handler that
+     * evaluates it. The core opcodes are installed by the constructor; hosts
+     * and higher layers (e.g. Kuiper) register more with {@link defineOpcode}.
      */
-    lastCall: StackEntry | undefined = undefined;
+    opcodes: Map<string, OpcodeHandler> = new Map();
+    /**
+     * Sources of the macro expansions the evaluator is currently inside,
+     * outermost first. A node's own source link (`expandedFrom`) is pushed here
+     * while its subtree runs, so nested code can see the full expansion context
+     * it was generated in.
+     */
+    expansionStack: SourceInfo<any>[] = [];
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
     /** The error that stopped the VM, if any; {@link step} rethrows it while set */
@@ -115,7 +124,28 @@ export class JebVM<
     constructor() {
         super();
         this.reset();
-        loadBuiltins(this as any as T);
+        loadCoreOpcodes(this);
+    }
+    /**
+     * Registers an opcode handler under the given name. Throws if the name is
+     * already taken: there is only ever one handler per opcode.
+     */
+    defineOpcode(name: string, handler: OpcodeHandler) {
+        if (this.opcodes.has(name))
+            throw new Error(`opcode ${name} is already defined`);
+        this.opcodes.set(name, handler);
+    }
+    /** Defines a host (Javascript) function in the builtins scope. */
+    defineHostFunction(name: Identifier, fn: HostFunction) {
+        if (this.builtinsEnv.get(name).ok)
+            throw new Error(`builtin ${String(name)} is already defined`);
+        this.builtinsEnv.addConst(name, fn);
+    }
+    /** Defines a value in the builtins scope. */
+    defineValue(name: Identifier, value: any) {
+        if (this.builtinsEnv.get(name).ok)
+            throw new Error(`builtin ${String(name)} is already defined`);
+        this.builtinsEnv.addConst(name, value);
     }
     /** Pushes a value onto the data stack. */
     pushData(value: any) {
@@ -195,12 +225,6 @@ export class JebVM<
         } catch (e) {
             if (!(e instanceof JEBError)) throw e;
             e.traceback ??= this.tracebackArray();
-            if (e.paramLocation)
-                e.traceback = blameParameter(
-                    e.traceback,
-                    e.paramLocation,
-                    e.paramName,
-                );
             this.pushCommand(OP_throw, e);
         }
         return true;
@@ -216,9 +240,7 @@ export class JebVM<
     start(code: any) {
         if (LinkedList_length(this.commandStack) > 0)
             throw new Error("VM is already running");
-        pushData(this as any as T, code);
-        pushCommand(this as any as T, OP_unwrap, []);
-        pushCommand(this as any as T, OP_eval, undefined);
+        pushCommand(this as any as T, OP_eval, code, true);
     }
     /**
      * Silently stops running the code, by resetting all stacks state back to
@@ -227,7 +249,7 @@ export class JebVM<
     reset() {
         this.paused = false;
         this.commandStack = this.dataStack = this.tracebackStack = null;
-        this.lastCall = undefined;
+        this.expansionStack = [];
         this.currentEnv = this.createEnv(this.builtinsEnv);
         this.curDynamicWind = new DynamicWind(this as any as T);
         this.error = undefined;
@@ -272,7 +294,7 @@ export class JebVM<
             if (prevCount > 0) {
                 const leaf = createStackLeafNode(
                     prev!.item.name,
-                    prev!.item.location,
+                    prev!.item.source,
                     prev!.item.kind,
                 );
                 parts.push(
@@ -285,13 +307,13 @@ export class JebVM<
         };
         while (stack) {
             const {
-                item: { name, location },
+                item: { name, source },
                 count,
             } = stack.value;
             if (
                 prev &&
                 (prev.item.name !== name ||
-                    !locationsEqual(prev.item.location, location))
+                    !sourcesEqual(prev.item.source, source))
             )
                 flush();
             const off = min(count, numToDrop);
@@ -312,14 +334,14 @@ export class JebVM<
     pushTraceback(
         func: Identifier | undefined,
         tailcallHint: boolean,
-        callsiteLocation: Location | undefined,
+        callsiteSource: SourceInfo<any> | undefined,
         entryKind: StackEntryKind,
     ) {
         const top = this.tracebackStack;
         if (top) {
             const {
                 value: {
-                    item: { name, location, kind },
+                    item: { name, source, kind },
                     tail,
                     count,
                 },
@@ -329,13 +351,13 @@ export class JebVM<
                 name === func &&
                 tail === tailcallHint &&
                 kind === entryKind &&
-                locationsEqual(location, callsiteLocation)
+                sourcesEqual(source, callsiteSource)
             ) {
                 // same name and type = just bump the counter
                 this.tracebackStack = LinkedList_push(next, {
                     item: {
                         name: func,
-                        location: callsiteLocation,
+                        source: callsiteSource,
                         kind: entryKind,
                     },
                     count: count + 1,
@@ -345,7 +367,7 @@ export class JebVM<
             }
         }
         this.tracebackStack = LinkedList_push(top, {
-            item: { name: func, location: callsiteLocation, kind: entryKind },
+            item: { name: func, source: callsiteSource, kind: entryKind },
             count: 1,
             tail: tailcallHint,
         });
@@ -359,7 +381,6 @@ export class JebVM<
         // drop all TCO'ed frames
         if (dropTail)
             while (cur && cur.value.tail) {
-                this.lastCall = cur.value.item;
                 cur = cur.next;
             }
 
@@ -368,8 +389,6 @@ export class JebVM<
             this.tracebackStack = null;
             return;
         }
-
-        this.lastCall = cur.value.item;
 
         // normal frame pop
         if (cur.value.count > 1) {
