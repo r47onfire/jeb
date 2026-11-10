@@ -158,10 +158,10 @@ export interface CallArgs<D = any, S = any> {
     name: Identifier | undefined;
 }
 
-interface CallCollectState {
-    argNodes: any[];
+interface CallCollectState<D, S> {
+    argNodes: IRNode<S>[];
     i: number;
-    values: any[];
+    values: D[];
     tail: boolean;
     source: SourceInfo<any> | undefined;
     name: Identifier | undefined;
@@ -169,7 +169,7 @@ interface CallCollectState {
 
 const OP_call_start = <D = any, S = any>(
     vm: JebVM<D, S>,
-    { 0: state }: [state: CallCollectState],
+    { 0: state }: [state: CallCollectState<D, S>],
 ) => {
     const callee = popData(vm);
     state.i = 0;
@@ -178,7 +178,7 @@ const OP_call_start = <D = any, S = any>(
 
 const OP_call_step = <D = any, S = any>(
     vm: JebVM<D, S>,
-    { 0: state, 1: callee }: [state: CallCollectState, callee: any],
+    { 0: state, 1: callee }: [state: CallCollectState<D, S>, callee: any],
 ) => {
     if (state.i >= state.argNodes.length) {
         pushCommand(vm, OP_call_invoke, {
@@ -198,7 +198,7 @@ const OP_call_step = <D = any, S = any>(
 
 const OP_call_collect = <D = any, S = any>(
     vm: JebVM<D, S>,
-    { 0: state, 1: callee }: [state: CallCollectState, callee: any],
+    { 0: state, 1: callee }: [state: CallCollectState<D, S>, callee: any],
 ) => {
     state.values.push(popData(vm));
     pushCommand(vm, OP_call_step, state, callee);
@@ -375,10 +375,7 @@ const OP_callcc_after = <D = any, S = any>(
 
 const OP_eval_after = <D = any, S = any>(
     vm: JebVM<D, S>,
-    {
-        0: source,
-        1: tail,
-    }: [source: SourceInfo<S> | undefined, tail: boolean],
+    { 0: source, 1: tail }: [source: SourceInfo<S> | undefined, tail: boolean],
 ) => {
     const code = popData(vm);
     if (!isIRNode(code))
@@ -397,10 +394,10 @@ const OP_throw_value = (vm: JebVM<any, any>) => {
  * thrown: runs each dynamic-wind exit handler it passes (with the error as its
  * argument) and finally parks the error on the VM for the host to see.
  *
- * An exit handler can stop the error from propagating any further by
- * returning exactly `true` (see {@link OP_throw_after_exit}): the error is
- * then considered handled, and execution resumes with the state the winder
- * restored. That is the whole recovery mechanism -- `try`/`catch` and other
+ * An exit handler can stop the error from propagating any further by returning
+ * exactly `true` (see {@link OP_throw_after_exit}): the error is then
+ * considered handled, and execution resumes with the state the winder restored.
+ * That is the whole recovery mechanism -- `try`/`catch` and other
  * recoverable-error constructs in the layers above are built out of
  * `dynamic-wind` plus this rule, with no further core support.
  */
@@ -430,11 +427,10 @@ export const OP_throw = <D = any, S = any>(
 
 /**
  * The step after one exit handler has run during error unwinding: if the
- * handler returned exactly `true`, the error is handled and propagation
- * stops -- execution continues with the restored state, and the
- * `dynamic-wind` whose handler caught the error produces no value
- * ({@link NO_VALUE}). Any other result, and the error keeps unwinding to
- * the next winder out.
+ * handler returned exactly `true`, the error is handled and propagation stops
+ * -- execution continues with the restored state, and the `dynamic-wind` whose
+ * handler caught the error produces no value ({@link NO_VALUE}). Any other
+ * result, and the error keeps unwinding to the next winder out.
  */
 const OP_throw_after_exit = <D = any, S = any>(
     vm: JebVM<D, S>,
@@ -500,7 +496,11 @@ const OP_wind_body = (
         0: dw,
         1: body,
         2: source,
-    }: [dw: DynamicWind<any, any>, body: any, sourceInfo: SourceInfo<any> | undefined],
+    }: [
+        dw: DynamicWind<any, any>,
+        body: any,
+        sourceInfo: SourceInfo<any> | undefined,
+    ],
 ) => {
     popData(vm); // the enter handler's result
     pushCommand(vm, OP_wind_exit, { dw, source, result: NO_VALUE });
@@ -534,10 +534,7 @@ const OP_wind_exit = (
     });
 };
 
-const OP_wind_finish = (
-    vm: JebVM<any, any>,
-    [state]: [WindExitArgs],
-) => {
+const OP_wind_finish = (vm: JebVM<any, any>, [state]: [WindExitArgs]) => {
     popData(vm); // the exit handler's result
     vm.curDynamicWind = state.dw.parent!;
     pushData(vm, state.result);
@@ -683,7 +680,7 @@ export const loadCoreOpcodes = <D = any, S = any>(vm: JebVM<D, S>) => {
         if (ctx.operands.length < 1)
             throw new JEBError("call: expected at least a callee node");
         const calleeNode = ctx.operands[0]!;
-        const state: CallCollectState = {
+        const state: CallCollectState<D, S> = {
             argNodes: ctx.operands.slice(1),
             i: 0,
             values: [],

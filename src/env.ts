@@ -38,7 +38,7 @@ export class Env<D = any> {
      * result if not found
      */
     get(name: Identifier): Result<D, void> {
-        const res = this.scopeFor(name)
+        const res = this.scopeFor(name);
         if (!res.ok) return res as Result<never, void>;
         return Ok(res.data.bindings[name] as D);
     }

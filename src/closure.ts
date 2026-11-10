@@ -10,7 +10,8 @@ import { Identifier } from "./utils";
  * A closure is a parameter list wrapped around a {@link Block}: the block holds
  * the body and the environment it was defined in, exactly like the blocks that
  * lazy parameters are made of. Calling the closure binds the arguments in a
- * child of the block's environment and invokes the block.
+ * child of the block's environment and invokes the block in that new
+ * environment.
  *
  * There are no signatures or wrappers at this level: every argument is
  * evaluated by the `call` opcode before the closure is invoked, and special

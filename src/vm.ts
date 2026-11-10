@@ -28,10 +28,10 @@ import {
 import { Identifier } from "./utils";
 
 /**
- * Data for the command: an opcode function plus its immediate arguments.
- * `D` is the type of the values the VM runs (chosen by the layer above;
- * the core itself only ever holds them opaquely), and `S` is the span type
- * carried by the IR the VM runs.
+ * Data for the command: an opcode function plus its immediate arguments. `D` is
+ * the type of the values the VM runs (chosen by the layer above; the core
+ * itself only ever holds them opaquely), and `S` is the span type carried by
+ * the IR the VM runs.
  */
 export type Command<D = any, S = any, A extends any[] = any[]> = [
     opcode: OpcodeFunction<A, D, S>,
@@ -430,11 +430,7 @@ export abstract class JebVM<
  */
 export const pushData = <D, S>(vm: JebVM<D, S>, data: any) => vm.pushData(data);
 /** Standalone form of {@link JebVM.pushCommand}; see {@link pushData}. */
-export const pushCommand = <
-    TOpcode extends OpcodeFunction<any, D, S>,
-    D,
-    S,
->(
+export const pushCommand = <TOpcode extends OpcodeFunction<any, D, S>, D, S>(
     vm: JebVM<D, S>,
     cmd: TOpcode,
     ...args: GetArgParams<TOpcode>
@@ -442,7 +438,6 @@ export const pushCommand = <
 /** Standalone form of {@link JebVM.popData}; see {@link pushData}. */
 export const popData = <D, S>(vm: JebVM<D, S>) => vm.popData();
 /** Standalone form of {@link JebVM.popNData}; see {@link pushData}. */
-export const popNData = <D, S>(vm: JebVM<D, S>, n: number) =>
-    vm.popNData(n);
+export const popNData = <D, S>(vm: JebVM<D, S>, n: number) => vm.popNData(n);
 /** Standalone form of {@link JebVM.peekData}; see {@link pushData}. */
 export const peekData = <D, S>(vm: JebVM<D, S>) => vm.peekData();

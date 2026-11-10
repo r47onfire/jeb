@@ -44,23 +44,25 @@ export class JEBError<D = any, S = any> extends Error {
         this.children = options.children ?? [];
     }
     toString(): string {
-        return `${this.name}: ${this.message}${this.traceback
+        return `${this.name}: ${this.message}${
+            this.traceback
                 ? `\ntraceback: ${formatStackTraceCompact(
-                    compressStackTree(this.traceback),
-                )}`
+                      compressStackTree(this.traceback),
+                  )}`
                 : ""
-            }${this.cause instanceof JEBError
+        }${
+            this.cause instanceof JEBError
                 ? `\ncaused by: ${this.cause.toString()}`
                 : ""
-            }${this.children
-                .map((c) =>
-                    c
-                        .toString()
-                        .split("\n")
-                        .map((l) => "  " + l)
-                        .join("\n"),
-                )
-                .join("\n\n")}`;
+        }${this.children
+            .map((c) =>
+                c
+                    .toString()
+                    .split("\n")
+                    .map((l) => "  " + l)
+                    .join("\n"),
+            )
+            .join("\n\n")}`;
     }
 }
 
@@ -69,18 +71,18 @@ const STACKFRAME_JOINER = "<-";
 /** Tree node representing a compressed stack trace */
 export type StackTreeNode = Readonly<
     | {
-        leaf: false;
-        count: number;
-        children: StackTreeNode[];
-        hash: number;
-    }
+          leaf: false;
+          count: number;
+          children: StackTreeNode[];
+          hash: number;
+      }
     | {
-        leaf: true;
-        name: Identifier | undefined;
-        source: SourceInfo<any> | undefined;
-        kind: StackEntryKind;
-        hash: number;
-    }
+          leaf: true;
+          name: Identifier | undefined;
+          source: SourceInfo<any> | undefined;
+          kind: StackEntryKind;
+          hash: number;
+      }
 >;
 
 /**
@@ -184,9 +186,9 @@ export const compressStackTree = (nodes: StackTreeNode[]): StackTreeNode[] => {
                 node.leaf
                     ? node
                     : createStackInnerNode(
-                        node.count,
-                        compressStackTree(node.children),
-                    ),
+                          node.count,
+                          compressStackTree(node.children),
+                      ),
             );
             i++;
         }
@@ -288,7 +290,10 @@ export const wrapThrowToError = <T>(f: () => T) => {
  * resolves or rejects. A resolved value is pushed as the paused expression's
  * result as-is (including `NO_VALUE`); a rejection is rethrown inside the VM.
  */
-export const promisifyVM = <D, S>(vm: JebVM<D, S>, promise: Promise<any>): void => {
+export const promisifyVM = <D, S>(
+    vm: JebVM<D, S>,
+    promise: Promise<any>,
+): void => {
     vm.paused = true;
     const { promise: finish, resolve } = Promise.withResolvers<void>();
     vm.awaiting = finish;
