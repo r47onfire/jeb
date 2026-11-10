@@ -6,16 +6,26 @@ import { define, makeJSFun, NOTHING } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError, wrapThrowToError } from "../errors";
 import { float, numberOp, Relation } from "../math";
-import { protocolMethod } from "../protocol";
 import { theTypeName, typeOf, withType } from "../typecheck";
 import { JebVM, pushCommand, pushData } from "../vm";
-import { pushSyntheticCall } from "./callables";
 import { OP_eval } from "./eval";
 
 const None = Symbol("__none__");
 
 // MARK: Operators
-const mathLoaders: ((vm: JebVM) => void)[] = [];
+const isNumeric = (x: any): x is number | bigint =>
+    typeof x === "number" || typeof x === "bigint";
+/**
+ * Throws the error for a math operation with no implementation for the given
+ * argument types (the operations are not overloadable: each has exactly the
+ * implementations written out in this file).
+ */
+const noOverload = (name: string, args: any[]): never => {
+    throw new JEBError(
+        ErrnoCode.ERANGE,
+        `No overload of ${name} exists for type${args.length > 1 ? "s" : ""} ${args.map((x) => theTypeName(typeOf(x))).join(", ")}`,
+    );
+};
 const mathHelper = (
     operator: string,
     op2:
@@ -36,10 +46,22 @@ const mathHelper = (
     f1: (x: bigint) => any,
     doc: string,
 ) => {
-    const b = makeJSFun(
+    const binary = (a: any, b: any): Result<any, string> => {
+        if (isNumeric(a) && isNumeric(b)) return Ok(f2(a, b));
+        if (op2 === "add" && typeof a === "string" && typeof b === "string")
+            return Ok(a + b);
+        if (op2 === "mul") {
+            if (typeof a === "string" && typeof b === "number")
+                return repeat(a, b);
+            if (typeof a === "number" && typeof b === "string")
+                return repeat(b, a);
+        }
+        return noOverload(op2, [a, b]);
+    };
+    return makeJSFun(
         operator,
         ["a", ["b", None]],
-        ({ a, b }, vm) => {
+        ({ a, b }) => {
             var f: () => Result<any, any>;
             if (b === None) {
                 if (op1 === undefined) {
@@ -48,23 +70,12 @@ const mathHelper = (
                         `${stringify(op2)} is not defined for one argument`,
                     );
                 }
-                // The object's own protocol method (e.g. __neg__) comes
-                // first; host implementations are the fallback.
-                const method = protocolMethod(a, op1);
-                if (method !== undefined) {
-                    pushSyntheticCall(vm, method, [a], false);
-                    return NOTHING;
-                }
-                const handler = vm.getProtocol(true, true, op1, [a]);
-                f = () => handler.run(vm, [a]);
+                f = () =>
+                    isNumeric(a)
+                        ? Ok((f1 as (x: number | bigint) => any)(a))
+                        : noOverload(op1, [a]);
             } else {
-                const method = protocolMethod(a, op2);
-                if (method !== undefined) {
-                    pushSyntheticCall(vm, method, [a, b], false);
-                    return NOTHING;
-                }
-                const handler = vm.getProtocol(true, true, op2, [a, b]);
-                f = () => handler.run(vm, [a, b]);
+                f = () => binary(a, b);
             }
             return wrapThrowToError(ErrnoCode.EINVAL, f).else((e) => {
                 throw new JEBError(ErrnoCode.ERANGE, String(e));
@@ -77,26 +88,6 @@ const mathHelper = (
 .pure
 . ${doc}`,
     );
-    mathLoaders.push((vm) =>
-        vm.addProtocol(op2, {
-            type: [
-                ["number", "bigint"],
-                ["number", "bigint"],
-            ],
-            run: (_, { 0: a, 1: b }) => Ok(f2(a, b)),
-            doc,
-        }),
-    );
-    if (op1) {
-        mathLoaders.push((vm) => {
-            vm.addProtocol(op1, {
-                type: [["number", "bigint"]],
-                run: (_, { 0: a }) => Ok(f1(a)),
-                doc,
-            });
-        });
-    }
-    return b;
 };
 export const B_plus = mathHelper(
     "add",
@@ -106,12 +97,6 @@ export const B_plus = mathHelper(
     (a) => (a > 0 ? a : -a),
     "Adds numbers or concatenates strings.",
 );
-const loadConcatProtocol = (vm: JebVM) =>
-    vm.addProtocol("add", {
-        type: [["string"], ["string"]],
-        run: (_, { 0: a, 1: b }) => Ok(a + b),
-        doc: "Concatenates strings",
-    });
 export const B_minus = mathHelper(
     "sub",
     "sub",
@@ -133,18 +118,6 @@ const repeat = (a: string, b: number): Result<string, string> => {
     if ((b | 0) !== b)
         return Err("Cannot repeat a non-integer number of times");
     return Ok(a.repeat(b));
-};
-const loadRepeatProtocols = (vm: JebVM) => {
-    vm.addProtocol("mul", {
-        type: [["string"], ["number"]],
-        run: (_, { 0: a, 1: b }) => Ok(repeat(a, b)),
-        doc: "Repeats strings",
-    });
-    vm.addProtocol("mul", {
-        type: [["number"], ["string"]],
-        run: (_, { 0: a, 1: b }) => Ok(repeat(b, a)),
-        doc: "Repeats strings",
-    });
 };
 export const B_div = mathHelper(
     "div",
@@ -213,21 +186,9 @@ export const B_shiftRight = mathHelper(
 export const B_bitInv = makeJSFun(
     "bitInv",
     ["a"],
-    (args, vm) => {
+    (args) => {
         const { a } = args;
         if (typeof a === "number" || typeof a === "bigint") return ~a;
-        const method = protocolMethod(a, "bitNot");
-        if (method !== undefined) {
-            pushSyntheticCall(vm, method, [a], false);
-            return NOTHING;
-        }
-        const handler = vm.getProtocol(true, false, "bitNot", [a]);
-        if (handler)
-            return wrapThrowToError(ErrnoCode.EINVAL, () =>
-                handler.run(vm, [a], undefined),
-            ).else((e) => {
-                throw new JEBError(ErrnoCode.ERANGE, String(e));
-            });
         return ~withType(a, ["number", "bigint"], "a", args);
     },
     `.func (bitInv number)
@@ -241,23 +202,10 @@ const comparisonHelper = (op: string, bits: Relation, doc: string) => {
     return makeJSFun(
         op,
         ["a", "b"],
-        ({ a, b }, vm) => {
-            // An object with a __cmp__ method takes over its own
-            // comparisons entirely, like the other operator methods:
-            // the method is consulted before the registry is. It
-            // receives the object, the other operand, and the Relation
-            // bitset being tested, and returns whether the relation holds.
-            const method = protocolMethod(a, "cmp");
-            if (method !== undefined) {
-                pushSyntheticCall(vm, method, [a, b, bits], false);
-                return NOTHING;
-            }
-            return vm
-                .getProtocol(true, true, "cmp", [a, b, bits])
-                .run(vm, [a, b, bits])
-                .else((err) => {
-                    throw new JEBError(ErrnoCode.ENOTSUP, err);
-                });
+        ({ a, b }) => {
+            return compareValues(a, b, bits).else((err) => {
+                throw new JEBError(ErrnoCode.ENOTSUP, err);
+            });
         },
         `.func (${op} items...)
 ..param {number | string} items...
@@ -297,40 +245,34 @@ export const B_greater_eq = comparisonHelper(
     compDocHelper("not less than"),
 );
 
-const compareFn = (_: JebVM, { 0: a, 1: b, 2: c }: [any, any, Relation]) => {
+const compareFn = (a: any, b: any, c: Relation): Result<boolean, string> => {
     if (a == b) return Ok(!!(c & Relation.EQUAL));
     if (a < b) return Ok(!!(c & Relation.LESS));
     if (a > b) return Ok(!!(c & Relation.GREATER));
     throw "unreachable";
 };
-const loadCompareProtocol = (vm: JebVM) => {
-    // Registered first, so that under fast dispatch (reverse
-    // registration order, first match) the specific implementations
-    // below are found before it for the types they match: this is
-    // the identity catch-all, for values with no ordering of their
-    // own.
-    vm.addProtocol("cmp", {
-        type: [[true], [true], ["number"]],
-        run(_, { 0: a, 1: b, 2: c }) {
-            if (a === b) return Ok(!!(c & Relation.EQUAL));
-            if (!!(c & Relation.GREATER) !== !!(c & Relation.LESS))
-                return Err(
-                    `No ordering defined for ${theTypeName(typeOf(a))} and ${theTypeName(typeOf(b))}`,
-                );
-            return Ok(!!(c & Relation.LESS));
-        },
-        doc: "Compares any items",
-    });
-    vm.addProtocol("cmp", {
-        type: [["number", "bigint"], ["number", "bigint"], ["number"]],
-        run: compareFn,
-        doc: "Compares numbers",
-    });
-    vm.addProtocol("cmp", {
-        type: [["string"], ["string"], ["number"]],
-        run: compareFn,
-        doc: "Compares strings",
-    });
+/**
+ * Compares two values against the {@link Relation} bitset `c`: numbers and
+ * strings use their natural ordering; any other pair is ordered only by
+ * identity (equal iff the same value), and an ordering question identity
+ * cannot answer (one of less/greater, but not both) is an error.
+ */
+const compareValues = (
+    a: any,
+    b: any,
+    c: Relation,
+): Result<boolean, string> => {
+    if (
+        (isNumeric(a) && isNumeric(b)) ||
+        (typeof a === "string" && typeof b === "string")
+    )
+        return compareFn(a, b, c);
+    if (a === b) return Ok(!!(c & Relation.EQUAL));
+    if (!!(c & Relation.GREATER) !== !!(c & Relation.LESS))
+        return Err(
+            `No ordering defined for ${theTypeName(typeOf(a))} and ${theTypeName(typeOf(b))}`,
+        );
+    return Ok(!!(c & Relation.LESS));
 };
 
 // MARK: booleans
@@ -390,8 +332,4 @@ export const loadOperatorsBuiltins = (vm: JebVM) => {
     define(vm, "not", B_not);
     define(vm, "and", B_and_shortcircuit);
     define(vm, "or", B_or_shortcircuit);
-    mathLoaders.forEach((f) => f(vm));
-    loadConcatProtocol(vm);
-    loadRepeatProtocols(vm);
-    loadCompareProtocol(vm);
 };

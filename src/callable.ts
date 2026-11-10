@@ -4,7 +4,7 @@ import { ARGUMENT_LOCATIONS } from "./doargs";
 import { type HasDocstring } from "./doc";
 import { ErrnoCode } from "./errno";
 import { JEBError, Location } from "./errors";
-import { ApplyMetadata } from "./protocol";
+import { ApplyMetadata } from "./reference";
 import { CallableSignature, LonghandArgument } from "./signature";
 import { Identifier } from "./utils";
 import { JebVM } from "./vm";

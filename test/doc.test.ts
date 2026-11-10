@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { isString } from "lib0/function";
-import { ALL_OPCODES, JebVM, theTypeName, Type } from "../src";
-import { AccessorParsers, ApplierParsers, DocMetadata, DocMetadataParser, DocNode, EmptyTag, EvaluatorParsers, FunctionOrMacroParsers, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs, UnwrapperParsers } from "../src/doc";
+import { ALL_OPCODES, JebVM } from "../src";
+import { DocMetadata, DocMetadataParser, DocNode, EmptyTag, FunctionOrMacroParsers, OpcodeParsers, ParamTag, parseDoc, parseHeaderAndSummary, parseInline, parseParagraphs } from "../src/doc";
 import { extRefs } from "./pure";
 
 describe("inline parsing", () => {
@@ -97,38 +97,6 @@ describe("parse builtins docstrings", () => {
                 expect(extRefs(f)).toBeEmpty();
             }
             // console.log(JSON.stringify(parsed!.meta, null, 2));
-        });
-    });
-    const t2p = ({ type, doc }: { type: Type[][], doc: string }): [string, string] => [type.map(ts => ts.map(theTypeName).join("|")).join(","), doc];
-    describe("appliers", () => {
-        test.each<[string, string]>(new JebVM().protocols.apply!.map(t2p))("%s", (_, doc) => {
-            const parsed = parseDoc(doc, ApplierParsers);
-            expect(parsed).toBeDefined();
-            expect(parsed!.body.length).toBeGreaterThan(0);
-        });
-    });
-
-    describe("evaluators", () => {
-        test.each<[string, string]>(new JebVM().protocols.eval!.map(t2p))("%s", (_, doc) => {
-            const parsed = parseDoc(doc, EvaluatorParsers);
-            expect(parsed).toBeDefined();
-            expect(parsed!.body.length).toBeGreaterThan(0);
-        });
-    });
-
-    describe("accessors", () => {
-        test.each<[string, string]>(new JebVM().protocols.access!.map(t2p))("%s", (_, doc) => {
-            const parsed = parseDoc(doc, AccessorParsers);
-            expect(parsed).toBeDefined();
-            expect(parsed!.body.length).toBeGreaterThan(0);
-        });
-    });
-
-    describe("unwrappers", () => {
-        test.each<[string, string]>(new JebVM().protocols.unwrap!.map(t2p))("%s", (_, doc) => {
-            const parsed = parseDoc(doc, UnwrapperParsers);
-            expect(parsed).toBeDefined();
-            expect(parsed!.body.length).toBeGreaterThan(0);
         });
     });
 });

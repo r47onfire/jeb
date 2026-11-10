@@ -5,14 +5,11 @@ import { loadEvalBuiltins } from "./eval";
 import { loadFFIBuiltins } from "./ffi";
 import { loadJsonBuiltins } from "./json";
 import { loadDataBuiltins } from "./lists";
-import { loadProtocolMethods } from "./methods";
 import { loadNullChainBuiltins } from "./nullchain";
 import { loadOperatorsBuiltins } from "./operators";
 import { loadQuoteBuiltins } from "./quote";
-import { loadVarNamingBuiltins } from "./reference";
 import { loadSchemeBuiltins } from "./scheme";
 import { loadSymbolBuiltins } from "./symbols";
-import { loadUnwrappingBuiltins } from "./unwrap";
 import { loadVariablesBuiltins } from "./variables";
 
 export { pushSyntheticCall } from "./callables";
@@ -25,7 +22,6 @@ export {
     B_keyword,
     B_macro_wrap,
     B_splat,
-    OP_accessed_get,
     OP_apply,
     OP_audit,
     OP_eval,
@@ -35,13 +31,12 @@ export {
     OP_assign as OP_set,
     OP_shuffle,
     OP_tbPop,
-    OP_tbPush,
-    pushAccessCall,
+    OP_tbPush
 } from "./eval";
 export { B_is_nil } from "./ffi";
-export { B_index_null, NullChainReference, NullHole } from "./nullchain";
 export { B_jsonparse, B_jsonstringify } from "./json";
 export { B_concat, B_head, B_list, B_tail } from "./lists";
+export { B_index_null, NullChainReference, NullHole } from "./nullchain";
 export {
     B_and_shortcircuit,
     B_bitAnd,
@@ -61,7 +56,7 @@ export {
     B_not_eq,
     B_or_shortcircuit,
     B_plus,
-    B_pow,
+    B_pow
 } from "./operators";
 export { B_quasiquote, B_quote, B_unquote, B_unquoteSplicing } from "./quote";
 export * from "./reference";
@@ -76,7 +71,7 @@ export {
     B_local,
     B_ref,
     OP_push_value,
-    OP_set_env,
+    OP_set_env
 } from "./variables";
 
 // MARK: loadBuiltins()
@@ -90,11 +85,8 @@ export {
  */
 export const loadBuiltins = (vm: JebVM) => {
     loadEvalBuiltins(vm);
-    loadUnwrappingBuiltins(vm);
     loadVariablesBuiltins(vm);
-    loadProtocolMethods(vm);
     loadNullChainBuiltins(vm);
-    loadVarNamingBuiltins(vm);
     loadControlBuiltins(vm);
     loadFFIBuiltins(vm);
     loadCallablesBuiltins(vm);

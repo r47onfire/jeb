@@ -1,24 +1,12 @@
 import { stringify } from "lib0/json";
 import { JSFun } from "./callable";
 import {
-    AccessFlags,
-    ApplyFlags,
-    ApplyMetadata,
-    EvalFlags,
-    GetFlags,
-    ProtocolObj,
-    Reference,
-    SetFlags,
-} from "./protocol";
-import { Type } from "./typecheck";
-import {
     CallableSignatureFromShorthand,
     createSignature,
     ShorthandArgument,
 } from "./signature";
 import { Identifier } from "./utils";
 import { JebVM, OpcodeFunction } from "./vm";
-import { Wrapper } from "./wrapper";
 
 /**
  * Registry of all named opcodes created with {@link makeOpcode}, mapping the
@@ -80,104 +68,4 @@ export const makeOpcode = <T extends OpcodeFunction<any, any>>(
         ALL_OPCODES[id] = [fn, doc];
     }
     return fn;
-};
-/**
- * Defines a new applier that can be used by the `jeb:apply` opcode to call
- * something.
- *
- * @param describe Returns the metadata of the function, which includes the
- *   signature (see {@link CallableSignature})
- * @param run Should push opcodes to take the arguments object from the top of
- *   the stack and pass them to whatever the implementation is. It should not
- *   actually call that implementation as the arguments object is not actually
- *   on the stack at the point this is called.
- */
-export const defineApplier = <
-    V extends JebVM,
-    const T extends Type[],
-    PO extends ProtocolObj<V, void, [T], {}, ApplyMetadata, ApplyFlags>,
->(
-    vm: V,
-    type: T,
-    run: PO["run"],
-    describe: PO["describe"],
-    doc: string,
-) => {
-    vm.addProtocol("apply", { type: [type], run, doc, describe });
-};
-/**
- * Defines a new evaluator that can be used by the `jeb:eval` opcode to evaluate
- * or unwrap something.
- */
-
-export const defineEvaluator = <V extends JebVM, const T extends Type[]>(
-    vm: JebVM,
-    type: T,
-    fn: ProtocolObj<V, void, [T], {}, void, EvalFlags>["run"],
-    doc: string,
-) => {
-    vm.addProtocol("eval", { type: [type], run: fn, doc });
-};
-
-/**
- * Defines a new accessor that can be used by the `jeb:get` and `jeb:set`
- * opcodes to look up or reassign a field on something.
- */
-
-export const defineAccessor = <V extends JebVM, const T extends Type[]>(
-    vm: JebVM,
-    type: T,
-    fn: ProtocolObj<V, Reference, [T], {}, void, AccessFlags>["run"],
-    doc: string,
-) => {
-    vm.addProtocol("access", { type: [type], run: fn, doc });
-};
-
-/**
- * Defines a new getter: an implementation of the `get` protocol, used by the
- * `jeb:get` opcode to read a value out of an LValue. The implementation returns
- * the value read, or `NOTHING` if it scheduled opcodes to produce the value (or
- * an error is already in flight).
- */
-export const defineGetter = <V extends JebVM, const T extends Type[]>(
-    vm: V,
-    type: T,
-    fn: ProtocolObj<V, any, [T], {}, void, GetFlags>["run"],
-    doc: string,
-) => {
-    vm.addProtocol("get", { type: [type], run: fn, doc });
-};
-
-/**
- * Defines a new setter: an implementation of the `set` protocol, used by the
- * `jeb:assign` opcode to assign a value to an LValue. (The value to assign is
- * the second argument; the LValue's stack slot is not the implementation's
- * concern.)
- */
-export const defineSetter = <V extends JebVM, const T extends Type[]>(
-    vm: V,
-    type: T,
-    fn: ProtocolObj<V, void, [T, Type[]], {}, void, SetFlags>["run"],
-    doc: string,
-) => {
-    vm.addProtocol("set", { type: [type, [true]], run: fn, doc });
-};
-
-/** Defines a new unwrapper to define how a special wrapper should be unwrapped. */
-
-export const defineUnwrapper = <
-    V extends JebVM,
-    const T extends (typeof Wrapper)[],
->(
-    vm: JebVM,
-    type: T,
-    fn: ProtocolObj<V, void, [T], {}, string, void>["run"],
-    doc: string,
-) => {
-    vm.addProtocol("unwrap", {
-        type: [type],
-        run: fn,
-        describe: (vm, wrapper) => wrapper.flag,
-        doc,
-    });
 };

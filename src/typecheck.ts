@@ -2,8 +2,16 @@ import { isString } from "lib0/function.js";
 import { parameterError } from "./doargs";
 import { ErrnoCode } from "./errno";
 import { JEBError } from "./errors";
-import { TypeValue } from "./protocol";
 import { Identifier } from "./utils";
+
+/** The Typescript type of the values matched by the {@link Type} specifier `T`. */
+export type TypeValue<T extends Type> = T extends true
+    ? any
+    : T extends keyof TypeMap
+      ? TypeMap[T]
+      : T extends abstract new (...args: any[]) => infer U
+        ? U
+        : never;
 
 /** Thing that can be used to match a type of an object. `true` = any */
 

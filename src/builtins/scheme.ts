@@ -4,15 +4,15 @@ import { gensym } from "../env";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { implicitBegin } from "../implicitBegin";
-import { AccessType } from "../protocol";
+import { AccessType } from "../reference";
 import { withType } from "../typecheck";
 import { Identifier, isIdentifier } from "../utils";
 import { JebVM, pushCommand, pushData } from "../vm";
 import { B_fn } from "./callables";
-import { B_audit, OP_eval, OP_if, OP_assign, OP_shuffle } from "./eval";
+import { B_audit, OP_assign, OP_eval, OP_if, OP_shuffle } from "./eval";
 import { B_plus } from "./operators";
 import { VariableReference } from "./reference";
-import { B_local, B_assign } from "./variables";
+import { B_assign, B_local } from "./variables";
 
 // MARK: Scheme analogs
 export const B_if = makeJSFun(

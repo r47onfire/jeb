@@ -1,42 +1,19 @@
 import { Block } from "../block";
-import {
-    define,
-    defineAccessor,
-    makeJSFun,
-    makeOpcode,
-    NOTHING,
-} from "../define";
+import { define, makeJSFun, makeOpcode, NOTHING } from "../define";
 import { Env } from "../env";
 import { ErrnoCode } from "../errno";
 import { checkNothingOrPush, JEBError } from "../errors";
 import { implicitBegin } from "../implicitBegin";
-import { AccessReference, AccessType, protocolMethod } from "../protocol";
+import { AccessType, Reference } from "../reference";
 import { theTypeName, typeOf, withType } from "../typecheck";
-import { Identifier } from "../utils";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
 import { ReferenceWrapper } from "../wrapper";
 import { pushSyntheticCall } from "./callables";
 import { OP_assign, OP_index, OP_shuffle, runSetter } from "./eval";
-import { ObjectPropertyReference, VariableReference } from "./reference";
+import { VariableReference } from "./reference";
 import { OP_unwrap, OP_wrap } from "./unwrap";
 
 // MARK: variables
-const accessorInit = (vm: JebVM) => {
-    defineAccessor(
-        vm,
-        ["object", "function"],
-        (_, { 0: object }, { field, type }) =>
-            new ObjectPropertyReference(type, object, field),
-        "Default object property accessor.",
-    );
-    defineAccessor(
-        vm,
-        [Env],
-        (_, { 0: env }, { field, type }) =>
-            new VariableReference(type, env, field as Identifier),
-        "Accessor for variables from an environment.",
-    );
-};
 export const B_local = makeJSFun(
     "local",
     ["name"],
@@ -61,14 +38,6 @@ export const B_index = makeJSFun(
     ],
     ({ obj, name }, vm) => {
         const key = name as Block;
-        if (protocolMethod(obj, "access")) {
-            // The object controls indexing itself through __access__:
-            // keep the key unevaluated, so the method's signature
-            // decides whether it is evaluated (see AccessReference).
-            pushCommand(vm, OP_wrap, ReferenceWrapper);
-            pushCommand(vm, OP_push_value, new AccessReference(obj, key));
-            return NOTHING;
-        }
         pushCommand(vm, OP_wrap, ReferenceWrapper);
         pushCommand(vm, OP_index, AccessType.PROPERTY);
         // The key is evaluated like a call argument: its result is
@@ -83,7 +52,7 @@ export const B_index = makeJSFun(
 ..param {any} obj
 ..param {PropertyKey} name
 .pure
-. Returns a reference to \`obj[name]\`. If \`obj\` has an \`__access__\` protocol method, the key is passed to it unevaluated and the method's signature decides whether it is evaluated. Nothing else is consulted: without \`__access__\` the object is indexed as an ordinary object, and any \`__get__\`/\`__set__\` methods it has are just properties.`,
+. Returns a reference to \`obj[name]\`.`,
 );
 const OP_assign_internal_nested = makeOpcode(
     null,
@@ -91,32 +60,26 @@ const OP_assign_internal_nested = makeOpcode(
     null,
 );
 /**
- * The old-value read of {@link OP_assign_internal}: the `get` protocol, except
- * that an lvalue no implementation can read (a descriptor with a `__set__` but
- * no `__get__`) reads as `undefined` instead of throwing.
+ * The old-value read of {@link OP_assign_internal}: reads the reference,
+ * except that an lvalue that is not a reference reads as `undefined` instead
+ * of throwing.
  */
 const OP_assign_get_old = makeOpcode(
     null,
     (vm: JebVM) => {
         const lvalue = popData(vm);
-        const getter = vm.getProtocol(true, false, "get", [lvalue]);
-        if (!getter) pushData(vm, undefined);
-        else
-            checkNothingOrPush(
-                vm,
-                getter.run(vm, [lvalue], { shouldBind: true }),
-            );
+        if (lvalue instanceof Reference)
+            checkNothingOrPush(vm, lvalue.get(vm, true));
+        else pushData(vm, undefined);
     },
     null,
 );
 /**
  * The shared body of an unevaluated assignment (the `assign` builtin's
  * right-hand side, still a block): the lvalue is first on the stack; its old
- * value is read through the `get` protocol, the block is evaluated with `_`
- * bound to it, and the result is assigned through the `set` protocol -- so it
- * works unchanged for references, descriptors, and access references alike. The
- * `set` implementations seed it when their flags say the value is unevaluated
- * (and their own signature does not take the value unevaluated itself).
+ * value is read, the block is evaluated with `_` bound to it, and the result
+ * is assigned. {@link runSetter} seeds it when an assignment's flags say the
+ * value is unevaluated.
  */
 export const OP_assign_internal = makeOpcode(
     null,
@@ -149,10 +112,9 @@ export const B_assign = makeJSFun(
     (args, vm) => {
         const { ref, value, old } = args;
         const wantOld = withType(old, ["boolean"], "old", args);
-        // Everything else is the set protocol's business: which
-        // implementation matches the lvalue (a reference, a descriptor,
-        // an access reference) decides how the unevaluated value is
-        // handled -- the implementations see it in their flags.
+        // Everything else is runSetter's business: how the lvalue
+        // (a reference, or the null-chaining hole) handles the
+        // unevaluated value is decided there, from the flags.
         const lvalue = ref instanceof ReferenceWrapper ? ref.obj : ref;
         runSetter(vm, lvalue, value, {
             create: false,
@@ -163,14 +125,14 @@ export const B_assign = makeJSFun(
         return NOTHING;
     },
     `.macro (assign slot value old)
-..param {reference | descriptor} slot
+..param {reference} slot
 ..param {T} value
 ...injected {U} _ - old value of field
 ..param {boolean?} [old=false]
 .throws ENAME - if the value is not defined anywhere
 .returns {old ? U : T}
 . Changes the value of the slot, and returns the new or old value as determined by \`old\`.
-The slot may also be a descriptor (an object with a \`__set__\` protocol method, or a descriptor returned by an \`__access__\` method): the assignment then goes through the \`set\` protocol to that method instead. If the method's value parameter is lazy it receives the value unevaluated, and the assignment returns the method's result instead.`,
+`,
 );
 
 export const B_ref = makeJSFun(
@@ -178,9 +140,6 @@ export const B_ref = makeJSFun(
     [[["ref"], "ref"]],
     ({ ref }) => {
         if (ref instanceof ReferenceWrapper) return ref.obj;
-        if (protocolMethod(ref, "get") ?? protocolMethod(ref, "set"))
-            // A descriptor object is its own reference.
-            return ref;
         throw new JEBError(
             ErrnoCode.EINVAL,
             `${theTypeName(typeOf(ref))} is not a reference`,
@@ -189,8 +148,7 @@ export const B_ref = makeJSFun(
     `.macro (ref x)
 ..param {[assignable location]} x
 .pure
-. Asserts that \`x\` is a valid assignable, and then returns a reference to it, which can be assigned to or read with [[deref]].
-A descriptor (an object with \`__get__\`/\`__set__\` protocol methods) is its own reference, and is returned as-is.`,
+. Asserts that \`x\` is a valid assignable, and then returns a reference to it, which can be assigned to or read with [[deref]].`,
 );
 
 export const B_deref = makeJSFun(
@@ -198,10 +156,9 @@ export const B_deref = makeJSFun(
     ["ref"],
     ({ ref }) => new ReferenceWrapper(ref),
     `.func (deref x)
-..param {Reference | descriptor} x
+..param {Reference} x
 .pure
 . Asserts that \`x\` is a valid reference value created by [[ref]], and then returns the value stored in the reference.
-A descriptor (an object with a \`__get__\` protocol method) may be given instead of a reference; the value read through it is returned.
 This function works with [[assign]] to be able to change the value of the reference as well.`,
 );
 
@@ -291,5 +248,4 @@ export const loadVariablesBuiltins = (vm: JebVM) => {
     define(vm, "ref", B_ref);
     define(vm, "deref", B_deref);
     define(vm, "always", B_always);
-    accessorInit(vm);
 };

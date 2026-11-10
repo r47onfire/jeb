@@ -1,49 +1,15 @@
 import { undefinedToNull } from "lib0/conditions";
 import { Block } from "../block";
-import {
-    define,
-    defineAccessor,
-    defineApplier,
-    defineGetter,
-    defineSetter,
-    defineUnwrapper,
-    makeJSFun,
-    makeOpcode,
-    NOTHING,
-} from "../define";
-import {
-    AccessReference,
-    AccessType,
-    protocolMethod,
-    Reference,
-} from "../protocol";
-import { createSignature, Laziness, Rest } from "../signature";
+import { define, makeJSFun, makeOpcode, NOTHING } from "../define";
+import { checkNothingOrPush } from "../errors";
+import { AccessType, Reference } from "../reference";
 import { JebVM, popData, pushCommand, pushData } from "../vm";
-import { ReferenceWrapper, Wrapper } from "../wrapper";
+import { NullHole, ReferenceWrapper } from "../wrapper";
 import { OP_index, runSetter } from "./eval";
 import { OP_unwrap, OP_wrap } from "./unwrap";
 import { OP_block_invoke, OP_push_value } from "./variables";
-import { checkNothingOrPush } from "../errors";
 
-/**
- * A sentinel value that stops a chain of calls and accesses, absorbing each one
- * and returning itself, so a chain that hits `undefined` or `null` anywhere
- * produces that value at the end instead of throwing.
- *
- * Unlike Javascript (where `null?.x` evaluates to `undefined`) the hole wraps
- * the specific `undefined` or `null` it came from.
- */
-export class NullHole extends Wrapper implements Reference {
-    flag = "hole" as const;
-    /** The hole stands in for a property slot that was never there. */
-    readonly type = AccessType.PROPERTY;
-    /** Returns itself. */
-    get(): this {
-        return this;
-    }
-    /** Does nothing. */
-    set() {}
-}
+export { NullHole } from "../wrapper";
 
 /**
  * Continuation of a read through a {@link NullChainReference}: the fetched value
@@ -64,19 +30,6 @@ const OP_hole_finish = makeOpcode(
 );
 
 /**
- * The `apply` implementation for the hole: discard the arguments without
- * evaluating them, and return the hole itself.
- */
-const OP_hole_call = makeOpcode(
-    null,
-    (vm: JebVM, { 0: hole }: [NullHole]) => {
-        popData(vm);
-        pushData(vm, hole);
-    },
-    null,
-);
-
-/**
  * The reference `index_null` returns for a real (non-nullish) receiver: a
  * reference like the one `index` would return, except that reading it turns a
  * fetched `undefined` or `null` into the hole, so a chain that continues with
@@ -84,15 +37,12 @@ const OP_hole_call = makeOpcode(
  * assigns to the inner reference as usual.
  */
 export class NullChainReference extends Reference {
-    constructor(readonly inner: Reference | AccessReference) {
+    constructor(readonly inner: Reference) {
         super(AccessType.PROPERTY);
     }
     get(vm: JebVM, shouldBind: boolean) {
         pushCommand(vm, OP_hole_finish);
-        const result = vm
-            .getProtocol(true, true, "get", [this.inner])
-            .run(vm, [this.inner], { shouldBind });
-        checkNothingOrPush(vm, result);
+        checkNothingOrPush(vm, this.inner.get(vm, shouldBind));
         return NOTHING;
     }
     set(vm: JebVM, value: any, create: boolean, readonly: boolean) {
@@ -123,12 +73,6 @@ export const B_index_null = makeJSFun(
         // A real receiver: index it exactly like `index` does, but the
         // reference is wrapped so that reading it turns a fetched
         // `undefined` or `null` into the hole.
-        if (protocolMethod(obj, "access")) {
-            pushCommand(vm, OP_wrap, ReferenceWrapper);
-            pushCommand(vm, OP_wrap, NullChainReference);
-            pushCommand(vm, OP_push_value, new AccessReference(obj, key));
-            return NOTHING;
-        }
         pushCommand(vm, OP_wrap, ReferenceWrapper);
         pushCommand(vm, OP_wrap, NullChainReference);
         pushCommand(vm, OP_index, AccessType.PROPERTY);
@@ -144,55 +88,9 @@ export const B_index_null = makeJSFun(
 ..param {any} obj
 ..param {PropertyKey} name
 .pure
-. Returns a reference to \`obj[name]\`, like [[index]], but null-safe: if \`obj\` is \`undefined\` or \`null\` the result is the null-chaining hole instead (and the key is not evaluated), and reading the reference turns a fetched \`undefined\` or \`null\` into the hole as well, so a chain of accesses and calls that hits a missing value anywhere produces that value at the end instead of throwing. If \`obj\` has an \`__access__\` protocol method, the key is passed to it unevaluated and the method's signature decides whether it is evaluated.`,
+. Returns a reference to \`obj[name]\`, like [[index]], but null-safe: if \`obj\` is \`undefined\` or \`null\` the result is the null-chaining hole instead (and the key is not evaluated), and reading the reference turns a fetched \`undefined\` or \`null\` into the hole as well, so a chain of accesses and calls that hits a missing value anywhere produces that value at the end instead of throwing.`,
 );
-
-const nullchainSignature = createSignature([[false, 0, "args"]]);
 
 export const loadNullChainBuiltins = (vm: JebVM) => {
     define(vm, "index_null", B_index_null);
-    defineAccessor(
-        vm,
-        [NullHole],
-        (_, { 0: hole }) => hole,
-        "The null-chaining hole is its own reference, for every field.",
-    );
-    defineGetter(
-        vm,
-        [NullHole],
-        (_, { 0: hole }) => hole,
-        "Reads the null-chaining hole, which is just itself.",
-    );
-    defineSetter(
-        vm,
-        [NullHole],
-        (vm, { 0: hole }, { unevaluated }) => {
-            if (unevaluated) {
-                // The right-hand side is still a block: drop it without
-                // evaluating it, and the assignment's value is the hole.
-                pushData(vm, hole);
-            }
-        },
-        "Assigns to the null-chaining hole, which absorbs the assignment.",
-    );
-    defineApplier(
-        vm,
-        [NullHole],
-        (vm, { 0: hole }) => {
-            pushCommand(vm, OP_hole_call, hole);
-        },
-        () => ({
-            name: undefined,
-            signature: nullchainSignature,
-        }),
-        "Calling the null-chaining hole returns it, without evaluating the arguments.",
-    );
-    defineUnwrapper(
-        vm,
-        [NullHole],
-        (vm, { 0: hole }) => {
-            pushData(vm, hole.obj);
-        },
-        "Unwraps the null-chaining hole to the undefined or null it wraps",
-    );
 };

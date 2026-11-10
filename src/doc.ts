@@ -1,7 +1,6 @@
 import { isArray, last } from "lib0/array";
 import { isString } from "lib0/function";
 import { stringify } from "lib0/json";
-import { JEBProtocols } from "./protocol";
 
 /**
  * Documentation tree markup node
@@ -256,39 +255,6 @@ export const FunctionOrMacroParsers: Record<string, DocMetadataParser> = {
     // present if the function is marked as pure
     pure: EmptyTag,
 };
-
-/**
- * Metadata parsers used for the {@link JEBProtocols.apply apply} protocol's
- * docstring
- */
-export const ApplierParsers: Record<string, DocMetadataParser> = {
-    // errors thrown
-    throws: ThrowsTag,
-    // Returns value
-    return: deprecatedReturn,
-    returns: ReturnsTag,
-};
-
-/**
- * Metadata parsers used for the {@link JEBProtocols.eval eval} protocol's
- * docstring
- */
-export const EvaluatorParsers: Record<string, DocMetadataParser> =
-    ApplierParsers;
-
-/**
- * Metadata parsers used for the {@link JEBProtocols.access access} protocol's
- * docstring
- */
-export const AccessorParsers: Record<string, DocMetadataParser> =
-    ApplierParsers;
-
-/**
- * Metadata parsers used for the {@link JEBProtocols.unwrap unwrap} protocol's
- * docstring
- */
-export const UnwrapperParsers: Record<string, DocMetadataParser> =
-    ApplierParsers;
 
 /** Parsed documentation data for something (e.g. builtin function, lambda) */
 export interface Doc {

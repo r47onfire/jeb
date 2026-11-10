@@ -22,9 +22,7 @@ import {
     locationsEqual,
     StackTreeNode,
 } from "./errors";
-import { ArgcForName, getProtocolHandler, JEBProtocols } from "./protocol";
-import { theTypeName, typeOf } from "./typecheck";
-import { Identifier, Tuple } from "./utils";
+import { Identifier } from "./utils";
 
 /** Data for the command */
 export type Command<T extends JebVM, A extends any[] = any[]> = [
@@ -103,8 +101,6 @@ export class JebVM<
     lastCall: StackEntry | undefined = undefined;
     /** Environment that all builtins live in */
     builtinsEnv = this.createEnv();
-    /** Protocol implementations registered on this VM, by protocol name */
-    protocols: Partial<JEBProtocols<T>> = {};
     /** The error that stopped the VM, if any; {@link step} rethrows it while set */
     error: JEBError | undefined;
     /**
@@ -120,38 +116,6 @@ export class JebVM<
         super();
         this.reset();
         loadBuiltins(this as any as T);
-    }
-    /**
-     * Registers an implementation of the named protocol. Several
-     * implementations may be registered for one protocol; {@link getProtocol}
-     * dispatches between them based on the argument types.
-     */
-    addProtocol<N extends keyof JEBProtocols<T>>(
-        name: N,
-        impl: JEBProtocols<T>[N][number],
-    ) {
-        (this.protocols[name] ??= [] as any[]).push(impl);
-    }
-    /**
-     * Finds the implementation of the named protocol to run for the given
-     * arguments: the registered overload whose declared types best match the
-     * arguments' types. With `fast`, the first matching overload (searching
-     * from the most recently registered) wins instead of the best-scoring one.
-     * If `assert` is true, throws when no overload matches.
-     */
-    getProtocol<N extends keyof JEBProtocols<T>, A extends boolean>(
-        fast: boolean,
-        assert: A,
-        name: N,
-        args: Tuple<any, ArgcForName<T, N>>,
-    ): JEBProtocols<T>[N][number] | (A extends true ? never : undefined) {
-        const res = getProtocolHandler(this.protocols, fast, name, args);
-        if (assert && !res)
-            throw new JEBError(
-                ErrnoCode.ERANGE,
-                `No overload of ${String(name)} exists for type${args.length > 1 ? "s" : ""} ${args.map((x) => theTypeName(typeOf(x))).join(", ")}`,
-            );
-        return res!;
     }
     /** Pushes a value onto the data stack. */
     pushData(value: any) {

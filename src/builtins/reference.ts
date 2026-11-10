@@ -1,11 +1,10 @@
 import { stringify } from "lib0/json";
 import { pushSyntheticCall } from ".";
 import { Fun } from "../callable";
-import { NOTHING } from "../define";
 import { Env } from "../env";
 import { ErrnoCode } from "../errno";
 import { JEBError, wrapThrowToError } from "../errors";
-import { AccessType, protocolMethod, Reference } from "../protocol";
+import { AccessType, Reference } from "../reference";
 import { Identifier } from "../utils";
 import { JebVM } from "../vm";
 
@@ -24,14 +23,8 @@ export class ObjectPropertyReference extends Reference {
     }
     /**
      * Reads the property. If `shouldBind` is set and the value is a function,
-     * it is bound to the object, so host methods keep their receiver.
-     *
-     * Property lookup is Python-shaped: an `__access__` method, if the object
-     * has one, has already been consulted before this reference was created
-     * (see `index`); a property that is simply absent falls back to the
-     * object's `__member__` method, if it has one, whose result is the value.
-     * That call is scheduled, so this returns {@link NOTHING} in that case and
-     * the result lands on the stack in its place.
+     * it is bound to the object, so host methods keep their receiver. A
+     * property that is simply absent reads as `undefined`.
      */
     get(vm: JebVM, shouldBind: boolean) {
         vm.emit("jeb:ffi/object/get", [this.name, this.obj]);
@@ -41,10 +34,7 @@ export class ObjectPropertyReference extends Reference {
                 value = value.bind(this.obj);
             return value;
         }
-        const member = protocolMethod(this.obj, "member");
-        if (!member) return undefined;
-        pushSyntheticCall(vm, member, [this.obj, this.name], false);
-        return NOTHING;
+        return undefined;
     }
     /**
      * Writes the property, converting any JavaScript exception thrown by a
@@ -89,8 +79,8 @@ export class VariableReference extends Reference {
      * this reference's environment (as a constant if `readonly`); otherwise the
      * assignment lands in whichever environment defines the variable, throwing
      * if there is none or it is a constant, and runs that variable's watchers.
-     * Either way, a successful assignment invokes the `name` protocol on the
-     * new value.
+     * Either way, an unnamed function value adopts the variable's name (used
+     * for tracebacks).
      */
     set(vm: JebVM, value: any, create: boolean, readonly: boolean) {
         if (create) {
@@ -111,24 +101,10 @@ export class VariableReference extends Reference {
                 );
             }
         }
-        vm.getProtocol(true, false, "name", [value])?.run(vm, [value], {
-            name: this.name,
-        });
+        if (value instanceof Fun) value.name ??= this.name;
     }
     /** Throws the "not found" error for this reference. */
     referenceError(): never {
         throw new JEBError(ErrnoCode.ENAME, this.notFoundMessage);
     }
 }
-
-// Registers the default `name` protocol: when an unnamed function value is
-// assigned to a variable, it adopts the variable's name (used for tracebacks).
-export const loadVarNamingBuiltins = (vm: JebVM) => {
-    vm.addProtocol("name", {
-        type: [[Fun]],
-        run(_, { 0: fun }, { name }) {
-            fun.name ??= name;
-        },
-        doc: "",
-    });
-};

@@ -1,27 +1,28 @@
+import { isArray } from "lib0/array";
 import { JEBAuditEvents } from "../auditHookTypes";
 import { Block } from "../block";
 import { Fun, JSFun } from "../callable";
-import {
-    define,
-    defineApplier,
-    defineEvaluator,
-    makeJSFun,
-    makeOpcode,
-    NOTHING,
-} from "../define";
+import { Continuation } from "../continuation";
+import { define, makeJSFun, makeOpcode, NOTHING } from "../define";
 import { OP_doargs } from "../doargs";
 import { Env } from "../env";
 import { ErrnoCode } from "../errno";
-import { checkNothingOrPush, JEBError, Location } from "../errors";
 import {
-    AccessReference,
+    checkNothingOrPush,
+    JEBError,
+    Location,
+    wrapThrowToError,
+} from "../errors";
+import {
     AccessType,
-    protocolMethod,
+    ApplyMetadata,
+    Reference,
     SetFlags,
-} from "../protocol";
+} from "../reference";
 import {
     CallableSignature,
     createSignature,
+    Laziness,
     LonghandArgument,
     Rest,
 } from "../signature";
@@ -41,13 +42,14 @@ import {
     EmptyArg,
     KeywordArg,
     MacroWrapper,
+    NullHole,
     OptionArg,
     SplatArg,
 } from "../wrapper";
-import { pushSyntheticCall } from "./callables";
+import { OP_continuation_invoke, OP_fun_invoke } from "./callables";
 import { ObjectPropertyReference, VariableReference } from "./reference";
 import { OP_unwrap } from "./unwrap";
-import { B_local } from "./variables";
+import { B_local, OP_assign_internal, OP_block_invoke } from "./variables";
 
 export const OP_audit = makeOpcode(
     "audit",
@@ -135,9 +137,52 @@ export const OP_eval = makeOpcode(
         { 0: location, 1: tail }: [Location | undefined, tail?: boolean],
     ) => {
         const code = popData(vm);
-        const p = vm.getProtocol(true, false, "eval", [code]);
-        if (p) p.run(vm, [code], { tail: tail ?? false, location });
-        else pushData(vm, code);
+        if (isArray(code)) {
+            if (code.length === 0) {
+                throw new JEBError(
+                    ErrnoCode.EINVAL,
+                    "can't evaluate empty array",
+                    {},
+                    { return: vm.cc() },
+                );
+            }
+            arrayEval(vm, code, tail ?? false, location);
+        } else if (
+            code instanceof Fun ||
+            code instanceof JSFun ||
+            code instanceof Block
+        ) {
+            // Functions and implicit blocks evaluate to themselves.
+            pushData(vm, code);
+        } else if (typeof code === "object") {
+            if (code === null) {
+                pushData(vm, null);
+                return;
+            }
+            // Evaluate all the properties, then reassemble the object with
+            // the same set of keys with the evaluated values.
+            const target = {};
+            pushData(vm, target);
+            const keys = Reflect.ownKeys(code),
+                len = keys.length;
+            for (var i = 0; i < len; i++) {
+                pushData(
+                    vm,
+                    new ObjectPropertyReference(
+                        AccessType.PROPERTY,
+                        target,
+                        keys[i]!,
+                    ),
+                );
+                pushData(vm, code[keys[i]!]);
+                pushCommand(vm, OP_shuffle, 1, []);
+                pushCommand(vm, OP_assign, true);
+                pushCommand(vm, OP_shuffle, 2, [1, 0]);
+                pushCommand(vm, OP_eval, location);
+            }
+        } else {
+            pushData(vm, code);
+        }
     },
     `.imm location tailcall
 ..param {Location} location
@@ -208,38 +253,6 @@ export const B_object = makeJSFun(
 . Returns a new object with dynamically-evaluated keys.`,
 );
 
-const loadObjectEvaluator = (vm: JebVM) =>
-    defineEvaluator(
-        vm,
-        ["object"],
-        (vm, { 0: code }, { location }) => {
-            if (code === null) {
-                pushData(vm, null);
-                return;
-            }
-            // evaluate all the properties
-            const target = {};
-            pushData(vm, target);
-            const keys = Reflect.ownKeys(code),
-                len = keys.length;
-            for (var i = 0; i < len; i++) {
-                pushData(
-                    vm,
-                    new ObjectPropertyReference(
-                        AccessType.PROPERTY,
-                        target,
-                        keys[i]!,
-                    ),
-                );
-                pushData(vm, code[keys[i]!]);
-                pushCommand(vm, OP_shuffle, 1, []);
-                pushCommand(vm, OP_assign, true);
-                pushCommand(vm, OP_shuffle, 2, [1, 0]);
-                pushCommand(vm, OP_eval, location);
-            }
-        },
-        "Evaluates all of the property values, and then reassembles the object with the same set of keys with the evaluated values.",
-    );
 const arrayEval = (
     vm: JebVM,
     code: any[],
@@ -251,50 +264,118 @@ const arrayEval = (
     pushCommand(vm, OP_eval, location);
     pushData(vm, code[0]);
 };
-const loadOtherEvaluators = (vm: JebVM) => {
-    defineEvaluator(
-        vm,
-        [Array],
-        (vm, { 0: code }, { tail, location }) => {
-            if (code.length > 0) {
-                arrayEval(vm, code, tail, location);
-            } else {
-                throw new JEBError(
-                    ErrnoCode.EINVAL,
-                    "can't evaluate empty array",
-                    {},
-                    { return: vm.cc() },
-                );
-            }
-        },
-        `Calls the first item as a function.
-.throws EINVAL - if the first item is not callable
-.throws ERANGE - if the list is empty`,
-    );
-
-    defineEvaluator(
-        vm,
-        [JSFun],
-        (vm, { 0: f }) => pushData(vm, f),
-        "Builtin functions evaluate to themselves.",
-    );
-
-    defineEvaluator(
-        vm,
-        [Fun],
-        (vm, { 0: f }) => pushData(vm, f),
-        "Lambda functions evaluate to themselves.",
-    );
-
-    defineEvaluator(
-        vm,
-        [Block],
-        (vm, { 0: f }) => pushData(vm, f),
-        "Implicit blocks evaluate to themselves.",
-    );
-};
-
 // MARK: apply
+/** The signature calls of the null-chaining hole are bound against. */
+export const nullchainSignature = createSignature([[false, 0, "args"]]);
+/**
+ * The `apply` implementation for the hole: discard the arguments without
+ * evaluating them, and return the hole itself.
+ */
+export const OP_hole_call = makeOpcode(
+    null,
+    (vm: JebVM, { 0: hole }: [NullHole]) => {
+        popData(vm);
+        pushData(vm, hole);
+    },
+    null,
+);
+/**
+ * Describes a callable value: the metadata the apply opcode needs to set up
+ * the call (the traceback name, the parameter signature the arguments are
+ * bound against, and the closure environment for defaults), or `undefined`
+ * if the value cannot be called at all.
+ */
+export const describeCallable = (
+    vm: JebVM,
+    func: any,
+): ApplyMetadata | undefined => {
+    if (typeof func === "string" || typeof func === "symbol") {
+        // A string in head position is shorthand for looking up the variable
+        // of the same name and calling that instead; it is described by the
+        // single quoted rest parameter the trampoline re-applies with.
+        return { name: undefined, signature: ALL_UNDERSCORE_QUOTED };
+    }
+    if (func instanceof JSFun) return func;
+    if (func instanceof Fun) {
+        return {
+            name: func.isImplicit ? undefined : (func.name ?? "[anonymous]"),
+            signature: func.signature,
+            closureEnv: func.closureEnv,
+        };
+    }
+    if (func instanceof Block) {
+        return {
+            name: undefined,
+            signature: [
+                {
+                    name: "_",
+                    required: false,
+                    defaultExpr: {},
+                    lazy: Laziness.NONE,
+                    flags: [],
+                    rest: Rest.NONE,
+                    options: {},
+                },
+            ],
+            closureEnv: func.closureEnv,
+        };
+    }
+    if (func instanceof Continuation) {
+        return {
+            name: "<continuation>",
+            signature: createSignature(["value"]),
+        };
+    }
+    if (func instanceof NullHole) {
+        // Calling the hole discards the arguments without evaluating them.
+        return { name: undefined, signature: nullchainSignature };
+    }
+    if (typeof func === "function") {
+        // A host (Javascript) function, called through the FFI.
+        return {
+            name: `[JS function ${func.name || "<no name>"}]`,
+            signature: ALL_UNDERSCORE_NORMAL,
+        };
+    }
+    return undefined;
+};
+/**
+ * Schedules the implementation of a call to a value {@link describeCallable}
+ * described: pushes the opcodes that run the callee's body once the
+ * arguments object (produced by the `doargs` opcode the apply opcode pushes
+ * right after this) is on the stack.
+ */
+const runCallable = (
+    vm: JebVM,
+    func: any,
+    tail: boolean,
+    location: Location | undefined,
+) => {
+    if (typeof func === "string" || typeof func === "symbol") {
+        pushCommand(vm, OP_apply_id_trampoline, tail, location);
+        pushCommand(vm, OP_tbPop);
+        pushCommand(vm, OP_unwrap, ["hole"]);
+        pushCommand(vm, OP_get, false);
+        pushCommand(vm, OP_shuffle, 2, [1, 0]);
+        pushCommand(vm, OP_tbPush, undefined, location, StackEntryKind.NONE);
+        pushData(
+            vm,
+            new VariableReference(AccessType.FUNCTION, vm.currentEnv, func),
+        );
+    } else if (func instanceof JSFun) {
+        pushCommand(vm, OP_JSFun_invoke, func, location);
+    } else if (func instanceof Fun) {
+        pushCommand(vm, OP_fun_invoke, func, tail);
+    } else if (func instanceof Block) {
+        pushCommand(vm, OP_block_invoke, func, tail);
+    } else if (func instanceof Continuation) {
+        pushCommand(vm, OP_continuation_invoke, func);
+    } else if (func instanceof NullHole) {
+        pushCommand(vm, OP_hole_call, func);
+    } else {
+        pushCommand(vm, OP_ffi_invoke, func);
+    }
+};
 export const OP_apply = makeOpcode(
     "apply",
     (
@@ -312,8 +393,8 @@ export const OP_apply = makeOpcode(
         ],
     ) => {
         const func = popData(vm);
-        const applier = vm.getProtocol(true, false, "apply", [func]);
-        if (!applier) {
+        const metadata = describeCallable(vm, func);
+        if (!metadata) {
             throw new JEBError(
                 ErrnoCode.EINVAL,
                 `can't call ${theTypeName(typeOf(func))}`,
@@ -321,9 +402,9 @@ export const OP_apply = makeOpcode(
                 { return: vm.cc() },
             );
         }
-        const { name, signature, closureEnv } = applier.describe(vm, func);
+        const { name, signature, closureEnv } = metadata;
         if (name && !tail) pushCommand(vm, OP_tbPop);
-        applier.run(vm, [func], { tail: tail ?? false, location });
+        runCallable(vm, func, tail ?? false, location);
         if (name)
             pushCommand(
                 vm,
@@ -357,13 +438,17 @@ The arguments expressions are expected to be unevaluated, and the signature of t
 /**
  * Partially applies a callable to its first parameter: returns a callable that
  * calls `callee` with `value` filled in for that parameter. The callee's
- * signature and closure environment come from the `apply` protocol's metadata,
- * so how the callee is implemented doesn't matter.
+ * signature and closure environment come from {@link describeCallable}, so
+ * how the callee is implemented doesn't matter.
  */
 export const curry = (vm: JebVM, callee: any, value: any) => {
-    const { name, signature, closureEnv } = vm
-        .getProtocol(true, true, "apply", [callee])
-        .describe(vm, callee);
+    const metadata = describeCallable(vm, callee);
+    if (!metadata)
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            `can't call ${theTypeName(typeOf(callee))}`,
+        );
+    const { name, signature, closureEnv } = metadata;
     const first = signature[0];
     if (!first) return callee;
     if (first.rest === Rest.KEYWORD)
@@ -400,98 +485,6 @@ export const curry = (vm: JebVM, callee: any, value: any) => {
         "",
     );
 };
-/**
- * Schedules the `__access__` call for an {@link AccessReference}: the object
- * itself is an already-computed value, and the key expression is passed
- * verbatim, so whether it is evaluated is up to the method's signature. The
- * descriptor object the method returns is left on the data stack for the next
- * command to consume.
- */
-export const pushAccessCall = (vm: JebVM, ref: AccessReference) => {
-    pushData(vm, protocolMethod(ref.obj, "access")!);
-    pushCommand(vm, OP_apply, [ref.obj, ref.key.body[0]], undefined, false, [
-        true,
-        false,
-    ]);
-};
-/**
- * The `__get__` method of a descriptor returned by `__access__`; throws if the
- * property cannot be read through it. `property` is the accessed property's
- * name, when it is statically known.
- */
-export const accessedGetter = (
-    descriptor: any,
-    property: string | undefined,
-) => {
-    const get = protocolMethod(descriptor, "get");
-    if (!get)
-        throw new JEBError(
-            ErrnoCode.ENODEV,
-            property === undefined
-                ? `property is not readable`
-                : `property ${property} is not readable`,
-        );
-    return get;
-};
-/**
- * The `__set__` method of a descriptor returned by `__access__`; throws if the
- * property cannot be assigned through it. `property` is the accessed property's
- * name, when it is statically known.
- */
-export const accessedSetter = (
-    descriptor: any,
-    property: string | undefined,
-) => {
-    const set = protocolMethod(descriptor, "set");
-    if (!set)
-        throw new JEBError(
-            ErrnoCode.ENODEV,
-            property === undefined
-                ? `property is not writable`
-                : `property ${property} is not writable`,
-        );
-    return set;
-};
-/**
- * Continuation of a read through an {@link AccessReference}: the descriptor
- * object returned by `__access__` is on top of the data stack; read through its
- * `__get__` method.
- */
-export const OP_accessed_get = makeOpcode(
-    null,
-    (vm: JebVM, { 0: property }: [string | undefined]) => {
-        const descriptor = popData(vm);
-        pushSyntheticCall(
-            vm,
-            accessedGetter(descriptor, property),
-            [descriptor],
-            false,
-        );
-    },
-    null,
-);
-/**
- * Continuation of an assignment through an {@link AccessReference} from the
- * `assign` opcode: the descriptor object returned by `__access__` is on top of
- * the data stack and the value being assigned, already computed, is below it;
- * assign through the descriptor's `__set__` method, leaving the value on the
- * stack (like the `assign` opcode does). (The `assign` builtin's continuation
- * is `OP_assign_accessed` in variables.ts: its value is still an unevaluated
- * expression, for the method's signature to evaluate or not.)
- */
-export const OP_accessed_set = makeOpcode(
-    null,
-    (vm: JebVM, { 0: property }: [string | undefined]) => {
-        const descriptor = popData(vm);
-        pushSyntheticCall(
-            vm,
-            accessedSetter(descriptor, property),
-            [descriptor, peekData(vm)],
-            true,
-        );
-    },
-    null,
-);
 export const B_atLocation = makeJSFun(
     "at",
     [
@@ -567,7 +560,6 @@ export const B_option = makeJSFun(
 . Uses the parameter's named value.`,
 );
 
-// MARK: string applier
 const OP_apply_id_trampoline = makeOpcode(
     null,
     (
@@ -581,48 +573,6 @@ const OP_apply_id_trampoline = makeOpcode(
     },
     null,
 );
-const loadStringApplier = (vm: JebVM) => {
-    defineApplier(
-        vm,
-        ["string", "symbol"],
-        (vm, { 0: func }, { tail, location }) => {
-            // String is a special case because normally strings evaluate to themselves
-            // (not to a callable function), but if it's in head position, we implicitly look it up.
-            pushCommand(vm, OP_apply_id_trampoline, tail, location);
-            pushCommand(vm, OP_tbPop);
-            pushCommand(vm, OP_unwrap, ["hole"]);
-            pushCommand(vm, OP_get, false);
-            pushCommand(vm, OP_shuffle, 2, [1, 0]);
-            pushCommand(
-                vm,
-                OP_tbPush,
-                undefined,
-                location,
-                StackEntryKind.NONE,
-            );
-            pushData(
-                vm,
-                new VariableReference(AccessType.FUNCTION, vm.currentEnv, func),
-            );
-        },
-        () => ({
-            name: undefined,
-            signature: ALL_UNDERSCORE_QUOTED,
-            macro: false,
-        }),
-        `Applying a string is shorthand for looking up the variable with the same name as the string and calling that instead.
-As a consequence, \`('foo)\` is the same as \`(foo)\` in JEB even though the former would be invalid in conventional Lisp.`,
-    );
-    // MARK: builtin applier
-    defineApplier(
-        vm,
-        [JSFun],
-        (vm, { 0: func }, { location }) =>
-            pushCommand(vm, OP_JSFun_invoke, func, location),
-        (_, func) => func,
-        "Wrapper for a Javascript function that gives it a few properties to make it easier for JEB to call it.",
-    );
-};
 const OP_JSFun_invoke = makeOpcode(
     null,
     <T extends JebVM>(
@@ -631,47 +581,73 @@ const OP_JSFun_invoke = makeOpcode(
     ) => checkNothingOrPush(vm, func.impl(popData(vm), vm, location)),
     null,
 );
+/**
+ * The `apply` implementation for a host (Javascript) function: call it with
+ * the bound arguments through the FFI.
+ */
+export const OP_ffi_invoke = makeOpcode(
+    null,
+    (vm: JebVM, { 0: f }: [Function]) => {
+        const args = popData(vm)._;
+        vm.emit("jeb:ffi/call_function", [f, args]);
+        pushData(
+            vm,
+            wrapThrowToError(ErrnoCode.EJAVASCRIPT, () => f(...args)),
+        );
+    },
+    null,
+);
 
 export const OP_index = makeOpcode(
     "index",
     (vm: JebVM, { 0: type }: [AccessType]) => {
         const field = popData(vm) as PropertyKey;
         const obj = popData(vm);
-        const accessor = vm.getProtocol(true, false, "access", [obj]);
-        if (!accessor) {
+        if (obj instanceof Env) {
+            pushData(vm, new VariableReference(type, obj, field as Identifier));
+        } else if (obj instanceof NullHole) {
+            // The hole is its own reference, for every field.
+            pushData(vm, obj);
+        } else if (typeof obj === "object" || typeof obj === "function") {
+            pushData(vm, new ObjectPropertyReference(type, obj, field));
+        } else {
             throw new JEBError(
                 ErrnoCode.EINVAL,
                 `${theTypeName(typeOf(obj))} is not subscriptable`,
             );
         }
-        checkNothingOrPush(vm, accessor.run(vm, [obj], { field, type }));
     },
     `.sed obj name -- lvalue
 ..param {code} name - evaluated
 .throws EINVAL - if the object can't be indexed
-. Finds an Accessor for the object and pushes the LValue for the given field.`,
+. Pushes the reference for the given field of the object: a variable reference for an environment, and a property reference for any other object.`,
 );
 export const OP_get = makeOpcode(
     "get",
     (vm: JebVM, { 0: shouldBind }: [boolean]) => {
         const lvalue = popData(vm);
-        const getter = vm.getProtocol(true, false, "get", [lvalue]);
-        if (!getter)
+        if (lvalue instanceof Reference || lvalue instanceof NullHole) {
+            checkNothingOrPush(vm, lvalue.get(vm, shouldBind));
+        } else {
             throw new JEBError(
                 ErrnoCode.EINVAL,
                 `${theTypeName(typeOf(lvalue))} is not a reference`,
             );
-        checkNothingOrPush(vm, getter.run(vm, [lvalue], { shouldBind }));
+        }
     },
     `.imm accessType shouldBind
 ..param {AccessType} accessType
 ..param {boolean?} [shouldBind=false]
 .sed lvalue -- value
-. Takes an LValue on the top of the stack and unwraps it: a reference by calling its get() method, and a descriptor (an object with a \`__get__\` protocol method) by calling that method.`,
+. Takes a reference on the top of the stack and reads the value it points to: the result of its get() method, which may schedule opcodes and return NOTHING instead.`,
 );
 /**
- * Runs the `set` protocol implementation for an lvalue, or throws if there is
- * none.
+ * Assigns `value` to `lvalue` (a reference, or the null-chaining hole, which
+ * absorbs the assignment), or throws if the value cannot be assigned to.
+ * With the `unevaluated` flag the value is still a block: the assignment
+ * evaluates it (through `OP_assign_internal`, with `_` bound to the old
+ * value) -- except through the hole, which drops it unevaluated and produces
+ * the hole itself as the assignment's value.
  */
 export const runSetter = (
     vm: JebVM,
@@ -679,13 +655,28 @@ export const runSetter = (
     value: any,
     flags: SetFlags,
 ) => {
-    const setter = vm.getProtocol(true, false, "set", [lvalue, value]);
-    if (!setter)
-        throw new JEBError(
-            ErrnoCode.EINVAL,
-            `cannot assign to ${theTypeName(typeOf(lvalue))}`,
-        );
-    setter.run(vm, [lvalue, value], flags);
+    if (lvalue instanceof NullHole) {
+        if (flags.unevaluated) pushData(vm, lvalue);
+        return;
+    }
+    if (lvalue instanceof Reference) {
+        if (flags.unevaluated) {
+            pushCommand(
+                vm,
+                OP_assign_internal,
+                value as Block,
+                flags.old ?? false,
+            );
+            pushData(vm, lvalue);
+            return;
+        }
+        lvalue.set(vm, value, flags.create, flags.readonly);
+        return;
+    }
+    throw new JEBError(
+        ErrnoCode.EINVAL,
+        `cannot assign to ${theTypeName(typeOf(lvalue))}`,
+    );
 };
 export const OP_assign = makeOpcode(
     "assign",
@@ -705,7 +696,7 @@ export const OP_assign = makeOpcode(
 ..param {boolean?} [create=false]
 ..param {boolean?} [readonly=false]
 .sed value lvalue -- value
-. Takes an LValue on the top of the stack and assigns the next item in the stack to it: a reference by calling its set() method, and a descriptor (an object with a \`__set__\` protocol method) by calling that method with the value.`,
+. Takes an LValue on the top of the stack and assigns the next item in the stack to it, by calling the reference's set() method.`,
 );
 // MARK: logic
 export const OP_if = makeOpcode(
@@ -766,7 +757,4 @@ export const loadEvalBuiltins = (vm: JebVM) => {
     define(vm, "kw", B_keyword);
     define(vm, "blank", B_blank);
     define(vm, "option", B_option);
-    loadObjectEvaluator(vm);
-    loadOtherEvaluators(vm);
-    loadStringApplier(vm);
 };

@@ -1,4 +1,4 @@
-import { Reference } from "./protocol";
+import { AccessType, Reference } from "./reference";
 
 /**
  * Represents a wrapped value that only appears as a directly-usable value under
@@ -55,9 +55,7 @@ export class EmptyArg extends Wrapper {
 }
 
 /**
- * Wrapper for a variable reference. The wrapped value is usually a
- * {@link Reference}, but a descriptor object (an object with `__get__` /
- * `__set__` protocol methods) behaves like a reference too.
+ * Wrapper for a variable reference. The wrapped value is a {@link Reference}.
  */
 export class ReferenceWrapper extends Wrapper {
     flag = "ref" as const;
@@ -66,4 +64,28 @@ export class ReferenceWrapper extends Wrapper {
 /** Wrapper for a macro result */
 export class MacroWrapper extends Wrapper {
     flag = "macro" as const;
+}
+
+/**
+ * A sentinel value that stops a chain of calls and accesses, absorbing each
+ * one and returning itself, so a chain that hits `undefined` or `null`
+ * anywhere produces that value at the end instead of throwing.
+ *
+ * Unlike Javascript (where `null?.x` evaluates to `undefined`) the hole wraps
+ * the specific `undefined` or `null` it came from.
+ *
+ * The hole is also a {@link Reference} (to itself, for every field): reading
+ * it returns itself, and assigning to it does nothing. It lives here, with
+ * the other wrappers, because the core opcodes dispatch on it directly.
+ */
+export class NullHole extends Wrapper implements Reference {
+    flag = "hole" as const;
+    /** The hole stands in for a property slot that was never there. */
+    readonly type = AccessType.PROPERTY;
+    /** Returns itself. */
+    get(): this {
+        return this;
+    }
+    /** Does nothing. */
+    set() {}
 }

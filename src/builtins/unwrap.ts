@@ -1,5 +1,5 @@
 import { OP_eval, OP_get, OP_tbPop, OP_tbPush } from ".";
-import { defineUnwrapper, makeOpcode } from "../define";
+import { makeOpcode } from "../define";
 import { ErrnoCode } from "../errno";
 import { JEBError } from "../errors";
 import { DropFirst } from "../utils";
@@ -45,93 +45,76 @@ export const OP_unwrap = makeOpcode(
     "unwrap",
     (vm, { 0: flags, 1: only }: [string[], only?: boolean]) => {
         const top = peekData(vm);
-        const unwrapper = vm.getProtocol(true, false, "unwrap", [top]);
-        if (!unwrapper) return;
-        // The implementation describes the value with its tag: a
-        // Wrapper's flag, or a wrapper object's __tag__ property. A tag
-        // is a plain property, never computed, so this is synchronous:
-        // no __access__ or descriptor reads happen here.
-        const tag = unwrapper.describe(vm, top);
-        if (typeof tag !== "string") return;
+        if (!(top instanceof Wrapper)) return;
+        const tag = top.flag;
         if (!flags.includes(tag) === !only) {
             popData(vm);
             pushCommand(vm, OP_unwrap, flags, only);
-            unwrapper.run(vm, [top]);
+            unwrapValue(vm, top);
         }
     },
     `.imm flags only
 .param {string[]} flags
 .param {boolean?} [only=false]
 .sed value -- unwrapped
-. Unwraps all wrappers from the value, when the value's wrapper has a tag in the given list of \`flags\` (when \`only\` is true) or when the value's wrapper has a tag *not* in the list of \`flags\` (when \`only\` is false). The tag is what the value's unwrap implementation describes it with (see the \`unwrap\` protocol): a \`Wrapper\`'s flag, or a wrapper object's \`__tag__\` property. A value no implementation describes is not a wrapper and is left alone.`,
+. Unwraps all wrappers from the value, when the value's wrapper has a tag in the given list of \`flags\` (when \`only\` is true) or when the value's wrapper has a tag *not* in the list of \`flags\` (when \`only\` is false). A value that is not a wrapper is left alone.`,
 );
 
-export const loadUnwrappingBuiltins = (vm: JebVM) => {
-    defineUnwrapper(
-        vm,
-        [ReferenceWrapper],
-        (vm, { 0: { obj } }) => {
-            pushCommand(vm, OP_get, true);
-            pushData(vm, obj);
-        },
-        "Unwraps a reference",
-    );
-    defineUnwrapper(
-        vm,
-        [MacroWrapper],
-        (vm, { 0: { obj } }) => {
-            const from = vm.lastCall;
-            if (from) {
-                // The call that just returned is the one that produced this
-                // expansion (normally the macro invocation itself). Evaluate
-                // the expansion under a frame naming it, at its call site, so
-                // that an error thrown by the expanded code mentions the macro
-                // even though the macro itself has already returned. The
-                // OP_unwrap_macro after the evaluation expands the expansion's
-                // own result if it is itself a macro expansion, while the call
-                // that produced it is still the last call, so nested expansions
-                // get their own frames instead of escaping to an outer
-                // consumer; any other wrapper the expansion evaluates to is
-                // left for that consumer to unwrap (or not) as it sees fit.
-                pushCommand(vm, OP_tbPop);
-                pushCommand(vm, OP_unwrap, ["macro"], true);
-                pushCommand(vm, OP_eval, from.location);
-                pushCommand(
-                    vm,
-                    OP_tbPush,
-                    from.name,
-                    from.location,
-                    StackEntryKind.MACRO_EXPANSION_RESULT,
-                    false,
-                );
-            } else {
-                pushCommand(vm, OP_unwrap, ["macro"], true);
-                pushCommand(vm, OP_eval, undefined);
-            }
-            pushData(vm, obj);
-        },
-        "Unwraps a macro expansion thing",
-    );
-    defineUnwrapper(
-        vm,
-        [EmptyArg],
-        () => {
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                "there is no parameter to which a default can be forced here",
+/**
+ * Runs the unwrapping behavior of a wrapper value (already popped by
+ * {@link OP_unwrap}, which re-queues itself behind this for the result):
+ * each wrapper kind knows how its unwrapped form is produced. Wrapper kinds
+ * not listed here have no unwrapping behavior and are consumed elsewhere
+ * (argument binding, for the argument wrappers).
+ */
+const unwrapValue = (vm: JebVM, top: Wrapper) => {
+    if (top instanceof ReferenceWrapper) {
+        pushCommand(vm, OP_get, true);
+        pushData(vm, top.obj);
+    } else if (top instanceof MacroWrapper) {
+        const { obj } = top;
+        const from = vm.lastCall;
+        if (from) {
+            // The call that just returned is the one that produced this
+            // expansion (normally the macro invocation itself). Evaluate
+            // the expansion under a frame naming it, at its call site, so
+            // that an error thrown by the expanded code mentions the macro
+            // even though the macro itself has already returned. The
+            // OP_unwrap after the evaluation expands the expansion's
+            // own result if it is itself a macro expansion, while the call
+            // that produced it is still the last call, so nested expansions
+            // get their own frames instead of escaping to an outer
+            // consumer; any other wrapper the expansion evaluates to is
+            // left for that consumer to unwrap (or not) as it sees fit.
+            pushCommand(vm, OP_tbPop);
+            pushCommand(vm, OP_unwrap, ["macro"], true);
+            pushCommand(vm, OP_eval, from.location);
+            pushCommand(
+                vm,
+                OP_tbPush,
+                from.name,
+                from.location,
+                StackEntryKind.MACRO_EXPANSION_RESULT,
+                false,
             );
-        },
-        "Unwraps an empty arg placeholder (by throwing an error)",
-    );
-    defineUnwrapper(
-        vm,
-        [OptionArg],
-        () => {
-            throw new JEBError(
-                ErrnoCode.EINVAL,
-                "there is no parameter with which an option can be used here",
-            );
-        },
-        "Unwraps an option arg placeholder (by throwing an error)",
-    );
+        } else {
+            pushCommand(vm, OP_unwrap, ["macro"], true);
+            pushCommand(vm, OP_eval, undefined);
+        }
+        pushData(vm, obj);
+    } else if (top instanceof EmptyArg) {
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            "there is no parameter to which a default can be forced here",
+        );
+    } else if (top instanceof OptionArg) {
+        throw new JEBError(
+            ErrnoCode.EINVAL,
+            "there is no parameter with which an option can be used here",
+        );
+    } else if (top.flag === "hole") {
+        // The null-chaining hole (the only "hole"-flagged wrapper) unwraps
+        // to the undefined or null it wraps.
+        pushData(vm, top.obj);
+    }
 };
