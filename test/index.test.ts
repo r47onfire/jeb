@@ -887,3 +887,129 @@ describe("continuations and dynamic-wind", () => {
         expect(out).toEqual(["exit"]);
     });
 });
+
+describe("recoverable errors", () => {
+    test("an exit handler can cancel error propagation by returning true", () => {
+        const { vm } = makeVM();
+        const result = run(
+            vm,
+            n(
+                "seq",
+                n("define", "seen", c(null)),
+                n(
+                    "dynamic-wind",
+                    n("lambda", [], c(null)),
+                    n("lambda", [], call("boom")),
+                    n(
+                        "lambda",
+                        ["err"],
+                        n("seq", n("assign", "seen", v("err")), c(true)),
+                    ),
+                ),
+                c(42),
+            ),
+        );
+        // execution continued past the dynamic-wind, and no error is parked
+        expect(result).toBe(42);
+        expect(vm.error).toBeUndefined();
+        // ...and the exit handler was called with the error
+        const seen = run(vm, v("seen"));
+        expect(seen).toBeInstanceOf(JEBError);
+        expect((seen as JEBError).message).toBe("boom");
+    });
+    test("an exit handler returning anything else lets the error propagate", () => {
+        const { vm } = makeVM();
+        let err: any;
+        try {
+            run(
+                vm,
+                n(
+                    "dynamic-wind",
+                    n("lambda", [], c(null)),
+                    n("lambda", [], call("boom")),
+                    n("lambda", ["err"], c(false)),
+                ),
+            );
+        } catch (e) {
+            err = e;
+        }
+        expect(err).toBeInstanceOf(JEBError);
+        expect(err.message).toBe("boom");
+    });
+    test("cancellation stops at the innermost handler that returns true", () => {
+        const { vm, out } = makeVM();
+        run(
+            vm,
+            n(
+                "dynamic-wind",
+                n("lambda", [], c(null)),
+                n(
+                    "lambda",
+                    [],
+                    n(
+                        "dynamic-wind",
+                        n("lambda", [], c(null)),
+                        n("lambda", [], call("boom")),
+                        n(
+                            "lambda",
+                            ["err"],
+                            n("seq", call("print", c("inner")), c(true)),
+                        ),
+                    ),
+                ),
+                n("lambda", ["err"], call("print", v("err"))),
+            ),
+        );
+        expect(vm.error).toBeUndefined();
+        // the inner handler caught the error; the outer wind then exited
+        // normally, so its exit handler ran with null, not the error
+        expect(out).toEqual(["inner", "null"]);
+    });
+    test("a dynamic-wind whose exit handler cancels produces no value", () => {
+        const { vm } = makeVM();
+        const result = run(
+            vm,
+            n(
+                "seq",
+                c(7),
+                n(
+                    "dynamic-wind",
+                    n("lambda", [], c(null)),
+                    n("lambda", [], call("boom")),
+                    n("lambda", ["err"], c(true)),
+                ),
+            ),
+        );
+        expect(result).toBe(7);
+    });
+    test("try/catch is buildable from dynamic-wind plus cancellation", () => {
+        const { vm } = makeVM();
+        // (try body) evaluates to the body's value, or to "caught" if the
+        // body threw: the exit handler stashes the error in `caught` and
+        // returns true to cancel it, and the code after the wind decides.
+        const try_ = (body: N) =>
+            n(
+                "seq",
+                n("define", "caught", c(null)),
+                n("define", "result", c(null)),
+                n(
+                    "dynamic-wind",
+                    n("lambda", [], c(null)),
+                    n("lambda", [], n("assign", "result", body)),
+                    n(
+                        "lambda",
+                        ["err"],
+                        n(
+                            "if",
+                            v("err"),
+                            n("seq", n("assign", "caught", v("err")), c(true)),
+                            c(false),
+                        ),
+                    ),
+                ),
+                n("if", v("caught"), c("caught"), v("result")),
+            );
+        expect(run(vm, try_(call("+", c(1), c(2))))).toBe(3);
+        expect(run(vm, try_(call("boom")))).toBe("caught");
+    });
+});

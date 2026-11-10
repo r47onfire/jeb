@@ -18,7 +18,7 @@ import { Identifier } from "./utils";
  * and lazy parameters belong to the layer above (e.g. Kuiper), which builds
  * them out of closures and blocks.
  */
-export class Closure<D, S> {
+export class Closure<D = any, S = any> {
     constructor(
         /** Positional parameter names, bound in order. */
         readonly params: readonly Identifier[],

@@ -5,22 +5,22 @@ import { OP_call_and_ignore_result } from "./opcodes";
 import { Command, JebVM, pushCommand, pushData, StackCount } from "./vm";
 
 /** A continuation which holds all the VM state, and can restore it at any time */
-export class Continuation<T extends JebVM<any, any>> {
+export class Continuation<D = any, S = any> {
     /** Closed-over environment */
     env: Env<D>;
     /** Closed-over command stack in progress */
-    commands: LinkedList<Command<T>>;
+    commands: LinkedList<Command<D, S>>;
     /** Closed-over data stack in progress */
-    data: LinkedList<any>;
+    data: LinkedList<D>;
     /** Closed-over dynamic wind stack in progress */
-    winders: DynamicWind<T>;
+    winders: DynamicWind<D, S>;
     /** Closed-over traceback stack in progress */
     traceback: LinkedList<StackCount<S>>;
     /** Closed-over macro expansion context in progress */
-    expansion: SourceInfo<any>[];
+    expansion: SourceInfo<S>[];
     /** Other saved state */
-    state: ReturnType<T["getState"]>;
-    constructor(vm: T, extraOps: Command<T, D, S>[]) {
+    state: any;
+    constructor(vm: JebVM<D, S>, extraOps: Command<D, S>[]) {
         this.env = vm.currentEnv;
         this.commands = LinkedList_pushAll(vm.commandStack, extraOps);
         this.data = vm.dataStack;
@@ -54,7 +54,7 @@ export interface Windable {
 }
 
 /** Node in a dynamic wind tree */
-export class DynamicWind<T extends JebVM<D, S>, D, S> {
+export class DynamicWind<D = any, S = any> {
     /**
      * The enter/exit handler pair for this node; null until {@link setHandler}
      * is called
@@ -66,16 +66,16 @@ export class DynamicWind<T extends JebVM<D, S>, D, S> {
      * The enclosing dynamic-wind node, forming the tree that jumps are resolved
      * against
      */
-    parent: DynamicWind<T, D, S> | null = null;
+    parent: DynamicWind<D, S> | null = null;
     /** Closed-over command stack */
-    commandsHere: LinkedList<Command<T, D, S>> = null;
+    commandsHere: LinkedList<Command<D, S>> = null;
     /** Closed-over data stack */
-    dataHere: LinkedList<any> = null;
+    dataHere: LinkedList<D> = null;
     /** Other saved state */
-    stateHere: ReturnType<T["getState"]>;
-    constructor(vm: T) {
+    stateHere: any;
+    constructor(vm: JebVM<D, S>) {
         this.envHere = vm.currentEnv;
-        this.parent = vm.curDynamicWind as DynamicWind<T, D, S>;
+        this.parent = vm.curDynamicWind;
         this.commandsHere = vm.commandStack;
         this.dataHere = vm.dataStack;
         this.stateHere = vm.getState();
@@ -90,11 +90,11 @@ export class DynamicWind<T extends JebVM<D, S>, D, S> {
      *
      * @param vm VM to process jump on
      */
-    processJumpHere(vm: T) {
-        var tp: DynamicWind<T, D, S> | null = this;
+    processJumpHere(vm: JebVM<D, S>) {
+        var tp: DynamicWind<D, S> | null = this;
         // find the common ancestor of from and to
         // parents: rightmost is innermost
-        const parentsOfTo: DynamicWind<T, D, S>[] = [];
+        const parentsOfTo: DynamicWind<D, S>[] = [];
         while (tp) {
             parentsOfTo.unshift(tp);
             tp = tp.parent;
@@ -105,7 +105,7 @@ export class DynamicWind<T extends JebVM<D, S>, D, S> {
         // handlers on the way back down to this node
         const calls: [callee: any, args: any[]][] = [];
         var i = -1;
-        var fp: DynamicWind<T, D, S> | null = vm.curDynamicWind;
+        var fp: DynamicWind<D, S> | null = vm.curDynamicWind;
         while (fp) {
             i = parentsOfTo.indexOf(fp);
             if (i !== -1) break;
@@ -133,7 +133,7 @@ export class DynamicWind<T extends JebVM<D, S>, D, S> {
      *
      * @param vm VM to restore to
      */
-    restore(vm: T) {
+    restore(vm: JebVM<D, S>) {
         vm.commandStack = this.commandsHere;
         vm.dataStack = this.dataHere;
         vm.currentEnv = this.envHere;

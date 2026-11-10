@@ -16,7 +16,7 @@ import {
     JEBError,
     StackTreeNode,
 } from "./errors";
-import { SourceInfo, sourcesEqual } from "./ir";
+import { IRNode, SourceInfo, sourcesEqual } from "./ir";
 import {
     CallArgs,
     loadCoreOpcodes,
@@ -27,9 +27,14 @@ import {
 } from "./opcodes";
 import { Identifier } from "./utils";
 
-/** Data for the command */
-export type Command<T extends JebVM<D, S, T>, D, S, A extends any[] = any[]> = [
-    opcode: OpcodeFunction<A, T, D, S>,
+/**
+ * Data for the command: an opcode function plus its immediate arguments.
+ * `D` is the type of the values the VM runs (chosen by the layer above;
+ * the core itself only ever holds them opaquely), and `S` is the span type
+ * carried by the IR the VM runs.
+ */
+export type Command<D = any, S = any, A extends any[] = any[]> = [
+    opcode: OpcodeFunction<A, D, S>,
     ...immediateArgs: A,
 ];
 
@@ -65,31 +70,31 @@ export interface StackCount<S> {
  * Function that implements an opcode for the VM by pushing instructions or
  * pushing and popping data.
  */
-export type OpcodeFunction<T extends any[], U extends JebVM<D, S>, D, S> = (
-    vm: U,
-    ...args: T
+export type OpcodeFunction<A extends any[], D = any, S = any> = (
+    vm: JebVM<D, S>,
+    ...args: A
 ) => void;
 
 /**
  * Extracts the type of an opcode function's immediate arguments (everything
  * after the VM parameter), for typing calls to {@link JebVM.pushCommand}.
  */
-export type GetArgParams<T extends OpcodeFunction<any, any, any, any>> =
+export type GetArgParams<T extends OpcodeFunction<any, any, any>> =
     Parameters<T>[1] extends infer T extends any[] ? T : [void];
 
 /** Base VM for running JEB code */
 export abstract class JebVM<
-    D,
-    S,
+    D = any,
+    S = any,
 > extends EventDispatcher<JEBAuditEvents> {
     /** Current environment */
     currentEnv!: Env<D>;
     /** Stack of commands to execute */
-    commandStack!: LinkedList<Command<this, D, S>>;
+    commandStack!: LinkedList<Command<D, S>>;
     /** Stack of values */
     dataStack!: LinkedList<D>;
     /** Current dynamic wind stack (linked list / tree) */
-    curDynamicWind!: DynamicWind<this, D, S>;
+    curDynamicWind!: DynamicWind<D, S>;
     /** Whether the VM is paused */
     paused!: boolean;
     /** The Promise that the VM is currently waiting on */
@@ -108,9 +113,9 @@ export abstract class JebVM<
      * while its subtree runs, so nested code can see the full expansion context
      * it was generated in.
      */
-    expansionStack: SourceInfo<any>[] = [];
+    expansionStack: SourceInfo<S>[] = [];
     /** The error that stopped the VM, if any; {@link step} rethrows it while set */
-    error: JEBError<this, D, S> | undefined;
+    error: JEBError<D, S> | undefined;
     /**
      * Hook for VM subclasses with extra state beyond the base stacks: returns a
      * snapshot of that state, so continuations and dynamic-wind can save and
@@ -187,7 +192,7 @@ export abstract class JebVM<
      * Pushes a command (an opcode function plus its immediate arguments) onto
      * the command stack, to be run by a later {@link step}.
      */
-    pushCommand<TOpcode extends OpcodeFunction<any, this, D, S>>(
+    pushCommand<TOpcode extends OpcodeFunction<any, D, S>>(
         f: TOpcode,
         ...args: GetArgParams<TOpcode>
     ) {
@@ -239,22 +244,21 @@ export abstract class JebVM<
      * @throws If the VM is already running (i.e. there are commands on the
      *   command stack)
      */
-    start(code: any) {
+    start(code: IRNode<S>) {
         if (LinkedList_length(this.commandStack) > 0)
             throw new Error("VM is already running");
-        pushCommand(this as any as T, OP_eval, code, true);
+        pushCommand(this, OP_eval, code, true);
     }
     /**
      * Silently stops running the code, by resetting all stacks state back to
-     * the initial empty state. Does not clear the opcode table or the host
-     * registry.
+     * the initial empty state. Does not clear the opcode table.
      */
     reset() {
         this.paused = false;
         this.commandStack = this.dataStack = this.tracebackStack = null;
         this.expansionStack = [];
         this.currentEnv = this.createEnv();
-        this.curDynamicWind = new DynamicWind(this as any as T);
+        this.curDynamicWind = new DynamicWind(this);
         this.error = undefined;
     }
     /** Gets the length of the command stack. */
@@ -336,7 +340,7 @@ export abstract class JebVM<
     pushTraceback(
         func: Identifier | undefined,
         tailcallHint: boolean,
-        callsiteSource: SourceInfo<any> | undefined,
+        callsiteSource: SourceInfo<S> | undefined,
         entryKind: StackEntryKind,
     ) {
         const top = this.tracebackStack;
@@ -402,8 +406,8 @@ export abstract class JebVM<
         }
     }
     /** Creates a fresh dynamic-wind node whose parent is the VM's current node. */
-    newDynamicWind() {
-        return new DynamicWind(this);
+    newDynamicWind(): DynamicWind<D, S> {
+        return new DynamicWind<D, S>(this);
     }
     /** Creates a new environment inheriting from the given parent environments. */
     createEnv(...parents: Env<D>[]) {
@@ -415,8 +419,8 @@ export abstract class JebVM<
      * @param extraOps Extra opcodes to push to the command stack _when this
      *   continuation is invoked_ (not now).
      */
-    cc(...extraOps: Command<T, D, S>[]) {
-        return new Continuation(this as any as T, extraOps);
+    cc(...extraOps: Command<D, S>[]) {
+        return new Continuation(this, extraOps);
     }
 }
 
@@ -424,23 +428,21 @@ export abstract class JebVM<
  * Standalone form of {@link JebVM.pushData}, for opcodes (which receive the VM
  * and their arguments separately rather than as a method receiver).
  */
-export const pushData = <T extends JebVM<D, S>, D, S>(vm: T, data: any) =>
-    vm.pushData(data);
+export const pushData = <D, S>(vm: JebVM<D, S>, data: any) => vm.pushData(data);
 /** Standalone form of {@link JebVM.pushCommand}; see {@link pushData}. */
 export const pushCommand = <
-    T extends OpcodeFunction<any, U, D, S>,
-    U extends JebVM<D, S>,
+    TOpcode extends OpcodeFunction<any, D, S>,
     D,
     S,
 >(
-    vm: U,
-    cmd: T,
-    ...args: GetArgParams<T>
+    vm: JebVM<D, S>,
+    cmd: TOpcode,
+    ...args: GetArgParams<TOpcode>
 ) => vm.pushCommand(cmd, ...args);
 /** Standalone form of {@link JebVM.popData}; see {@link pushData}. */
-export const popData = <T extends JebVM<any, any>>(vm: T) => vm.popData();
+export const popData = <D, S>(vm: JebVM<D, S>) => vm.popData();
 /** Standalone form of {@link JebVM.popNData}; see {@link pushData}. */
-export const popNData = <T extends JebVM<any, any>>(vm: T, n: number) =>
+export const popNData = <D, S>(vm: JebVM<D, S>, n: number) =>
     vm.popNData(n);
 /** Standalone form of {@link JebVM.peekData}; see {@link pushData}. */
-export const peekData = <T extends JebVM<any, any>>(vm: T) => vm.peekData();
+export const peekData = <D, S>(vm: JebVM<D, S>) => vm.peekData();

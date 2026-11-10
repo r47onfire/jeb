@@ -8,7 +8,7 @@ const hasOwn = Object.hasOwn;
  * environments.
  */
 
-export class Env<D> {
+export class Env<D = any> {
     /**
      * Names defined as constants in this scope; {@link set} refuses to change
      * them

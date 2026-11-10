@@ -5,12 +5,12 @@ import { JebVM, pushCommand, pushData, StackEntryKind } from "./vm";
 import { Continuation } from "./continuation";
 
 /** Extra options accepted when constructing a {@link JEBError}. */
-export interface JEBErrorOptions<T extends JebVM<D, S>, D, S> {
+export interface JEBErrorOptions<D = any, S = any> {
     /**
      * Sub-errors bundled into this error, e.g. several failures reported
      * together.
      */
-    children?: JEBError<T, D, S>[];
+    children?: JEBError<D, S>[];
 }
 
 /**
@@ -18,9 +18,9 @@ export interface JEBErrorOptions<T extends JebVM<D, S>, D, S> {
  * special: it holds the restart continuation that a host error handler can
  * invoke to resume execution at the expression that caused the error.
  */
-export interface JEBErrorContext<T extends JebVM<D, S>, D, S> {
+export interface JEBErrorContext<D = any, S = any> {
     [x: string]: unknown;
-    return?: Continuation<T, D, S>;
+    return?: Continuation<D, S>;
 }
 
 /**
@@ -31,12 +31,12 @@ export interface JEBErrorContext<T extends JebVM<D, S>, D, S> {
  * embedding language's job (e.g. Kuiper's), which can subclass this or wrap it;
  * the core only ever raises plain `JEBError`s with a message.
  */
-export class JEBError<T extends JebVM<D, S>, D, S> extends Error {
-    readonly children: JEBError<T, D, S>[];
+export class JEBError<D = any, S = any> extends Error {
+    readonly children: JEBError<D, S>[];
     constructor(
         message?: string,
-        readonly options: ErrorOptions & JEBErrorOptions<T, D, S> = {},
-        readonly context: JEBErrorContext<T, D, S> = {},
+        readonly options: ErrorOptions & JEBErrorOptions<D, S> = {},
+        readonly context: JEBErrorContext<D, S> = {},
         public traceback?: StackTreeNode[],
     ) {
         super(message ?? "unspecified error", { cause: options.cause });
@@ -288,7 +288,7 @@ export const wrapThrowToError = <T>(f: () => T) => {
  * resolves or rejects. A resolved value is pushed as the paused expression's
  * result as-is (including `NO_VALUE`); a rejection is rethrown inside the VM.
  */
-export const promisifyVM = <T extends JebVM<D, S>, D, S> (vm: T, promise: Promise<D>): void => {
+export const promisifyVM = <D, S>(vm: JebVM<D, S>, promise: Promise<any>): void => {
     vm.paused = true;
     const { promise: finish, resolve } = Promise.withResolvers<void>();
     vm.awaiting = finish;
