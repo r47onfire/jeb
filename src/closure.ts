@@ -16,8 +16,8 @@ import { Identifier } from "./utils";
  * There are no signatures or wrappers at this level: every argument is
  * evaluated by the `call` opcode before the closure is invoked, and special
  * forms are opcodes, not functions. Semantics like keyword arguments, defaults,
- * and lazy parameters belong to the layer above (e.g. Kuiper), which builds
- * them out of closures and blocks.
+ * and lazy parameters belong to the layer above, which builds them out of
+ * closures and blocks.
  */
 export class Closure<D = any, S = any> {
     constructor(

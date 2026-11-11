@@ -28,8 +28,12 @@ export interface JEBErrorContext<D = any, S = any> {
  *
  * JEB deliberately has no error taxonomy of its own: no numeric codes, no
  * inheritance graph. Classifying errors (and giving them codes) is the
- * embedding language's job (e.g. Kuiper's), which can subclass this or wrap it;
- * the core only ever raises plain `JEBError`s with a message.
+ * embedding language's job, which can subclass this or wrap it. The core itself
+ * raises errors only through the VM's {@link JebVM.createError} hook, so a layer
+ * whose error type is not a `JEBError` never sees one from the core; this class
+ * is the ready-made error type for layers that do want one (it carries the
+ * traceback, in the {@link StackTreeNode} format, that `createError`
+ * implementations attach).
  */
 export class JEBError<D = any, S = any> extends Error {
     readonly children: JEBError<D, S>[];
@@ -267,28 +271,25 @@ export const formatStackTraceCompact = (nodes: StackTreeNode[]): string => {
 };
 
 /**
- * Runs the function, and if it throws an error that isn't a {@link JEBError},
- * wraps it in the given error type and re-throws it, otherwise returns the
- * function result.
- *
- * @example
- *     wrapThrowToError(() => doSomethingThatMayThrow());
- *
- * @param f The function to catch errors from
+ * Runs `f`, passing error values (see {@link JebVM.isError}) through untouched
+ * and converting anything else it throws into an error value via the VM's
+ * {@link JebVM.createError} hook.
  */
-export const wrapThrowToError = <T>(f: () => T) => {
+export const wrapThrowToError = <D, S, T>(vm: JebVM<D, S>, f: () => T): T => {
     try {
         return f();
     } catch (e) {
-        if (e instanceof JEBError) throw e;
-        throw new JEBError(String(e), { cause: e });
+        if (vm.isError(e)) throw e;
+        throw vm.createError(String(e));
     }
 };
 
 /**
  * Pauses the VM while the promise is pending, and then resumes it when it
  * resolves or rejects. A resolved value is pushed as the paused expression's
- * result as-is (including `NO_VALUE`); a rejection is rethrown inside the VM.
+ * result as-is (including the VM's no-value sentinel); a rejection is rethrown
+ * inside the VM, where {@link JebVM.isError} decides whether it unwinds as a
+ * program error or propagates to the host.
  */
 export const promisifyVM = <D, S>(
     vm: JebVM<D, S>,

@@ -13,7 +13,6 @@ import { Env } from "./env";
 import {
     createStackInnerNode,
     createStackLeafNode,
-    JEBError,
     StackTreeNode,
 } from "./errors";
 import { IRNode, SourceInfo, sourcesEqual } from "./ir";
@@ -104,7 +103,7 @@ export abstract class JebVM<
     /**
      * The opcode table: maps an IR node's opcode name to the handler that
      * evaluates it. The core opcodes are installed by the constructor; hosts
-     * and higher layers (e.g. Kuiper) register more with {@link defineOpcode}.
+     * and higher layers register more with {@link defineOpcode}.
      */
     opcodes: Record<string, OpcodeHandler<D, S>> = {};
     /**
@@ -114,8 +113,13 @@ export abstract class JebVM<
      * it was generated in.
      */
     expansionStack: SourceInfo<S>[] = [];
-    /** The error that stopped the VM, if any; {@link step} rethrows it while set */
-    error: JEBError<D, S> | undefined;
+    /**
+     * The error that stopped the VM, if any; {@link step} rethrows it while set.
+     * It is a value of the layer's own error type (see {@link createError} and
+     * {@link isError}), not necessarily a {@link JEBError}: the layer's errors
+     * are ordinary values of type `D` that can end up on the stack.
+     */
+    error: D | undefined;
     /**
      * Hook for VM subclasses with extra state beyond the base stacks: returns a
      * snapshot of that state, so continuations and dynamic-wind can save and
@@ -124,6 +128,35 @@ export abstract class JebVM<
     getState(): any {}
     /** Counterpart to {@link getState}: restores a snapshot it returned earlier. */
     restoreState(state: any): void {}
+
+    /**
+     * Hook: the layer's `None` value (unit type) -- the value of expressions
+     * that produce a value but have nothing in particular to produce (an empty
+     * block, a conditional whose condition is false and that has no else
+     * branch, and so on). Must return the same value on every call: opcodes
+     * compare against it by identity.
+     */
+    abstract noneValue(): D;
+    /**
+     * Hook: the layer's Ellipsis value -- the "no value" sentinel, distinct
+     * from {@link noneValue}. Sequencing skips over this and returns the last
+     * real value encountered. Must return the same value on every call: opcodes
+     * compare against it by identity.
+     */
+    abstract noValue(): D;
+    /**
+     * Hook: builds an error value of the layer's error type from a message. The
+     * implementation should attach the current traceback (see
+     * {@link tracebackArray}) to the error object itself.
+     */
+    abstract createError(message: string): D;
+    /**
+     * Hook: whether the given value is an error of the layer's error type.
+     * {@link step} consults it for everything thrown through it: error values
+     * are unwound through the dynamic-wind stack (see `OP_throw`), anything
+     * else is rethrown to the host untouched.
+     */
+    abstract isError(value: unknown): boolean;
 
     constructor() {
         super();
@@ -140,16 +173,19 @@ export abstract class JebVM<
         this.opcodes[name] = handler;
     }
     /**
-     * The one calling-dispatch point: given a callee and its already-evaluated
-     * arguments, make the call happen, leaving exactly one result on the data
-     * stack (or scheduling the commands that do).
+     * The one calling-dispatch point: given a callee and its argument nodes,
+     * make the call happen, leaving exactly one result on the data stack (or
+     * scheduling the commands that do). The arguments arrive unevaluated --
+     * which of them get evaluated, in what order, and which are deferred (as
+     * blocks) or skipped is the callee side's decision, not the `call`
+     * opcode's; see {@link CallArgs} and `evalCallArgs`.
      *
      * The core runtime deliberately does not know how to call anything: which
      * values are callable, and what calling them does, is determined entirely
-     * by the layer above. A subclass must implement this method to provide real
-     * calling. Everything in the core that needs to call a value (the `call`
-     * opcode, `callcc`, `dynamic-wind`, the dynamic-wind handler calls made by
-     * continuations and by error unwinding) routes through the
+     * by the thing that uses JEB. A subclass must implement this method to
+     * provide real calling. Everything in the core that needs to call a value
+     * (the `call` opcode, `callcc`, `dynamic-wind`, the dynamic-wind handler
+     * calls made by continuations and by error unwinding) routes through the
      * {@link OP_call_invoke} command, which delegates here.
      */
     abstract dispatchCall(call: CallArgs<D, S>): void;
@@ -162,7 +198,7 @@ export abstract class JebVM<
     /** Throws if the data stack holds fewer than `n` values. */
     #checkStack(n: number) {
         if (LinkedList_length(this.dataStack) < n)
-            throw new JEBError("data stack underflow");
+            throw this.createError("data stack underflow");
     }
     /**
      * Pops the top `n` values off the data stack, returned in the order they
@@ -204,7 +240,7 @@ export abstract class JebVM<
      */
     popCommand() {
         if (LinkedList_length(this.commandStack) === 0)
-            throw new JEBError("opcode stack underflow");
+            throw this.createError("opcode stack underflow");
         const { 0: value, 1: rest } = LinkedList_pop(this.commandStack!);
         this.commandStack = rest;
         return value;
@@ -230,9 +266,8 @@ export abstract class JebVM<
         try {
             command[0](this, command.slice(1));
         } catch (e) {
-            if (!(e instanceof JEBError)) throw e;
-            e.traceback ??= this.tracebackArray();
-            this.pushCommand(OP_throw, e);
+            if (!this.isError(e)) throw e;
+            this.pushCommand(OP_throw, e as D);
         }
         return true;
     }
@@ -274,15 +309,7 @@ export abstract class JebVM<
      */
     checkRecursion(length: number) {
         if (this.recursionDepth > length) {
-            this.pushCommand(
-                OP_throw,
-                new JEBError(
-                    "too much recursion",
-                    {},
-                    {},
-                    this.tracebackArray(),
-                ),
-            );
+            this.pushCommand(OP_throw, this.createError("too much recursion"));
         }
     }
     /**
@@ -381,7 +408,7 @@ export abstract class JebVM<
     /** Drops all the tail-call entries off the stack, and then one more */
     popTraceback(dropTail = true) {
         var cur = this.tracebackStack;
-        if (!cur) throw new JEBError("traceback stack underflow");
+        if (!cur) throw this.createError("traceback stack underflow");
 
         // drop all TCO'ed frames
         if (dropTail)

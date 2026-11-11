@@ -6,13 +6,13 @@ import {
     Closure,
     Continuation,
     Env,
+    evalCallArgs,
     Identifier,
     IRNode,
     JEBError,
     JebVM,
     markExpansion,
     nodeSource,
-    NO_VALUE,
     op,
     OP_call_return,
     OP_eval,
@@ -39,14 +39,6 @@ const v = (name: string): N => n("var", name);
 const call = (name: string, ...args: any[]): N =>
     n("call", v(name), ...args);
 
-// MARK: a test-only VM with calling and a host registry
-//
-// The core runtime does not call anything and has no host registry: calling
-// is the layer above's business (Kuiper's `__call__`). This subclass is the
-// tests' stand-in for that layer: it provides a `dispatchCall` that knows
-// how to call continuations, blocks, closures, and native host functions,
-// and a host registry that `var` lookups fall back to.
-
 /** A host (Javascript) function callable from IR code through `call`. */
 type HostFunction<D, S> = (vm: JebVM<D, S>, ...args: D[]) => any;
 
@@ -72,9 +64,26 @@ class RegistryEnv extends Env {
     }
 }
 
+const NO_VALUE = Symbol("NO_VALUE");
+
 class TestVM extends JebVM<any, string> {
     /** Host-provided values and functions, by name. Not an environment. */
     readonly hostRegistry = new Map<Identifier, any>();
+    // The test layer's value/error hooks: None is `null`, the no-value
+    // sentinel is a special symbol, and errors are JEBErrors with
+    // the traceback attached at creation.
+    override noneValue() {
+        return null;
+    }
+    override noValue() {
+        return NO_VALUE;
+    }
+    override createError(message: string) {
+        return new JEBError(message, {}, {}, this.tracebackArray());
+    }
+    override isError(value: unknown) {
+        return value instanceof JEBError;
+    }
     override createEnv(...parents: Env[]) {
         return new RegistryEnv(this, {}, parents);
     }
@@ -92,32 +101,53 @@ class TestVM extends JebVM<any, string> {
             throw new Error(`host value ${String(name)} is already registered`);
         this.hostRegistry.set(name, value);
     }
-    override dispatchCall({ callee, args, tail, source, name }: CallArgs<any, string>) {
+    override dispatchCall(call: CallArgs<any, string>) {
+        const { callee, args, tail } = call;
         if (callee instanceof Continuation) {
-            callee.invoke(this, args.length > 0 ? args[0] : undefined);
+            // a continuation takes at most one argument: the value it
+            // resumes with (extra arguments are evaluated and ignored)
+            evalCallArgs(this, call, (_vm, values) =>
+                callee.invoke(this, values[0]),
+            );
             return;
         }
         if (callee instanceof Block) {
             // Invoking a block evaluates its body, like a seq, in the
-            // environment it captured. Blocks take no arguments; this is the
-            // mechanism lazy parameters are built from.
+            // environment it captured. Blocks take no arguments -- and their
+            // would-be arguments are never evaluated; this is the mechanism
+            // lazy parameters are built from.
             if (args.length > 0)
-                throw new JEBError(
+                throw this.createError(
                     `too many arguments: a block takes none, got ${args.length}`,
                 );
-            pushCommand(this, OP_call_return, this.currentEnv, tail, false);
+            pushCommand(this, OP_call_return, this.currentEnv, false);
             this.currentEnv = callee.closureEnv;
             seqStart(this, [...callee.body], true);
             return;
         }
+        if (callee instanceof Closure || typeof callee === "function") {
+            // this layer's closures and host functions are eager: evaluate
+            // every argument (in the call site's environment), then call
+            evalCallArgs(this, call, (_vm, values) =>
+                this.dispatchEvaluated(call, values),
+            );
+            return;
+        }
+        throw this.createError(`value is not callable: ${typeof callee}`);
+    }
+    /** The closure/host-function half of dispatch, with evaluated arguments. */
+    private dispatchEvaluated(
+        { callee, tail, source, name }: CallArgs<any, string>,
+        args: any[],
+    ) {
         if (callee instanceof Closure) {
             const { params, rest } = callee;
             if (args.length < params.length)
-                throw new JEBError(
+                throw this.createError(
                     `too few arguments: expected ${params.length}, got ${args.length}`,
                 );
             if (rest === undefined && args.length > params.length)
-                throw new JEBError(
+                throw this.createError(
                     `too many arguments: expected ${params.length}, got ${args.length}`,
                 );
             const env = this.createEnv(callee.env);
@@ -135,40 +165,36 @@ class TestVM extends JebVM<any, string> {
                 this,
                 OP_call_return,
                 this.currentEnv,
-                tail,
-                frameName !== undefined,
+                !tail && frameName !== undefined,
             );
             this.currentEnv = env;
             seqStart(this, [...callee.body], true);
             return;
         }
-        if (typeof callee === "function") {
-            if (name !== undefined)
-                this.pushTraceback(name, tail, source, StackEntryKind.FUNCTION);
-            const result = wrapThrowToError(() =>
-                (callee as HostFunction<any, string>)(this, ...args),
+        // host function
+        if (name !== undefined)
+            this.pushTraceback(name, tail, source, StackEntryKind.FUNCTION);
+        const result = wrapThrowToError(this, () =>
+            (callee as HostFunction<any, string>)(this, ...args),
+        );
+        if (result instanceof Promise) {
+            // The frame stays up while the VM is paused on the promise,
+            // and is dropped when it resolves (on rejection it stays, so
+            // the error's traceback includes this call).
+            promisifyVM(
+                this,
+                result.then((value) => {
+                    if (name !== undefined) this.popTraceback(false);
+                    return value;
+                }),
             );
-            if (result instanceof Promise) {
-                // The frame stays up while the VM is paused on the promise,
-                // and is dropped when it resolves (on rejection it stays, so
-                // the error's traceback includes this call).
-                promisifyVM(
-                    this,
-                    result.then((value) => {
-                        if (name !== undefined) this.popTraceback(false);
-                        return value;
-                    }),
-                );
-                return;
-            }
-            // A synchronous host call is a leaf: no frames were pushed above
-            // this one, so it can always be dropped directly. On a throw the
-            // frame is left in place for the error's traceback.
-            if (name !== undefined) this.popTraceback(false);
-            pushData(this, result);
             return;
         }
-        throw new JEBError(`value is not callable: ${typeof callee}`);
+        // A synchronous host call is a leaf: no frames were pushed above
+        // this one, so it can always be dropped directly. On a throw the
+        // frame is left in place for the error's traceback.
+        if (name !== undefined) this.popTraceback(false);
+        pushData(this, result);
     }
 }
 
@@ -185,8 +211,8 @@ const makeVM = () => {
         out.push(args.map(String).join(" "));
         return NO_VALUE;
     });
-    vm.defineHostFunction("boom", () => {
-        throw new JEBError("boom");
+    vm.defineHostFunction("boom", (vm) => {
+        throw vm.createError("boom");
     });
     return { vm, out };
 };
@@ -257,9 +283,15 @@ describe("const, seq, and no value", () => {
         const { vm } = makeVM();
         expect(run(vm, n("seq", c(1), c(2), c(3)))).toBe(3);
     });
-    test("an empty seq is no value", () => {
+    test("an empty seq is none", () => {
         const { vm } = makeVM();
-        expect(run(vm, n("seq"))).toBe(NO_VALUE);
+        expect(run(vm, n("seq"))).toBe(null);
+    });
+    test("a seq of only comments is none", () => {
+        const { vm } = makeVM();
+        expect(run(vm, n("seq", n("comment", "a"), n("comment", "b")))).toBe(
+            null,
+        );
     });
     test("comment evaluates nothing and produces no value", () => {
         const { vm } = makeVM();
@@ -676,9 +708,9 @@ describe("if", () => {
         const { vm: vm2 } = makeVM();
         expect(run(vm2, n("if", c(0), c(1), c(2)))).toBe(2);
     });
-    test("a missing else produces no value, and the untaken branch is skipped", () => {
+    test("a missing else produces none, and the untaken branch is skipped", () => {
         const { vm } = makeVM();
-        expect(run(vm, n("if", c(false), call("boom")))).toBe(NO_VALUE);
+        expect(run(vm, n("if", c(false), call("boom")))).toBe(null);
         const { vm: vm2 } = makeVM();
         expect(run(vm2, n("if", c(true), c(1), call("boom")))).toBe(1);
     });
@@ -1011,5 +1043,48 @@ describe("recoverable errors", () => {
             );
         expect(run(vm, try_(call("+", c(1), c(2))))).toBe(3);
         expect(run(vm, try_(call("boom")))).toBe("caught");
+    });
+});
+
+describe("argument evaluation is the callee's business", () => {
+    test("a block callee never evaluates its rejected arguments", () => {
+        const { vm } = makeVM();
+        let err: any;
+        try {
+            // the argument would throw if it were ever evaluated
+            run(vm, n("call", n("block", c(1)), call("boom")));
+        } catch (e) {
+            err = e;
+        }
+        expect(err).toBeInstanceOf(JEBError);
+        expect(err.message).toBe(
+            "too many arguments: a block takes none, got 1",
+        );
+    });
+    test("a non-callable callee is rejected before its arguments evaluate", () => {
+        const { vm } = makeVM();
+        let err: any;
+        try {
+            run(vm, n("call", c(42), call("boom")));
+        } catch (e) {
+            err = e;
+        }
+        expect(err).toBeInstanceOf(JEBError);
+        expect(err.message).toBe("value is not callable: number");
+    });
+    test("arguments evaluate in the call site's environment", () => {
+        const { vm } = makeVM();
+        // `z` exists only in the let's environment (the call site); the
+        // closure was defined at the top level, where there is no `z`
+        const program = n(
+            "seq",
+            n("define", "add", n("lambda", ["a", "b"], call("+", v("a"), v("b")))),
+            n(
+                "let",
+                n("bind", "z", c(10)),
+                call("add", v("z"), c(5)),
+            ),
+        );
+        expect(run(vm, program)).toBe(15);
     });
 });

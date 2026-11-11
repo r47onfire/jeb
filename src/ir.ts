@@ -1,17 +1,6 @@
 import { Identifier } from "./utils";
 
 /**
- * The result of evaluating an expression that produces no value at all.
- *
- * This is deliberately distinct from every ordinary value, including
- * `undefined` and `null`: a function whose body ends in a `comment` node has
- * not returned `undefined`, it has returned nothing. Sequence-like opcodes
- * (`seq`, function bodies, `let` bodies) skip over `NO_VALUE` results and yield
- * the last real value they saw, or `NO_VALUE` if they saw none.
- */
-export const NO_VALUE = Symbol("NO_VALUE");
-
-/**
  * Where an IR node came from, generic over the embedding compiler's span type
  * `S` (e.g. Nebula's `Span`), so the runtime never has to import the compiler's
  * types.
