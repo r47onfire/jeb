@@ -15,15 +15,8 @@ import {
     createStackLeafNode,
     StackTreeNode,
 } from "./errors";
-import { IRNode, SourceInfo, sourcesEqual } from "./ir";
-import {
-    CallArgs,
-    loadCoreOpcodes,
-    OP_call_invoke,
-    OP_eval,
-    OP_throw,
-    OpcodeHandler,
-} from "./opcodes";
+import { SourceInfo, sourcesEqual } from "./ir";
+import { CallArgs, OP_eval, OP_throw, OpcodeHandler } from "./opcodes";
 import { Identifier } from "./utils";
 
 /**
@@ -32,8 +25,8 @@ import { Identifier } from "./utils";
  * itself only ever holds them opaquely), and `S` is the span type carried by
  * the IR the VM runs.
  */
-export type Command<D = any, S = any, A extends any[] = any[]> = [
-    opcode: OpcodeFunction<A, D, S>,
+export type Command<D = any, S = any, C = any, A extends any[] = any[]> = [
+    opcode: OpcodeFunction<A, D, S, C>,
     ...immediateArgs: A,
 ];
 
@@ -69,8 +62,8 @@ export interface StackCount<S> {
  * Function that implements an opcode for the VM by pushing instructions or
  * pushing and popping data.
  */
-export type OpcodeFunction<A extends any[], D = any, S = any> = (
-    vm: JebVM<D, S>,
+export type OpcodeFunction<A extends any[], D = any, S = any, C = any> = (
+    vm: JebVM<D, S, C>,
     ...args: A
 ) => void;
 
@@ -78,22 +71,23 @@ export type OpcodeFunction<A extends any[], D = any, S = any> = (
  * Extracts the type of an opcode function's immediate arguments (everything
  * after the VM parameter), for typing calls to {@link JebVM.pushCommand}.
  */
-export type GetArgParams<T extends OpcodeFunction<any, any, any>> =
+export type GetArgParams<T extends OpcodeFunction<any, any, any, any>> =
     Parameters<T>[1] extends infer T extends any[] ? T : [void];
 
 /** Base VM for running JEB code */
 export abstract class JebVM<
     D = any,
     S = any,
+    C = any,
 > extends EventDispatcher<JEBAuditEvents> {
     /** Current environment */
     currentEnv!: Env<D>;
     /** Stack of commands to execute */
-    commandStack!: LinkedList<Command<D, S>>;
+    commandStack!: LinkedList<Command<D, S, C>>;
     /** Stack of values */
     dataStack!: LinkedList<D>;
     /** Current dynamic wind stack (linked list / tree) */
-    curDynamicWind!: DynamicWind<D, S>;
+    curDynamicWind!: DynamicWind<D, S, C>;
     /** Whether the VM is paused */
     paused!: boolean;
     /** The Promise that the VM is currently waiting on */
@@ -105,7 +99,7 @@ export abstract class JebVM<
      * evaluates it. The core opcodes are installed by the constructor; hosts
      * and higher layers register more with {@link defineOpcode}.
      */
-    opcodes: Record<string, OpcodeHandler<D, S>> = {};
+    opcodes: Record<string, OpcodeHandler<D, S, C>> = {};
     /**
      * Sources of the macro expansions the evaluator is currently inside,
      * outermost first. A node's own source link (`expandedFrom`) is pushed here
@@ -158,16 +152,74 @@ export abstract class JebVM<
      */
     abstract isError(value: unknown): boolean;
 
+    /**
+     * Hook: executes one code node (of the layer's code type `C`) in tail
+     * position or not, leaving exactly one result on the data stack (or
+     * scheduling the commands that do). This is the core's only way of running
+     * code: the core does not know the code representation, so sequences,
+     * argument evaluation, and {@link start} all route through here (via the
+     * `OP_eval` command). A Lisp-IR implementation of this hook ships in the
+     * package's test module (`indextest`); a layer with its own code
+     * representation (e.g. Kuiper executing CST nodes directly) implements its
+     * own.
+     */
+    abstract evalNode(node: C, tail: boolean): void;
+    /**
+     * Hook: the location (span, of type `S`) of a code node, or `undefined` if
+     * it has none. Lets code that walks nodes (the layer's {@link evalNode}
+     * implementation, macro expansion, error reporting) ask the layer's code
+     * representation where a node came from without the core knowing the
+     * representation.
+     */
+    abstract getLocation(node: C): S | undefined;
+    /**
+     * Hook: queues whatever calling is needed to convert a value to a boolean
+     * -- in Kuiper, a `__bool__` call on it -- leaving exactly one result (the
+     * converted value) on the data stack. The caller then decides with
+     * {@link isTruthy}. A layer whose values need no conversion just pushes the
+     * value back.
+     */
+    abstract boolify(value: D): void;
+    /**
+     * Hook: whether a (boolified) value counts as true. Counterpart to
+     * {@link booleanValue}.
+     */
+    abstract isTruthy(value: D): boolean;
+    /**
+     * Hook: the layer's boolean value for a host boolean, like {@link noneValue}
+     * and {@link noValue} for their values. Used by the core itself where a
+     * boolean must be materialized as a value (e.g. the `isFromContinuation`
+     * flags handed to dynamic-wind handlers).
+     */
+    abstract booleanValue(value: boolean): D;
+    /**
+     * Hook: reads a variable. The core's environments are a mechanism, not a
+     * policy: a layer whose current environment is itself a value (e.g. a
+     * Kuiper scope object) routes variable access through these hooks instead.
+     * Throws (through {@link createError}) if the name is unbound.
+     */
+    abstract getVariable(name: Identifier): D;
+    /** Hook: defines (or redefines) a variable in the current environment. */
+    abstract defineVariable(
+        name: Identifier,
+        value: D,
+        constant: boolean,
+    ): void;
+    /**
+     * Hook: assigns to an existing variable. Throws (through
+     * {@link createError}) if the name is unbound or constant.
+     */
+    abstract assignVariable(name: Identifier, value: D): void;
+
     constructor() {
         super();
         this.reset();
-        loadCoreOpcodes(this);
     }
     /**
      * Registers an opcode handler under the given name. Throws if the name is
      * already taken: there is only ever one handler per opcode.
      */
-    defineOpcode(name: string, handler: OpcodeHandler<D, S>) {
+    defineOpcode(name: string, handler: OpcodeHandler<D, S, C>) {
         if (Reflect.has(this.opcodes, name))
             throw new Error(`opcode ${name} is already defined`);
         this.opcodes[name] = handler;
@@ -188,7 +240,7 @@ export abstract class JebVM<
      * calls made by continuations and by error unwinding) routes through the
      * {@link OP_call_invoke} command, which delegates here.
      */
-    abstract dispatchCall(call: CallArgs<D, S>): void;
+    abstract dispatchCall(call: CallArgs<D, S, C>): void;
 
     /** Pushes a value onto the data stack. */
     pushData(value: any) {
@@ -228,7 +280,7 @@ export abstract class JebVM<
      * Pushes a command (an opcode function plus its immediate arguments) onto
      * the command stack, to be run by a later {@link step}.
      */
-    pushCommand<TOpcode extends OpcodeFunction<any, D, S>>(
+    pushCommand<TOpcode extends OpcodeFunction<any, D, S, C>>(
         f: TOpcode,
         ...args: GetArgParams<TOpcode>
     ) {
@@ -279,7 +331,7 @@ export abstract class JebVM<
      * @throws If the VM is already running (i.e. there are commands on the
      *   command stack)
      */
-    start(code: IRNode<S>) {
+    start(code: C) {
         if (LinkedList_length(this.commandStack) > 0)
             throw new Error("VM is already running");
         pushCommand(this, OP_eval, code, true);
@@ -433,8 +485,8 @@ export abstract class JebVM<
         }
     }
     /** Creates a fresh dynamic-wind node whose parent is the VM's current node. */
-    newDynamicWind(): DynamicWind<D, S> {
-        return new DynamicWind<D, S>(this);
+    newDynamicWind(): DynamicWind<D, S, C> {
+        return new DynamicWind<D, S, C>(this);
     }
     /** Creates a new environment inheriting from the given parent environments. */
     createEnv(...parents: Env<D>[]) {
@@ -446,7 +498,7 @@ export abstract class JebVM<
      * @param extraOps Extra opcodes to push to the command stack _when this
      *   continuation is invoked_ (not now).
      */
-    cc(...extraOps: Command<D, S>[]) {
+    cc(...extraOps: Command<D, S, C>[]) {
         return new Continuation(this, extraOps);
     }
 }
@@ -455,7 +507,8 @@ export abstract class JebVM<
  * Standalone form of {@link JebVM.pushData}, for opcodes (which receive the VM
  * and their arguments separately rather than as a method receiver).
  */
-export const pushData = <D, S>(vm: JebVM<D, S>, data: any) => vm.pushData(data);
+export const pushData = <D, S, C>(vm: JebVM<D, S, C>, data: any) =>
+    vm.pushData(data);
 /** Standalone form of {@link JebVM.pushCommand}; see {@link pushData}. */
 export const pushCommand = <TOpcode extends OpcodeFunction<any, D, S>, D, S>(
     vm: JebVM<D, S>,
@@ -463,8 +516,8 @@ export const pushCommand = <TOpcode extends OpcodeFunction<any, D, S>, D, S>(
     ...args: GetArgParams<TOpcode>
 ) => vm.pushCommand(cmd, ...args);
 /** Standalone form of {@link JebVM.popData}; see {@link pushData}. */
-export const popData = <D, S>(vm: JebVM<D, S>) => vm.popData();
+export const popData = <D, S, C>(vm: JebVM<D, S, C>) => vm.popData();
 /** Standalone form of {@link JebVM.popNData}; see {@link pushData}. */
 export const popNData = <D, S>(vm: JebVM<D, S>, n: number) => vm.popNData(n);
 /** Standalone form of {@link JebVM.peekData}; see {@link pushData}. */
-export const peekData = <D, S>(vm: JebVM<D, S>) => vm.peekData();
+export const peekData = <D, S, C>(vm: JebVM<D, S, C>) => vm.peekData();

@@ -19,7 +19,7 @@ import { Identifier } from "./utils";
  * and lazy parameters belong to the layer above, which builds them out of
  * closures and blocks.
  */
-export class Closure<D = any, S = any> {
+export class Closure<D = any, C = any> {
     constructor(
         /** Positional parameter names, bound in order. */
         readonly params: readonly Identifier[],
@@ -29,7 +29,7 @@ export class Closure<D = any, S = any> {
          */
         readonly rest: Identifier | undefined,
         /** The wrapped block: the body and its defining environment. */
-        readonly block: Block<D, S>,
+        readonly block: Block<D, C>,
         /**
          * Name to show in tracebacks. Set by `define`/`let` when the closure is
          * first bound to a name and it doesn't have one yet.

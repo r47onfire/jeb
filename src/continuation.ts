@@ -5,22 +5,22 @@ import { OP_call_and_ignore_result } from "./opcodes";
 import { Command, JebVM, pushCommand, pushData, StackCount } from "./vm";
 
 /** A continuation which holds all the VM state, and can restore it at any time */
-export class Continuation<D = any, S = any> {
+export class Continuation<D = any, S = any, C = any> {
     /** Closed-over environment */
     env: Env<D>;
     /** Closed-over command stack in progress */
-    commands: LinkedList<Command<D, S>>;
+    commands: LinkedList<Command<D, S, C>>;
     /** Closed-over data stack in progress */
     data: LinkedList<D>;
     /** Closed-over dynamic wind stack in progress */
-    winders: DynamicWind<D, S>;
+    winders: DynamicWind<D, S, C>;
     /** Closed-over traceback stack in progress */
     traceback: LinkedList<StackCount<S>>;
     /** Closed-over macro expansion context in progress */
     expansion: SourceInfo<S>[];
     /** Other saved state */
     state: any;
-    constructor(vm: JebVM<D, S>, extraOps: Command<D, S>[]) {
+    constructor(vm: JebVM<D, S, C>, extraOps: Command<D, S, C>[]) {
         this.env = vm.currentEnv;
         this.commands = LinkedList_pushAll(vm.commandStack, extraOps);
         this.data = vm.dataStack;
@@ -35,7 +35,7 @@ export class Continuation<D = any, S = any> {
      * @param vm VM to restore state of
      * @param data Result of the continuation return value
      */
-    invoke(vm: JebVM<D, S>, data: any) {
+    invoke(vm: JebVM<D, S, C>, data: any) {
         vm.currentEnv = this.env;
         vm.commandStack = this.commands;
         vm.dataStack = this.data;
@@ -54,7 +54,7 @@ export interface Windable {
 }
 
 /** Node in a dynamic wind tree */
-export class DynamicWind<D = any, S = any> {
+export class DynamicWind<D = any, S = any, C = any> {
     /**
      * The enter/exit handler pair for this node; null until {@link setHandler}
      * is called
@@ -66,14 +66,14 @@ export class DynamicWind<D = any, S = any> {
      * The enclosing dynamic-wind node, forming the tree that jumps are resolved
      * against
      */
-    parent: DynamicWind<D, S> | null = null;
+    parent: DynamicWind<D, S, C> | null = null;
     /** Closed-over command stack */
-    commandsHere: LinkedList<Command<D, S>> = null;
+    commandsHere: LinkedList<Command<D, S, C>> = null;
     /** Closed-over data stack */
     dataHere: LinkedList<D> = null;
     /** Other saved state */
     stateHere: any;
-    constructor(vm: JebVM<D, S>) {
+    constructor(vm: JebVM<D, S, C>) {
         this.envHere = vm.currentEnv;
         this.parent = vm.curDynamicWind;
         this.commandsHere = vm.commandStack;
@@ -90,32 +90,38 @@ export class DynamicWind<D = any, S = any> {
      *
      * @param vm VM to process jump on
      */
-    processJumpHere(vm: JebVM<D, S>) {
-        var tp: DynamicWind<D, S> | null = this;
+    processJumpHere(vm: JebVM<D, S, C>) {
+        var tp: DynamicWind<D, S, C> | null = this;
         // find the common ancestor of from and to
         // parents: rightmost is innermost
-        const parentsOfTo: DynamicWind<D, S>[] = [];
+        const parentsOfTo: DynamicWind<D, S, C>[] = [];
         while (tp) {
             parentsOfTo.unshift(tp);
             tp = tp.parent;
         }
         // the handler calls to run, in order: the exit handlers on the way
         // up from the current wind stack to the common ancestor (exit
-        // handlers get `null` -- this jump is not an error), then the enter
-        // handlers on the way back down to this node
+        // handlers get the None value -- this jump is not an error -- and
+        // `true` for isFromContinuation), then the enter handlers on the
+        // way back down to this node (with `true` for isFromContinuation)
         const calls: [callee: any, args: any[]][] = [];
         var i = -1;
-        var fp: DynamicWind<D, S> | null = vm.curDynamicWind;
+        var fp: DynamicWind<D, S, C> | null = vm.curDynamicWind;
         while (fp) {
             i = parentsOfTo.indexOf(fp);
             if (i !== -1) break;
-            if (fp.handler?.exit) calls.push([fp.handler.exit, [null]]);
+            if (fp.handler?.exit)
+                calls.push([
+                    fp.handler.exit,
+                    [vm.noneValue(), vm.booleanValue(true)],
+                ]);
             fp = fp.parent;
         }
         const len = parentsOfTo.length;
         for (var j = i + 1; j < len; j++) {
             const tp = parentsOfTo[j]!;
-            if (tp.handler?.enter) calls.push([tp.handler.enter, []]);
+            if (tp.handler?.enter)
+                calls.push([tp.handler.enter, [vm.booleanValue(true)]]);
         }
         // commands run last-pushed-first, so push the calls in reverse
         for (var k = calls.length - 1; k >= 0; k--)
@@ -133,7 +139,7 @@ export class DynamicWind<D = any, S = any> {
      *
      * @param vm VM to restore to
      */
-    restore(vm: JebVM<D, S>) {
+    restore(vm: JebVM<D, S, C>) {
         vm.commandStack = this.commandsHere;
         vm.dataStack = this.dataHere;
         vm.currentEnv = this.envHere;

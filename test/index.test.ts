@@ -1,202 +1,40 @@
 import { describe, expect, test } from "bun:test";
-import { Ok } from "ts-res";
 import {
     Block,
-    CallArgs,
     Closure,
-    Continuation,
-    Env,
-    evalCallArgs,
-    Identifier,
-    IRNode,
     JEBError,
     JebVM,
-    markExpansion,
-    nodeSource,
-    op,
-    OP_call_return,
     OP_eval,
+    OP_if_after,
+    OpcodeContext,
     popData,
-    promisifyVM,
     pushCommand,
     pushData,
     seqStart,
     sourcesEqual,
-    StackEntryKind,
-    StackTreeNode,
-    wrapThrowToError,
-    OpcodeContext,
+    StackTreeNode
 } from "../src";
+import {
+    makeTestRun,
+    markExpansion,
+    NO_VALUE,
+    nodeSource,
+    op,
+    run,
+    runAsync,
+    TestIRNode,
+    TestVM,
+} from "../src/indextest";
 
 // Tests use strings as spans (the IR is generic over the span type).
-type N = IRNode<string>;
-const n = (name: string, ...operands: any[]): N =>
-    op<string>(name, undefined, ...operands);
-const ns = (name: string, span: string, ...operands: any[]): N =>
-    op<string>(name, span, ...operands);
-const c = (value: any): N => n("const", value);
-const v = (name: string): N => n("var", name);
-const call = (name: string, ...args: any[]): N =>
+const n = (name: string, ...operands: any[]): TestIRNode =>
+    op(name, undefined, ...operands);
+const ns = (name: string, span: string, ...operands: any[]): TestIRNode =>
+    op(name, span, ...operands);
+const c = (value: any): TestIRNode => n("const", value);
+const v = (name: string): TestIRNode => n("var", name);
+const call = (name: string, ...args: any[]): TestIRNode =>
     n("call", v(name), ...args);
-
-/** A host (Javascript) function callable from IR code through `call`. */
-type HostFunction<D, S> = (vm: JebVM<D, S>, ...args: D[]) => any;
-
-/**
- * An environment whose `get` falls back to the owning {@link TestVM}'s host
- * registry when no scope in the chain has the name. The registry is not a
- * scope: `scopeFor` (and therefore `assign`) never sees it.
- */
-class RegistryEnv extends Env {
-    constructor(
-        private readonly owner: TestVM,
-        bindings: Record<Identifier, any> = {},
-        parents: readonly Env[] = [],
-    ) {
-        super(bindings, parents);
-    }
-    get(name: Identifier) {
-        const result = super.get(name);
-        if (result.ok) return result;
-        if (this.owner.hostRegistry.has(name))
-            return Ok(this.owner.hostRegistry.get(name));
-        return result;
-    }
-}
-
-const NO_VALUE = Symbol("NO_VALUE");
-
-class TestVM extends JebVM<any, string> {
-    /** Host-provided values and functions, by name. Not an environment. */
-    readonly hostRegistry = new Map<Identifier, any>();
-    // The test layer's value/error hooks: None is `null`, the no-value
-    // sentinel is a special symbol, and errors are JEBErrors with
-    // the traceback attached at creation.
-    override noneValue() {
-        return null;
-    }
-    override noValue() {
-        return NO_VALUE;
-    }
-    override createError(message: string) {
-        return new JEBError(message, {}, {}, this.tracebackArray());
-    }
-    override isError(value: unknown) {
-        return value instanceof JEBError;
-    }
-    override createEnv(...parents: Env[]) {
-        return new RegistryEnv(this, {}, parents);
-    }
-    /** Registers a host (Javascript) function in the {@link hostRegistry}. */
-    defineHostFunction(name: Identifier, fn: HostFunction<any, string>) {
-        if (this.hostRegistry.has(name))
-            throw new Error(
-                `host function ${String(name)} is already registered`,
-            );
-        this.hostRegistry.set(name, fn);
-    }
-    /** Registers a host value in the {@link hostRegistry}. */
-    defineValue(name: Identifier, value: any) {
-        if (this.hostRegistry.has(name))
-            throw new Error(`host value ${String(name)} is already registered`);
-        this.hostRegistry.set(name, value);
-    }
-    override dispatchCall(call: CallArgs<any, string>) {
-        const { callee, args, tail } = call;
-        if (callee instanceof Continuation) {
-            // a continuation takes at most one argument: the value it
-            // resumes with (extra arguments are evaluated and ignored)
-            evalCallArgs(this, call, (_vm, values) =>
-                callee.invoke(this, values[0]),
-            );
-            return;
-        }
-        if (callee instanceof Block) {
-            // Invoking a block evaluates its body, like a seq, in the
-            // environment it captured. Blocks take no arguments -- and their
-            // would-be arguments are never evaluated; this is the mechanism
-            // lazy parameters are built from.
-            if (args.length > 0)
-                throw this.createError(
-                    `too many arguments: a block takes none, got ${args.length}`,
-                );
-            pushCommand(this, OP_call_return, this.currentEnv, false);
-            this.currentEnv = callee.closureEnv;
-            seqStart(this, [...callee.body], true);
-            return;
-        }
-        if (callee instanceof Closure || typeof callee === "function") {
-            // this layer's closures and host functions are eager: evaluate
-            // every argument (in the call site's environment), then call
-            evalCallArgs(this, call, (_vm, values) =>
-                this.dispatchEvaluated(call, values),
-            );
-            return;
-        }
-        throw this.createError(`value is not callable: ${typeof callee}`);
-    }
-    /** The closure/host-function half of dispatch, with evaluated arguments. */
-    private dispatchEvaluated(
-        { callee, tail, source, name }: CallArgs<any, string>,
-        args: any[],
-    ) {
-        if (callee instanceof Closure) {
-            const { params, rest } = callee;
-            if (args.length < params.length)
-                throw this.createError(
-                    `too few arguments: expected ${params.length}, got ${args.length}`,
-                );
-            if (rest === undefined && args.length > params.length)
-                throw this.createError(
-                    `too many arguments: expected ${params.length}, got ${args.length}`,
-                );
-            const env = this.createEnv(callee.env);
-            params.forEach((param, i) => env.add(param, args[i]));
-            if (rest !== undefined) env.add(rest, args.slice(params.length));
-            const frameName = name ?? callee.name;
-            if (frameName !== undefined)
-                this.pushTraceback(
-                    frameName,
-                    tail,
-                    source,
-                    StackEntryKind.FUNCTION,
-                );
-            pushCommand(
-                this,
-                OP_call_return,
-                this.currentEnv,
-                !tail && frameName !== undefined,
-            );
-            this.currentEnv = env;
-            seqStart(this, [...callee.body], true);
-            return;
-        }
-        // host function
-        if (name !== undefined)
-            this.pushTraceback(name, tail, source, StackEntryKind.FUNCTION);
-        const result = wrapThrowToError(this, () =>
-            (callee as HostFunction<any, string>)(this, ...args),
-        );
-        if (result instanceof Promise) {
-            // The frame stays up while the VM is paused on the promise,
-            // and is dropped when it resolves (on rejection it stays, so
-            // the error's traceback includes this call).
-            promisifyVM(
-                this,
-                result.then((value) => {
-                    if (name !== undefined) this.popTraceback(false);
-                    return value;
-                }),
-            );
-            return;
-        }
-        // A synchronous host call is a leaf: no frames were pushed above
-        // this one, so it can always be dropped directly. On a throw the
-        // frame is left in place for the error's traceback.
-        if (name !== undefined) this.popTraceback(false);
-        pushData(this, result);
-    }
-}
 
 const makeVM = () => {
     const vm = new TestVM();
@@ -215,23 +53,6 @@ const makeVM = () => {
         throw vm.createError("boom");
     });
     return { vm, out };
-};
-
-const run = (vm: JebVM<any, any>, code: N) => {
-    vm.start(code);
-    while (!vm.done && !vm.error) vm.step();
-    if (vm.error) throw vm.error;
-    return popData(vm);
-};
-
-const runAsync = async (vm: JebVM<any, any>, code: N) => {
-    vm.start(code);
-    while (!vm.done && !vm.error) {
-        if (vm.paused) await vm.awaiting;
-        else vm.step();
-    }
-    if (vm.error) throw vm.error;
-    return popData(vm);
 };
 
 const leafNames = (nodes: StackTreeNode[] | undefined): string[] =>
@@ -309,7 +130,7 @@ describe("const, seq, and no value", () => {
         const { vm } = makeVM();
         expect(run(vm, n("seq", n("define", "x", c(1)), c(5)))).toBe(5);
         const { vm: vm2 } = makeVM();
-        expect(run(vm2, n("define", "x", c(1)))).toBe(vm.noValue());
+        expect(run(vm2, n("define", "x", c(1)))).toBe(1);
     });
 });
 
@@ -764,13 +585,13 @@ describe("host-defined opcodes", () => {
     });
     test("opcode names cannot be registered twice", () => {
         const { vm } = makeVM();
-        expect(() => vm.defineOpcode("seq", () => {})).toThrow(Error);
+        expect(() => vm.defineOpcode("seq", () => { })).toThrow(Error);
     });
     test("an unknown opcode is a syntax error", () => {
         const { vm } = makeVM();
         let err: any;
         try {
-            run(vm, op("frobnicate", undefined, c(1)) as N);
+            run(vm, op("frobnicate", undefined, c(1)) as TestIRNode);
         } catch (e) {
             err = e;
         }
@@ -840,9 +661,11 @@ describe("continuations and dynamic-wind", () => {
         const { vm, out } = makeVM();
         const thunk = (label: string) =>
             n("lambda", [], call("print", c(label)));
-        // exit handlers take the error (or null) as an argument
-        const exit = n("lambda", ["err"], call("print", c("exit")));
-        run(vm, n("dynamic-wind", thunk("enter"), thunk("body"), exit));
+        // enter handlers take an isFromContinuation flag; exit handlers
+        // take the error (or null) and the same flag
+        const enter = n("lambda", ["cont"], call("print", c("enter")));
+        const exit = n("lambda", ["err", "cont"], call("print", c("exit")));
+        run(vm, n("dynamic-wind", enter, thunk("body"), exit));
         expect(out).toEqual(["enter", "body", "exit"]);
     });
     test("escaping through a dynamic-wind still runs its exit handler", () => {
@@ -856,9 +679,9 @@ describe("continuations and dynamic-wind", () => {
                     ["k"],
                     n(
                         "dynamic-wind",
-                        n("lambda", [], call("print", c("enter"))),
+                        n("lambda", ["cont"], call("print", c("enter"))),
                         n("lambda", [], n("call", v("k"), c("escaped"))),
-                        n("lambda", ["err"], call("print", c("exit"))),
+                        n("lambda", ["err", "cont"], call("print", c("exit"))),
                     ),
                 ),
             ),
@@ -874,11 +697,11 @@ describe("continuations and dynamic-wind", () => {
                 vm,
                 n(
                     "dynamic-wind",
-                    n("lambda", [], c(null)),
+                    n("lambda", ["cont"], c(null)),
                     n("lambda", [], n("throw", c("bad"))),
                     n(
                         "lambda",
-                        ["err"],
+                        ["err", "cont"],
                         call("print", c("exit")),
                     ),
                 ),
@@ -902,11 +725,11 @@ describe("recoverable errors", () => {
                 n("define", "seen", c(null)),
                 n(
                     "dynamic-wind",
-                    n("lambda", [], c(null)),
+                    n("lambda", ["cont"], c(null)),
                     n("lambda", [], call("boom")),
                     n(
                         "lambda",
-                        ["err"],
+                        ["err", "cont"],
                         n("seq", n("assign", "seen", v("err")), c(true)),
                     ),
                 ),
@@ -929,9 +752,9 @@ describe("recoverable errors", () => {
                 vm,
                 n(
                     "dynamic-wind",
-                    n("lambda", [], c(null)),
+                    n("lambda", ["cont"], c(null)),
                     n("lambda", [], call("boom")),
-                    n("lambda", ["err"], c(false)),
+                    n("lambda", ["err", "cont"], c(false)),
                 ),
             );
         } catch (e) {
@@ -946,22 +769,22 @@ describe("recoverable errors", () => {
             vm,
             n(
                 "dynamic-wind",
-                n("lambda", [], c(null)),
+                n("lambda", ["cont"], c(null)),
                 n(
                     "lambda",
                     [],
                     n(
                         "dynamic-wind",
-                        n("lambda", [], c(null)),
+                        n("lambda", ["cont"], c(null)),
                         n("lambda", [], call("boom")),
                         n(
                             "lambda",
-                            ["err"],
+                            ["err", "cont"],
                             n("seq", call("print", c("inner")), c(true)),
                         ),
                     ),
                 ),
-                n("lambda", ["err"], call("print", v("err"))),
+                n("lambda", ["err", "cont"], call("print", v("err"))),
             ),
         );
         expect(vm.error).toBeUndefined();
@@ -978,9 +801,9 @@ describe("recoverable errors", () => {
                 c(7),
                 n(
                     "dynamic-wind",
-                    n("lambda", [], c(null)),
+                    n("lambda", ["cont"], c(null)),
                     n("lambda", [], call("boom")),
-                    n("lambda", ["err"], c(true)),
+                    n("lambda", ["err", "cont"], c(true)),
                 ),
             ),
         );
@@ -991,18 +814,18 @@ describe("recoverable errors", () => {
         // (try body) evaluates to the body's value, or to "caught" if the
         // body threw: the exit handler stashes the error in `caught` and
         // returns true to cancel it, and the code after the wind decides.
-        const try_ = (body: N) =>
+        const try_ = (body: TestIRNode) =>
             n(
                 "seq",
                 n("define", "caught", c(null)),
                 n("define", "result", c(null)),
                 n(
                     "dynamic-wind",
-                    n("lambda", [], c(null)),
+                    n("lambda", ["cont"], c(null)),
                     n("lambda", [], n("assign", "result", body)),
                     n(
                         "lambda",
-                        ["err"],
+                        ["err", "cont"],
                         n(
                             "if",
                             v("err"),
@@ -1058,5 +881,239 @@ describe("argument evaluation is the callee's business", () => {
             ),
         );
         expect(run(vm, program)).toBe(15);
+    });
+});
+
+const testWind = makeTestRun(makeVM);
+
+describe("dynamic-wind handler flags", () => {
+    const enter = () =>
+        n(
+            "lambda",
+            ["cont"],
+            n(
+                "if",
+                v("cont"),
+                call("print", c("enter-cont")),
+                call("print", c("enter")),
+            ),
+        );
+    const exit = () =>
+        n("lambda", ["err", "cont"], call("print", v("err"), v("cont")));
+    testWind(
+        test,
+        "a normal pass calls enter and exit with isFromContinuation false",
+        (vm, out) => {
+            run(
+                vm,
+                n(
+                    "dynamic-wind",
+                    enter(),
+                    n("lambda", [], call("print", c("body"))),
+                    exit(),
+                ),
+            );
+            expect(out).toEqual(["enter", "body", "null false"]);
+        },
+    );
+    testWind(
+        test,
+        "escaping through a wind calls its exit with isFromContinuation true",
+        (vm, out) => {
+            const result = run(
+                vm,
+                n(
+                    "callcc",
+                    n(
+                        "lambda",
+                        ["k"],
+                        n(
+                            "dynamic-wind",
+                            enter(),
+                            n(
+                                "lambda",
+                                [],
+                                n("call", v("k"), c("escaped")),
+                            ),
+                            exit(),
+                        ),
+                    ),
+                ),
+            );
+            expect(result).toBe("escaped");
+            expect(out).toEqual(["enter", "null true"]);
+        },
+    );
+    testWind(
+        test,
+        "re-entering through a continuation calls enter with isFromContinuation true",
+        (vm, out) => {
+            const result = run(
+                vm,
+                n(
+                    "seq",
+                    n("define", "k", c(null)),
+                    n("define", "first", c(true)),
+                    n(
+                        "dynamic-wind",
+                        enter(),
+                        n(
+                            "lambda",
+                            [],
+                            n(
+                                "seq",
+                                n(
+                                    "callcc",
+                                    n(
+                                        "lambda",
+                                        ["cc"],
+                                        n("assign", "k", v("cc")),
+                                    ),
+                                ),
+                                call("print", c("body")),
+                            ),
+                        ),
+                        exit(),
+                    ),
+                    n(
+                        "if",
+                        v("first"),
+                        n(
+                            "seq",
+                            n("assign", "first", c(false)),
+                            n("call", v("k"), c(null)),
+                        ),
+                        c("done"),
+                    ),
+                ),
+            );
+            expect(result).toBe("done");
+            expect(out).toEqual([
+                "enter",
+                "body",
+                "null false",
+                "enter-cont",
+                "body",
+                "null false",
+            ]);
+        },
+    );
+    testWind(
+        test,
+        "a throw calls exit with the error and isFromContinuation false",
+        (vm, out) => {
+            let err: any;
+            try {
+                run(
+                    vm,
+                    n(
+                        "dynamic-wind",
+                        enter(),
+                        n("lambda", [], call("boom")),
+                        n(
+                            "lambda",
+                            ["err", "cont"],
+                            call("print", v("cont")),
+                        ),
+                    ),
+                );
+            } catch (e) {
+                err = e;
+            }
+            expect(err).toBeInstanceOf(JEBError);
+            expect(err.message).toBe("boom");
+            expect(out).toEqual(["enter", "false"]);
+        },
+    );
+});
+
+describe("the core is code-representation agnostic", () => {
+    // A minimal layer over plain-object nodes ({ kind, kids }) instead of
+    // the Lisp IR: three node kinds, no calls, no opcode table. It exists
+    // to prove the core really never touches a node shape -- everything
+    // goes through the evalNode hook, and the generic machinery (seq via
+    // seqStart, conditionals via OP_if_after and the boolify hooks) works
+    // over any code type.
+    type ObjNode = { kind: string; span?: string; ch: ObjNode[] };
+    class ObjVM extends JebVM<any, string, ObjNode> {
+        noneValue() {
+            return null;
+        }
+        noValue() {
+            return NO_VALUE;
+        }
+        createError(message: string) {
+            return new JEBError(message, {}, {}, this.tracebackArray());
+        }
+        isError(value: unknown) {
+            return value instanceof JEBError;
+        }
+        getLocation(node: ObjNode) {
+            return node.span;
+        }
+        boolify(value: any) {
+            pushData(this, value);
+        }
+        isTruthy(value: any) {
+            return !!value;
+        }
+        booleanValue(value: boolean) {
+            return value;
+        }
+        getVariable(): any {
+            throw this.createError("no variables in this layer");
+        }
+        defineVariable(): void {
+            throw this.createError("no variables in this layer");
+        }
+        assignVariable(): void {
+            throw this.createError("no variables in this layer");
+        }
+        dispatchCall() {
+            throw this.createError("no calls in this layer");
+        }
+        evalNode(node: ObjNode, tail: boolean) {
+            switch (node.kind) {
+                case "const":
+                    pushData(this, node.ch[0]);
+                    return;
+                case "seq":
+                    seqStart(this, node.ch as ObjNode[], tail);
+                    return;
+                case "if":
+                    pushCommand(
+                        this,
+                        OP_if_after,
+                        node.ch[1] as ObjNode,
+                        node.ch[2] as ObjNode,
+                        node.ch.length > 2,
+                        tail,
+                    );
+                    pushCommand(this, OP_eval, node.ch[0] as ObjNode, false);
+                    return;
+                default:
+                    throw this.createError(`unknown node kind: ${node.kind}`);
+            }
+        }
+    }
+    const K = (value: any): ObjNode => ({ kind: "const", ch: [value] });
+    test("a VM over object nodes runs seq and if with no IR anywhere", () => {
+        const vm = new ObjVM();
+        const program: ObjNode = {
+            kind: "seq",
+            ch: [
+                {
+                    kind: "if",
+                    ch: [K(true), K(1), K(2)],
+                },
+                K(42),
+            ],
+        };
+        expect(run(vm, program)).toBe(42);
+        const vm2 = new ObjVM();
+        // a missing else produces the layer's None (null here)
+        expect(
+            run(vm2, { kind: "if", ch: [K(false), K(1)] }),
+        ).toBe(null);
     });
 });

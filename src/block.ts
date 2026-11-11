@@ -1,5 +1,4 @@
 import { Env } from "./env";
-import { IRNode } from "./ir";
 
 /**
  * A chunk of code whose evaluation is deferred: the body nodes plus the
@@ -12,11 +11,11 @@ import { IRNode } from "./ir";
  * a block, and the callee invokes it if and when it wants the argument's
  * value.
  */
-export class Block<D = any, S = any> {
+export class Block<D = any, C = any> {
     constructor(
         /** The environment the body is evaluated in when invoked. */
         readonly closureEnv: Env<D>,
         /** The deferred body nodes. */
-        readonly body: readonly IRNode<S>[],
+        readonly body: readonly C[],
     ) {}
 }
