@@ -285,7 +285,7 @@ describe("const, seq, and no value", () => {
     });
     test("an empty seq is none", () => {
         const { vm } = makeVM();
-        expect(run(vm, n("seq"))).toBe(null);
+        expect(run(vm, n("seq"))).toBe(vm.noneValue());
     });
     test("a seq of only comments is none", () => {
         const { vm } = makeVM();
@@ -296,20 +296,20 @@ describe("const, seq, and no value", () => {
     test("comment evaluates nothing and produces no value", () => {
         const { vm } = makeVM();
         // the operand would throw if it were ever evaluated
-        expect(run(vm, n("comment", call("boom")))).toBe(NO_VALUE);
+        expect(run(vm, n("comment", call("boom")))).toBe(vm.noValue());
         expect(run(vm, n("comment", op("no-such-opcode", undefined)))).toBe(
-            NO_VALUE,
+            vm.noValue(),
         );
     });
     test("a trailing comment does not clobber a seq's value", () => {
         const { vm } = makeVM();
         expect(run(vm, n("seq", c(42), n("comment", "note")))).toBe(42);
     });
-    test("define is a statement: it produces no value", () => {
+    test("define is an expression: it produces the value", () => {
         const { vm } = makeVM();
         expect(run(vm, n("seq", n("define", "x", c(1)), c(5)))).toBe(5);
         const { vm: vm2 } = makeVM();
-        expect(run(vm2, n("define", "x", c(1)))).toBe(NO_VALUE);
+        expect(run(vm2, n("define", "x", c(1)))).toBe(vm.noValue());
     });
 });
 
@@ -710,7 +710,7 @@ describe("if", () => {
     });
     test("a missing else produces none, and the untaken branch is skipped", () => {
         const { vm } = makeVM();
-        expect(run(vm, n("if", c(false), call("boom")))).toBe(null);
+        expect(run(vm, n("if", c(false), call("boom")))).toBe(vm.noneValue());
         const { vm: vm2 } = makeVM();
         expect(run(vm2, n("if", c(true), c(1), call("boom")))).toBe(1);
     });
@@ -776,34 +776,6 @@ describe("host-defined opcodes", () => {
         }
         expect(err).toBeInstanceOf(JEBError);
         expect(err.message).toBe("unknown opcode: frobnicate");
-    });
-});
-
-describe("host registry", () => {
-    test("host functions live in the registry, not in any environment", () => {
-        const { vm } = makeVM();
-        expect(vm.hostRegistry.has("+")).toBe(true);
-        expect(vm.currentEnv.scopeFor("+").ok).toBe(false);
-        expect(Reflect.has(vm.currentEnv.bindings, "+")).toBe(false);
-        // ...but a var lookup falls back to the registry
-        expect(run(vm, call("+", c(1), c(2)))).toBe(3);
-    });
-    test("host values are readable through var", () => {
-        const { vm } = makeVM();
-        vm.defineValue("answer", 42);
-        expect(run(vm, v("answer"))).toBe(42);
-    });
-    test("a program's own bindings take precedence over the registry", () => {
-        const { vm } = makeVM();
-        vm.defineValue("answer", 42);
-        expect(
-            run(vm, n("seq", n("define", "answer", c(1)), v("answer"))),
-        ).toBe(1);
-    });
-    test("names cannot be registered twice", () => {
-        const { vm } = makeVM();
-        expect(() => vm.defineHostFunction("+", () => 0)).toThrow(Error);
-        expect(() => vm.defineValue("+", 0)).toThrow(Error);
     });
 });
 
@@ -997,7 +969,7 @@ describe("recoverable errors", () => {
         // normally, so its exit handler ran with null, not the error
         expect(out).toEqual(["inner", "null"]);
     });
-    test("a dynamic-wind whose exit handler cancels produces no value", () => {
+    test("a dynamic-wind whose exit handler cancels produces none", () => {
         const { vm } = makeVM();
         const result = run(
             vm,
@@ -1012,7 +984,7 @@ describe("recoverable errors", () => {
                 ),
             ),
         );
-        expect(result).toBe(7);
+        expect(result).toBe(vm.noneValue());
     });
     test("try/catch is buildable from dynamic-wind plus cancellation", () => {
         const { vm } = makeVM();

@@ -380,7 +380,7 @@ const OP_define_after = <D = any, S = any>(
     if (value instanceof Closure && value.name === undefined) value.name = name;
     if (constant) vm.currentEnv.addConst(name, value);
     else vm.currentEnv.add(name, value);
-    pushData(vm, vm.noneValue());
+    pushData(vm, value);
 };
 
 const OP_assign_after = <D = any, S = any>(
