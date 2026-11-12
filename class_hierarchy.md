@@ -1,4 +1,4 @@
-- `object` - top type - base for all classes - implements the default `__getattribute__` and `__hash__` / `__eq__` / `__ne__` / comparison / `__bool__` - but not arithmetic values - if object defines `__hash__` method, it is called to start by `object.__new__` and then `object.__setattribute__` enforces immutability
+- `object` - top type - base for all classes - implements the default `__getattribute__` and `__hash__` / `__eq__` / `__ne__` / comparison / `__bool__` - but not arithmetic values - if object defines `__hash__` method, `object.__setattribute__` enforces immutability
     - `type` - base for all metaclasses
         - `singleton` - base for all singleton types. The `__init_subclass__` constructs the instance and then sets the class `__instance__` to it; then it overrides `__new__` to always just return the `__instance__`
     - `classmethod`
@@ -7,6 +7,7 @@
     - `NoneType` - unit type (metaclass=`singleton`)
         - `NoneHole` - has the hole absorption methods (also subclass of `types.Wrapper`)
     - `NotImplementedType` - sentinel to say an overloaded method doesn't apply (metaclass=`singleton`)
+    - `Ellipsis` - sentinel to say a method didn't return anything at all (not even `None`) (metaclass=`singleton`)
     - `EmptyType` - placeholder to signify to argument machinery that default value is to be used (metaclass=`singleton`)
     - `DoneType` - sentinel at the end of iterators (metaclass=`singleton`)
     - `types.Number`
