@@ -16,7 +16,10 @@ import {
     StackTreeNode,
 } from "./errors";
 import { SourceInfo, sourcesEqual } from "./ir";
-import { CallArgs, OP_eval, OP_throw, OpcodeHandler } from "./opcodes";
+import { CallArgs, OP_eval, OP_throw } from "./opcodes";
+import { loadBuiltins } from "./builtins";
+import { codeLocation, evalJSON, JSONCode } from "./evaluate";
+import { loadStdlib } from "./stdlib";
 import { Identifier } from "./utils";
 
 /**
@@ -25,8 +28,8 @@ import { Identifier } from "./utils";
  * itself only ever holds them opaquely), and `S` is the span type carried by
  * the IR the VM runs.
  */
-export type Command<D = any, S = any, C = any, A extends any[] = any[]> = [
-    opcode: OpcodeFunction<A, D, S, C>,
+export type Command<D = any, S = any, A extends any[] = any[]> = [
+    opcode: OpcodeFunction<A, D, S>,
     ...immediateArgs: A,
 ];
 
@@ -40,9 +43,18 @@ export enum StackEntryKind {
 export interface StackEntry<S> {
     /** Name of the function called, if known */
     readonly name: Identifier | undefined;
-    /** Source of the call site, if known */
-    readonly source: SourceInfo<S> | undefined;
+    /**
+     * Source of the call site, if known. Mutable: the span-injection builtins
+     * (`redirect_call`, `throw_runtime_error`) rewrite the entry of the call
+     * that invoked them.
+     */
+    source: SourceInfo<S> | undefined;
     readonly kind: StackEntryKind;
+    /**
+     * Whether this entry is hidden from tracebacks (set by the `hide_call`
+     * builtin). {@link JebVM.tracebackArray} skips hidden entries.
+     */
+    hidden?: boolean;
 }
 
 /**
@@ -59,11 +71,42 @@ export interface StackCount<S> {
 }
 
 /**
+ * The result a host function returns when it has arranged the call's result
+ * itself (by scheduling commands with `pushCommand`): the dispatch machinery
+ * pushes nothing for the call. Host implementations of forms like `if` or
+ * `dynamic-wind` use it -- they are ordinary calls whose "return value" is
+ * produced by the commands they schedule.
+ */
+export const SCHEDULED = Symbol("SCHEDULED");
+
+/**
+ * Bookkeeping for one call in flight, created by the evaluator and pushed onto
+ * {@link JebVM.callFrames} for the duration of the call. This is the state the
+ * span-injection builtins (`throw_runtime_error`, `hide_call`, `redirect_call`,
+ * `set_macro_result`) operate on: they always address the frame of the call
+ * that invoked them (see {@link JebVM.callerFrame}).
+ */
+export interface CallFrame<S = any> {
+    /** The call form's location, if it carried one. */
+    readonly source: SourceInfo<S> | undefined;
+    /** The callee's name, if the callee form was a bare variable name. */
+    readonly name: Identifier | undefined;
+    /** The source of each argument form, in order (for blame placement). */
+    readonly argSources: (SourceInfo<S> | undefined)[];
+    /**
+     * Set by `set_macro_result`: if true when a macro call returns, the
+     * evaluator re-evaluates the returned value as code in the caller's
+     * environment.
+     */
+    macroResult: boolean;
+}
+
+/**
  * Function that implements an opcode for the VM by pushing instructions or
  * pushing and popping data.
  */
-export type OpcodeFunction<A extends any[], D = any, S = any, C = any> = (
-    vm: JebVM<D, S, C>,
+export type OpcodeFunction<A extends any[], D = any, S = any> = (
+    vm: JebVM<D, S>,
     ...args: A
 ) => void;
 
@@ -71,23 +114,22 @@ export type OpcodeFunction<A extends any[], D = any, S = any, C = any> = (
  * Extracts the type of an opcode function's immediate arguments (everything
  * after the VM parameter), for typing calls to {@link JebVM.pushCommand}.
  */
-export type GetArgParams<T extends OpcodeFunction<any, any, any, any>> =
+export type GetArgParams<T extends OpcodeFunction<any, any, any>> =
     Parameters<T>[1] extends infer T extends any[] ? T : [void];
 
 /** Base VM for running JEB code */
 export abstract class JebVM<
     D = any,
     S = any,
-    C = any,
 > extends EventDispatcher<JEBAuditEvents> {
     /** Current environment */
     currentEnv!: Env<D>;
     /** Stack of commands to execute */
-    commandStack!: LinkedList<Command<D, S, C>>;
+    commandStack!: LinkedList<Command<D, S>>;
     /** Stack of values */
     dataStack!: LinkedList<D>;
     /** Current dynamic wind stack (linked list / tree) */
-    curDynamicWind!: DynamicWind<D, S, C>;
+    curDynamicWind!: DynamicWind<D, S>;
     /** Whether the VM is paused */
     paused!: boolean;
     /** The Promise that the VM is currently waiting on */
@@ -95,18 +137,58 @@ export abstract class JebVM<
     /** Callstack entries */
     tracebackStack!: LinkedList<StackCount<S>>;
     /**
-     * The opcode table: maps an IR node's opcode name to the handler that
-     * evaluates it. The core opcodes are installed by the constructor; hosts
-     * and higher layers register more with {@link defineOpcode}.
-     */
-    opcodes: Record<string, OpcodeHandler<D, S, C>> = {};
-    /**
      * Sources of the macro expansions the evaluator is currently inside,
      * outermost first. A node's own source link (`expandedFrom`) is pushed here
      * while its subtree runs, so nested code can see the full expansion context
      * it was generated in.
      */
     expansionStack: SourceInfo<S>[] = [];
+    /**
+     * The environment holding JEB's builtin procedures (see `loadBuiltins`).
+     * Layers (e.g. Kuiper) install their primitive procedures here or in a
+     * child of it. The root environment of a run is a child of this one, so
+     * builtins are in scope everywhere unless shadowed.
+     */
+    builtinsEnv!: Env<D>;
+    /**
+     * Frames of the calls currently in flight, innermost first. A persistent
+     * list, like the other stacks, so that capturing a continuation snapshots
+     * it by reference instead of copying it. See {@link CallFrame}.
+     */
+    callFrames: LinkedList<CallFrame<S>> = null;
+    /**
+     * The frame of the call that invoked the currently executing call -- what
+     * the span-injection builtins address. (The top of {@link callFrames} is the
+     * current call's own frame; the builtins are themselves calls, so theirs
+     * sits on top of the frame they mean.) Falls back to the top frame when
+     * there is only one.
+     */
+    callerFrame(): CallFrame<S> | undefined {
+        return this.callFrames?.next?.value ?? this.callFrames?.value;
+    }
+    /** The frame of the currently executing call, if any. */
+    currentFrame(): CallFrame<S> | undefined {
+        return this.callFrames?.value;
+    }
+    /**
+     * The traceback entry of the call that invoked the currently executing
+     * call: the second FUNCTION entry on the traceback stack (the top one
+     * belongs to the current call itself). Falls back to the top FUNCTION entry
+     * when there is only one.
+     */
+    callerEntry(): StackEntry<S> | undefined {
+        let found: StackEntry<S> | undefined;
+        let stack = this.tracebackStack;
+        while (stack) {
+            const entry = stack.value.item;
+            if (entry.kind === StackEntryKind.FUNCTION) {
+                if (found) return entry;
+                found = entry;
+            }
+            stack = stack.next;
+        }
+        return found;
+    }
     /**
      * The error that stopped the VM, if any; {@link step} rethrows it while set.
      * It is a value of the layer's own error type (see {@link createError} and
@@ -153,25 +235,24 @@ export abstract class JebVM<
     abstract isError(value: unknown): boolean;
 
     /**
-     * Hook: executes one code node (of the layer's code type `C`) in tail
-     * position or not, leaving exactly one result on the data stack (or
-     * scheduling the commands that do). This is the core's only way of running
-     * code: the core does not know the code representation, so sequences,
-     * argument evaluation, and {@link start} all route through here (via the
-     * `OP_eval` command). A Lisp-IR implementation of this hook ships in the
-     * package's test module (`indextest`); a layer with its own code
-     * representation (e.g. Kuiper executing CST nodes directly) implements its
-     * own.
+     * Executes one JSON code form in tail position or not, leaving exactly one
+     * result on the data stack (or scheduling the commands that do). This is
+     * the VM's only way of running code: sequences, argument evaluation, and
+     * {@link start} all route through here (via the `OP_eval` command). The
+     * default is the JSON evaluator; a layer may override it to intercept forms
+     * before they evaluate.
      */
-    abstract evalNode(node: C, tail: boolean): void;
+    evalNode(node: JSONCode, tail: boolean): void {
+        evalJSON(this, node, tail);
+    }
     /**
-     * Hook: the location (span, of type `S`) of a code node, or `undefined` if
-     * it has none. Lets code that walks nodes (the layer's {@link evalNode}
-     * implementation, macro expansion, error reporting) ask the layer's code
-     * representation where a node came from without the core knowing the
-     * representation.
+     * The location (span, of type `S`) of a code form: the object at the head
+     * of a location-headed call form (see {@link codeLocation}), or `undefined`
+     * if the form has none.
      */
-    abstract getLocation(node: C): S | undefined;
+    getLocation(node: JSONCode): S | undefined {
+        return codeLocation(node)?.span as S | undefined;
+    }
     /**
      * Hook: queues whatever calling is needed to convert a value to a boolean
      * -- in Kuiper, a `__bool__` call on it -- leaving exactly one result (the
@@ -192,6 +273,13 @@ export abstract class JebVM<
      * flags handed to dynamic-wind handlers).
      */
     abstract booleanValue(value: boolean): D;
+    /**
+     * Hook: boxes a numeric literal into a value. JSON code itself only ever
+     * holds plain numbers, and the data stack only ever holds `D` values, so
+     * every literal the evaluator meets passes through here (likewise booleans
+     * through {@link booleanValue} and null through {@link noneValue}).
+     */
+    abstract wrapNumber(value: number): D;
     /**
      * Hook: reads a variable. The core's environments are a mechanism, not a
      * policy: a layer whose current environment is itself a value (e.g. a
@@ -214,15 +302,8 @@ export abstract class JebVM<
     constructor() {
         super();
         this.reset();
-    }
-    /**
-     * Registers an opcode handler under the given name. Throws if the name is
-     * already taken: there is only ever one handler per opcode.
-     */
-    defineOpcode(name: string, handler: OpcodeHandler<D, S, C>) {
-        if (Reflect.has(this.opcodes, name))
-            throw new Error(`opcode ${name} is already defined`);
-        this.opcodes[name] = handler;
+        loadBuiltins(this);
+        loadStdlib(this);
     }
     /**
      * The one calling-dispatch point: given a callee and its argument nodes,
@@ -240,7 +321,7 @@ export abstract class JebVM<
      * calls made by continuations and by error unwinding) routes through the
      * {@link OP_call_invoke} command, which delegates here.
      */
-    abstract dispatchCall(call: CallArgs<D, S, C>): void;
+    abstract dispatchCall(call: CallArgs<D, S>): void;
 
     /** Pushes a value onto the data stack. */
     pushData(value: any) {
@@ -280,7 +361,7 @@ export abstract class JebVM<
      * Pushes a command (an opcode function plus its immediate arguments) onto
      * the command stack, to be run by a later {@link step}.
      */
-    pushCommand<TOpcode extends OpcodeFunction<any, D, S, C>>(
+    pushCommand<TOpcode extends OpcodeFunction<any, D, S>>(
         f: TOpcode,
         ...args: GetArgParams<TOpcode>
     ) {
@@ -331,7 +412,7 @@ export abstract class JebVM<
      * @throws If the VM is already running (i.e. there are commands on the
      *   command stack)
      */
-    start(code: C) {
+    start(code: JSONCode) {
         if (LinkedList_length(this.commandStack) > 0)
             throw new Error("VM is already running");
         pushCommand(this, OP_eval, code, true);
@@ -344,7 +425,9 @@ export abstract class JebVM<
         this.paused = false;
         this.commandStack = this.dataStack = this.tracebackStack = null;
         this.expansionStack = [];
-        this.currentEnv = this.createEnv();
+        this.callFrames = null;
+        this.builtinsEnv = this.createEnv();
+        this.currentEnv = this.createEnv(this.builtinsEnv);
         this.curDynamicWind = new DynamicWind(this);
         this.error = undefined;
     }
@@ -371,9 +454,9 @@ export abstract class JebVM<
      * @returns List of stack entries, with only 1-element repeats compressed.
      */
     tracebackArray(numToDrop = 0) {
-        var stack = this.tracebackStack;
+        let stack = this.tracebackStack;
         const parts: StackTreeNode[] = [];
-        var prev: StackCount<S> | undefined,
+        let prev: StackCount<S> | undefined,
             prevCount = 0;
         const flush = () => {
             if (prevCount > 0) {
@@ -392,9 +475,13 @@ export abstract class JebVM<
         };
         while (stack) {
             const {
-                item: { name, source },
+                item: { name, source, hidden },
                 count,
             } = stack.value;
+            if (hidden) {
+                stack = stack.next;
+                continue;
+            }
             if (
                 prev &&
                 (prev.item.name !== name ||
@@ -459,7 +546,7 @@ export abstract class JebVM<
     }
     /** Drops all the tail-call entries off the stack, and then one more */
     popTraceback(dropTail = true) {
-        var cur = this.tracebackStack;
+        let cur = this.tracebackStack;
         if (!cur) throw this.createError("traceback stack underflow");
 
         // drop all TCO'ed frames
@@ -485,8 +572,8 @@ export abstract class JebVM<
         }
     }
     /** Creates a fresh dynamic-wind node whose parent is the VM's current node. */
-    newDynamicWind(): DynamicWind<D, S, C> {
-        return new DynamicWind<D, S, C>(this);
+    newDynamicWind(): DynamicWind<D, S> {
+        return new DynamicWind<D, S>(this);
     }
     /** Creates a new environment inheriting from the given parent environments. */
     createEnv(...parents: Env<D>[]) {
@@ -498,7 +585,7 @@ export abstract class JebVM<
      * @param extraOps Extra opcodes to push to the command stack _when this
      *   continuation is invoked_ (not now).
      */
-    cc(...extraOps: Command<D, S, C>[]) {
+    cc(...extraOps: Command<D, S>[]) {
         return new Continuation(this, extraOps);
     }
 }
@@ -507,8 +594,7 @@ export abstract class JebVM<
  * Standalone form of {@link JebVM.pushData}, for opcodes (which receive the VM
  * and their arguments separately rather than as a method receiver).
  */
-export const pushData = <D, S, C>(vm: JebVM<D, S, C>, data: any) =>
-    vm.pushData(data);
+export const pushData = <D, S>(vm: JebVM<D, S>, data: any) => vm.pushData(data);
 /** Standalone form of {@link JebVM.pushCommand}; see {@link pushData}. */
 export const pushCommand = <TOpcode extends OpcodeFunction<any, D, S>, D, S>(
     vm: JebVM<D, S>,
@@ -516,8 +602,8 @@ export const pushCommand = <TOpcode extends OpcodeFunction<any, D, S>, D, S>(
     ...args: GetArgParams<TOpcode>
 ) => vm.pushCommand(cmd, ...args);
 /** Standalone form of {@link JebVM.popData}; see {@link pushData}. */
-export const popData = <D, S, C>(vm: JebVM<D, S, C>) => vm.popData();
+export const popData = <D, S>(vm: JebVM<D, S>) => vm.popData();
 /** Standalone form of {@link JebVM.popNData}; see {@link pushData}. */
 export const popNData = <D, S>(vm: JebVM<D, S>, n: number) => vm.popNData(n);
 /** Standalone form of {@link JebVM.peekData}; see {@link pushData}. */
-export const peekData = <D, S, C>(vm: JebVM<D, S, C>) => vm.peekData();
+export const peekData = <D, S>(vm: JebVM<D, S>) => vm.peekData();

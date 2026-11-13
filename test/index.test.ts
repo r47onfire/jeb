@@ -1,55 +1,33 @@
 import { describe, expect, test } from "bun:test";
-import {
-    Block,
-    Closure,
-    JEBError,
-    JebVM,
-    OP_eval,
-    OP_if_after,
-    OpcodeContext,
-    popData,
-    pushCommand,
-    pushData,
-    seqStart,
-    sourcesEqual,
-    StackTreeNode
-} from "../src";
+import { Closure, codeLocation, JEBError, StackTreeNode } from "../src";
 import {
     makeTestRun,
-    markExpansion,
     NO_VALUE,
-    nodeSource,
-    op,
     run,
     runAsync,
-    TestIRNode,
     TestVM,
 } from "../src/indextest";
 
-// Tests use strings as spans (the IR is generic over the span type).
-const n = (name: string, ...operands: any[]): TestIRNode =>
-    op(name, undefined, ...operands);
-const ns = (name: string, span: string, ...operands: any[]): TestIRNode =>
-    op(name, span, ...operands);
-const c = (value: any): TestIRNode => n("const", value);
-const v = (name: string): TestIRNode => n("var", name);
-const call = (name: string, ...args: any[]): TestIRNode =>
-    n("call", v(name), ...args);
+// Programs are JEB's JSON code (see src/evaluate.ts): numbers, booleans,
+// and null are literals; a bare string is a variable reference; an array
+// is a call form whose head string names the callee; an object at the
+// head of a call form is the call's location. String literals are
+// written with quote.
+const q = (text: string): any[] => ["quote", text];
 
 const makeVM = () => {
     const vm = new TestVM();
     const out: string[] = [];
-    vm.defineHostFunction("+", (_vm, a, b) => a + b);
-    vm.defineHostFunction("-", (_vm, a, b) => a - b);
-    vm.defineHostFunction("*", (_vm, a, b) => a * b);
-    vm.defineHostFunction("=", (_vm, a, b) => a === b);
-    vm.defineHostFunction("<", (_vm, a, b) => a < b);
-    vm.defineHostFunction("list", (_vm, ...args) => args);
-    vm.defineHostFunction("print", (_vm, ...args) => {
-        out.push(args.map(String).join(" "));
+    vm.defineHostFunction("+", ["a", "b"], (_vm, a, b) => a + b);
+    vm.defineHostFunction("-", ["a", "b"], (_vm, a, b) => a - b);
+    vm.defineHostFunction("*", ["a", "b"], (_vm, a, b) => a * b);
+    vm.defineHostFunction("=", ["a", "b"], (_vm, a, b) => a === b);
+    vm.defineHostFunction("<", ["a", "b"], (_vm, a, b) => a < b);
+    vm.defineHostFunction("print", ["...args"], (_vm, args) => {
+        out.push((args as any[]).map(String).join(" "));
         return NO_VALUE;
     });
-    vm.defineHostFunction("boom", (vm) => {
+    vm.defineHostFunction("boom", [], (vm) => {
         throw vm.createError("boom");
     });
     return { vm, out };
@@ -60,99 +38,111 @@ const leafNames = (nodes: StackTreeNode[] | undefined): string[] =>
         node.leaf ? [String(node.name)] : leafNames(node.children),
     );
 
-describe("nodes and sources", () => {
-    test("a bare span is normalized into a SourceInfo", () => {
-        expect(nodeSource(ns("seq", "s1"))).toEqual({ span: "s1" });
-        expect(nodeSource(n("seq"))).toBeUndefined();
+const leaves = (err: any): any[] =>
+    (err.traceback as StackTreeNode[]).filter((node) => node.leaf);
+
+describe("the JSON code model", () => {
+    test("numbers, booleans, and null evaluate to themselves", () => {
+        const { vm } = makeVM();
+        expect(run(vm, 42)).toBe(42);
+        const { vm: vm2 } = makeVM();
+        expect(run(vm2, true)).toBe(true);
+        const { vm: vm3 } = makeVM();
+        expect(run(vm3, null)).toBe(null);
     });
-    test("sources compare by span and expansion chain", () => {
-        const a = nodeSource(ns("seq", "x"));
-        const b = nodeSource(ns("seq", "x"));
-        const d = nodeSource(ns("seq", "y"));
-        expect(sourcesEqual(a, b)).toBe(true);
-        expect(sourcesEqual(a, d)).toBe(false);
-        expect(sourcesEqual(a, undefined)).toBe(false);
+    test("a string evaluates to the variable of that name", () => {
+        const { vm } = makeVM();
+        expect(run(vm, ["begin", ["define", "x", 10], "x"])).toBe(10);
     });
-    test("markExpansion stamps the root and chains outward", () => {
-        const inner = markExpansion(ns("call", "template"), {
-            span: "inner-call",
-        });
-        expect(nodeSource(inner)).toEqual({
-            span: "template",
-            expandedFrom: { span: "inner-call" },
-        });
-        const outer = markExpansion(inner, { span: "outer-call" });
-        expect(nodeSource(outer)?.expandedFrom).toEqual({
-            span: "inner-call",
-            expandedFrom: { span: "outer-call" },
-        });
-        // the original node is not mutated
-        expect(nodeSource(inner)?.expandedFrom).toEqual({
-            span: "inner-call",
-        });
+    test("quote produces a string as data, not a variable reference", () => {
+        const { vm } = makeVM();
+        expect(run(vm, q("hello"))).toBe("hello");
+    });
+    test("quote produces arrays as data, unevaluated", () => {
+        const { vm } = makeVM();
+        // the form would throw if it were ever evaluated as code
+        expect(run(vm, ["quote", ["boom"]])).toEqual(["boom"]);
+    });
+    test("a bare object is not valid code", () => {
+        const { vm } = makeVM();
+        let err: any;
+        try {
+            run(vm, { at: "here" } as any);
+        } catch (e) {
+            err = e;
+        }
+        expect(err).toBeInstanceOf(JEBError);
+        expect(err.message).toBe(
+            "objects are only valid as the location head of a call form",
+        );
+    });
+    test("a lone location object is not a call", () => {
+        const { vm } = makeVM();
+        expect(() => run(vm, [{ at: "here" }])).toThrow(JEBError);
+    });
+    test("an empty array is not a call", () => {
+        const { vm } = makeVM();
+        expect(() => run(vm, [])).toThrow(JEBError);
+    });
+    test("codeLocation reads a call form's location head", () => {
+        expect(codeLocation([{ at: 1 }, "f"])).toEqual({ span: { at: 1 } });
+        expect(codeLocation(["f"])).toBeUndefined();
+        expect(codeLocation(42)).toBeUndefined();
     });
 });
 
-describe("const, seq, and no value", () => {
-    test("const returns its operand unevaluated, even if node-shaped", () => {
+describe("begin, comment, and no value", () => {
+    test("begin returns its last value", () => {
         const { vm } = makeVM();
-        const data = ["call", undefined, ["var", undefined, "boom"]];
-        const result = run(vm, c(data));
-        expect(result).toBe(data);
+        expect(run(vm, ["begin", 1, 2, 3])).toBe(3);
     });
-    test("seq returns its last value", () => {
+    test("an empty begin is none", () => {
         const { vm } = makeVM();
-        expect(run(vm, n("seq", c(1), c(2), c(3)))).toBe(3);
+        expect(run(vm, ["begin"])).toBe(vm.noneValue());
     });
-    test("an empty seq is none", () => {
+    test("a begin of only comments is none", () => {
         const { vm } = makeVM();
-        expect(run(vm, n("seq"))).toBe(vm.noneValue());
-    });
-    test("a seq of only comments is none", () => {
-        const { vm } = makeVM();
-        expect(run(vm, n("seq", n("comment", "a"), n("comment", "b")))).toBe(
-            null,
-        );
+        expect(
+            run(vm, ["begin", ["comment", "a"], ["comment", "b"]]),
+        ).toBe(null);
     });
     test("comment evaluates nothing and produces no value", () => {
         const { vm } = makeVM();
-        // the operand would throw if it were ever evaluated
-        expect(run(vm, n("comment", call("boom")))).toBe(vm.noValue());
-        expect(run(vm, n("comment", op("no-such-opcode", undefined)))).toBe(
-            vm.noValue(),
+        // the argument would throw if it were ever evaluated
+        expect(run(vm, ["comment", ["boom"]])).toBe(vm.noValue());
+        const { vm: vm2 } = makeVM();
+        expect(run(vm2, ["comment", ["no-such-function", 1]])).toBe(
+            vm2.noValue(),
         );
     });
-    test("a trailing comment does not clobber a seq's value", () => {
+    test("a trailing comment does not clobber a begin's value", () => {
         const { vm } = makeVM();
-        expect(run(vm, n("seq", c(42), n("comment", "note")))).toBe(42);
+        expect(run(vm, ["begin", 42, ["comment", "note"]])).toBe(42);
     });
     test("define is an expression: it produces the value", () => {
         const { vm } = makeVM();
-        expect(run(vm, n("seq", n("define", "x", c(1)), c(5)))).toBe(5);
+        expect(run(vm, ["begin", ["define", "x", 1], 5])).toBe(5);
         const { vm: vm2 } = makeVM();
-        expect(run(vm2, n("define", "x", c(1)))).toBe(1);
+        expect(run(vm2, ["define", "x", 1])).toBe(1);
     });
 });
 
 describe("variables and let", () => {
-    test("define then var", () => {
+    test("define then read", () => {
         const { vm } = makeVM();
-        expect(run(vm, n("seq", n("define", "x", c(10)), v("x")))).toBe(10);
+        expect(run(vm, ["begin", ["define", "x", 10], "x"])).toBe(10);
     });
     test("assign updates an existing variable", () => {
         const { vm } = makeVM();
         expect(
-            run(
-                vm,
-                n("seq", n("define", "x", c(1)), n("assign", "x", c(2)), v("x")),
-            ),
+            run(vm, ["begin", ["define", "x", 1], ["assign", "x", 2], "x"]),
         ).toBe(2);
     });
     test("assign to an undefined variable is an error", () => {
         const { vm } = makeVM();
         let err: any;
         try {
-            run(vm, n("assign", "nope", c(1)));
+            run(vm, ["assign", "nope", 1]);
         } catch (e) {
             err = e;
         }
@@ -163,48 +153,26 @@ describe("variables and let", () => {
     });
     test("reading an undefined variable is an error", () => {
         const { vm } = makeVM();
-        expect(() => run(vm, v("nope"))).toThrow(JEBError);
-    });
-    test("a constant cannot be assigned", () => {
-        const { vm } = makeVM();
-        let err: any;
-        try {
-            run(
-                vm,
-                n(
-                    "seq",
-                    n("define-const", "x", c(1)),
-                    n("assign", "x", c(2)),
-                ),
-            );
-        } catch (e) {
-            err = e;
-        }
-        expect(err).toBeInstanceOf(JEBError);
-        expect(err.message).toBe("cannot assign to constant: x");
+        expect(() => run(vm, "nope")).toThrow(JEBError);
     });
     test("let binds in a child scope and leaves the outer scope alone", () => {
         const { vm } = makeVM();
         expect(
             run(
                 vm,
-                n(
-                    "seq",
-                    n("define", "x", c(1)),
-                    n("let", n("bind", "x", c(2)), v("x")),
-                ),
+                ["begin", ["define", "x", 1], ["let", [["x", 2]], "x"]],
             ),
         ).toBe(2);
         const { vm: vm2 } = makeVM();
         expect(
             run(
                 vm2,
-                n(
-                    "seq",
-                    n("define", "x", c(1)),
-                    n("let", n("bind", "x", c(2)), c(0)),
-                    v("x"),
-                ),
+                [
+                    "begin",
+                    ["define", "x", 1],
+                    ["let", [["x", 2]], 0],
+                    "x",
+                ],
             ),
         ).toBe(1);
     });
@@ -213,29 +181,18 @@ describe("variables and let", () => {
         expect(
             run(
                 vm,
-                n(
-                    "seq",
-                    n("define", "x", c(10)),
-                    n(
-                        "let",
-                        n("bind", "y", call("+", v("x"), c(1))),
-                        v("y"),
-                    ),
-                ),
+                [
+                    "begin",
+                    ["define", "x", 10],
+                    ["let", [["y", ["+", "x", 1]]], "y"],
+                ],
             ),
         ).toBe(11);
         // a binding cannot see its siblings
         const { vm: vm2 } = makeVM();
         expect(() =>
-            run(
-                vm2,
-                n("let", n("bind", "a", c(1)), n("bind", "b", v("a")), v("b")),
-            ),
+            run(vm2, ["let", [["a", 1], ["b", "a"]], "b"]),
         ).toThrow(JEBError);
-    });
-    test("bind outside a let is an error", () => {
-        const { vm } = makeVM();
-        expect(() => run(vm, n("bind", "x", c(1)))).toThrow(JEBError);
     });
 });
 
@@ -243,39 +200,35 @@ describe("functions", () => {
     test("lambda and call", () => {
         const { vm } = makeVM();
         expect(
-            run(
-                vm,
-                n(
-                    "call",
-                    n("lambda", ["a", "b"], call("+", v("a"), v("b"))),
-                    c(3),
-                    c(4),
-                ),
-            ),
+            run(vm, [["lambda", ["a", "b"], ["+", "a", "b"]], 3, 4]),
         ).toBe(7);
+    });
+    test("a lambda's value is a closure wrapping its body and environment", () => {
+        const { vm } = makeVM();
+        const result = run(vm, ["lambda", ["a"], "a"]);
+        expect(result).toBeInstanceOf(Closure);
+        expect(result.signature.params.map((p: any) => p.name)).toEqual(["a"]);
+        expect(result.signature.rest).toBeUndefined();
+        expect(result.body).toHaveLength(1);
     });
     test("closures capture their defining environment", () => {
         const { vm } = makeVM();
         expect(
             run(
                 vm,
-                n(
-                    "seq",
-                    n(
+                [
+                    "begin",
+                    [
                         "define",
                         "make-adder",
-                        n(
+                        [
                             "lambda",
                             ["x"],
-                            n("lambda", ["y"], call("+", v("x"), v("y"))),
-                        ),
-                    ),
-                    n(
-                        "let",
-                        n("bind", "add2", call("make-adder", c(2))),
-                        call("add2", c(3)),
-                    ),
-                ),
+                            ["lambda", ["y"], ["+", "x", "y"]],
+                        ],
+                    ],
+                    ["let", [["add2", ["make-adder", 2]]], ["add2", 3]],
+                ],
             ),
         ).toBe(5);
     });
@@ -284,28 +237,24 @@ describe("functions", () => {
         expect(
             run(
                 vm,
-                n(
-                    "seq",
-                    n(
+                [
+                    "begin",
+                    [
                         "define",
                         "fact",
-                        n(
+                        [
                             "lambda",
                             ["k"],
-                            n(
+                            [
                                 "if",
-                                call("<", v("k"), c(2)),
-                                c(1),
-                                call(
-                                    "*",
-                                    v("k"),
-                                    call("fact", call("-", v("k"), c(1))),
-                                ),
-                            ),
-                        ),
-                    ),
-                    call("fact", c(5)),
-                ),
+                                ["<", "k", 2],
+                                1,
+                                ["*", "k", ["fact", ["-", "k", 1]]],
+                            ],
+                        ],
+                    ],
+                    ["fact", 5],
+                ],
             ),
         ).toBe(120);
     });
@@ -314,57 +263,47 @@ describe("functions", () => {
         expect(
             run(
                 vm,
-                n(
-                    "seq",
-                    n(
+                [
+                    "begin",
+                    [
                         "define",
                         "count",
-                        n(
+                        [
                             "lambda",
                             ["k"],
-                            n(
+                            [
                                 "if",
-                                call("=", v("k"), c(0)),
-                                c(0),
-                                call("count", call("-", v("k"), c(1))),
-                            ),
-                        ),
-                    ),
-                    call("count", c(20000)),
-                ),
+                                ["=", "k", 0],
+                                0,
+                                ["count", ["-", "k", 1]],
+                            ],
+                        ],
+                    ],
+                    ["count", 20000],
+                ],
             ),
         ).toBe(0);
     });
     test("rest parameters collect the remaining arguments", () => {
         const { vm } = makeVM();
         expect(
-            run(
-                vm,
-                n(
-                    "call",
-                    n("lambda", ["first", "...rest"], v("rest")),
-                    c(1),
-                    c(2),
-                    c(3),
-                ),
-            ),
+            run(vm, [["lambda", ["first", "...rest"], "rest"], 1, 2, 3]),
         ).toEqual([2, 3]);
     });
     test("arity is checked", () => {
         const { vm } = makeVM();
-        expect(() =>
-            run(vm, n("call", n("lambda", ["a"], v("a")))),
-        ).toThrow(JEBError);
+        expect(() => run(vm, [["lambda", ["a"], "a"]])).toThrow(JEBError);
         const { vm: vm2 } = makeVM();
-        expect(() =>
-            run(vm2, n("call", n("lambda", ["a"], v("a")), c(1), c(2))),
-        ).toThrow(JEBError);
+        expect(() => run(vm2, [["lambda", ["a"], "a"], 1, 2])).toThrow(
+            JEBError,
+        );
     });
-    test("calling a non-callable is an error", () => {
+    test("calling a non-callable is an error, before its arguments evaluate", () => {
         const { vm } = makeVM();
         let err: any;
         try {
-            run(vm, n("call", c(42)));
+            // the argument would throw if it were ever evaluated
+            run(vm, [42, ["boom"]]);
         } catch (e) {
             err = e;
         }
@@ -376,335 +315,444 @@ describe("functions", () => {
         expect(
             run(
                 vm,
-                n(
-                    "seq",
-                    n(
+                [
+                    "begin",
+                    [
                         "define",
                         "f",
-                        n("lambda", [], c(99), n("comment", "note")),
-                    ),
-                    call("f"),
-                ),
+                        ["lambda", [], 99, ["comment", "note"]],
+                    ],
+                    ["f"],
+                ],
             ),
         ).toBe(99);
     });
-    test("a host function returning NO_VALUE does not clobber a seq", () => {
+    test("a host function returning NO_VALUE does not clobber a begin", () => {
         const { vm, out } = makeVM();
-        expect(
-            run(vm, n("seq", c(1), call("print", c("hi")), c(2))),
-        ).toBe(2);
+        expect(run(vm, ["begin", 1, ["print", q("hi")], 2])).toBe(2);
         expect(out).toEqual(["hi"]);
     });
     test("an async host function's result is awaited", async () => {
         const { vm } = makeVM();
-        vm.defineHostFunction("later", async () => 5);
-        expect(
-            await runAsync(vm, call("+", call("later"), c(1))),
-        ).toBe(6);
+        vm.defineHostFunction("later", [], async () => 5);
+        expect(await runAsync(vm, ["+", ["later"], 1])).toBe(6);
     });
-    test("tracebacks name the call chain with its spans", () => {
+    test("arguments evaluate in the call site's environment", () => {
+        const { vm } = makeVM();
+        // `z` exists only in the let's environment (the call site); the
+        // closure was defined at the top level, where there is no `z`
+        expect(
+            run(
+                vm,
+                [
+                    "begin",
+                    [
+                        "define",
+                        "add",
+                        ["lambda", ["a", "b"], ["+", "a", "b"]],
+                    ],
+                    ["let", [["z", 10]], ["add", "z", 5]],
+                ],
+            ),
+        ).toBe(15);
+    });
+    test("tracebacks name the call chain with its location spans", () => {
         const { vm } = makeVM();
         let err: any;
         try {
             run(
                 vm,
-                n(
-                    "seq",
-                    n(
+                [
+                    "begin",
+                    [
                         "define",
                         "f",
-                        n("lambda", [], ns("call", "inner", v("boom"))),
-                    ),
-                    ns("call", "outer", v("f")),
-                ),
+                        ["lambda", [], [{ at: "inner" }, "boom"]],
+                    ],
+                    [{ at: "outer" }, "f"],
+                ],
             );
         } catch (e) {
             err = e;
         }
         expect(err).toBeInstanceOf(JEBError);
         expect(leafNames(err.traceback)).toEqual(["boom", "f"]);
-        const leaves = (err.traceback as StackTreeNode[]).filter(
-            (node) => node.leaf,
-        );
-        expect(leaves[0]!.leaf && leaves[0]!.source?.span).toBe("inner");
-        expect(leaves[1]!.leaf && leaves[1]!.source?.span).toBe("outer");
-    });
-});
-
-describe("blocks", () => {
-    test("a lambda's value is a closure wrapping a block", () => {
-        const { vm } = makeVM();
-        const result = run(vm, n("lambda", ["a"], v("a")));
-        expect(result).toBeInstanceOf(Closure);
-        expect(result.block).toBeInstanceOf(Block);
-        expect(result.block.body).toHaveLength(1);
-        expect(result.env).toBe(result.block.closureEnv);
-    });
-    test("creating a block does not evaluate its body", () => {
-        const { vm } = makeVM();
-        let count = 0;
-        vm.defineHostFunction("tick", () => ++count);
-        run(vm, n("block", call("tick")));
-        expect(count).toBe(0);
-    });
-    test("invoking a block evaluates it in its captured environment", () => {
-        const { vm } = makeVM();
-        expect(
-            run(
-                vm,
-                n(
-                    "seq",
-                    n("define", "b", c(null)),
-                    n(
-                        "let",
-                        n("bind", "x", c(2)),
-                        n("assign", "b", n("block", v("x"))),
-                    ),
-                    n("call", v("b")),
-                ),
-            ),
-        ).toBe(2);
-    });
-    test("a block can be invoked more than once", () => {
-        const { vm } = makeVM();
-        let count = 0;
-        vm.defineHostFunction("tick", () => ++count);
-        expect(
-            run(
-                vm,
-                n(
-                    "seq",
-                    n("define", "b", n("block", call("tick"))),
-                    n("call", v("b")),
-                    n("call", v("b")),
-                ),
-            ),
-        ).toBe(2);
-        expect(count).toBe(2);
-    });
-    test("a block passed as an argument is a lazy parameter", () => {
-        const { vm } = makeVM();
-        let count = 0;
-        vm.defineHostFunction("tick", () => ++count);
-        // the callee invokes the block: the argument is evaluated, once
-        expect(
-            run(
-                vm,
-                n(
-                    "call",
-                    n("lambda", ["b"], n("call", v("b"))),
-                    n("block", call("tick")),
-                ),
-            ),
-        ).toBe(1);
-        expect(count).toBe(1);
-        // the callee ignores the block: the argument is never evaluated
-        const { vm: vm2 } = makeVM();
-        let count2 = 0;
-        vm2.defineHostFunction("tick", () => ++count2);
-        expect(
-            run(
-                vm2,
-                n(
-                    "call",
-                    n("lambda", ["b"], c(0)),
-                    n("block", call("tick")),
-                ),
-            ),
-        ).toBe(0);
-        expect(count2).toBe(0);
-    });
-    test("blocks take no arguments", () => {
-        const { vm } = makeVM();
-        expect(() =>
-            run(vm, n("call", n("block", c(1)), c(2))),
-        ).toThrow(JEBError);
+        const ls = leaves(err);
+        expect(ls[0]!.leaf && ls[0]!.source?.span).toEqual({ at: "inner" });
+        expect(ls[1]!.leaf && ls[1]!.source?.span).toEqual({ at: "outer" });
     });
 });
 
 describe("if", () => {
     test("branches on host truthiness", () => {
         const { vm } = makeVM();
-        expect(run(vm, n("if", c(true), c(1), c(2)))).toBe(1);
+        expect(run(vm, ["if", true, 1, 2])).toBe(1);
         const { vm: vm2 } = makeVM();
-        expect(run(vm2, n("if", c(0), c(1), c(2)))).toBe(2);
+        expect(run(vm2, ["if", 0, 1, 2])).toBe(2);
     });
     test("a missing else produces none, and the untaken branch is skipped", () => {
         const { vm } = makeVM();
-        expect(run(vm, n("if", c(false), call("boom")))).toBe(vm.noneValue());
+        expect(run(vm, ["if", false, ["boom"]])).toBe(vm.noneValue());
         const { vm: vm2 } = makeVM();
-        expect(run(vm2, n("if", c(true), c(1), call("boom")))).toBe(1);
+        expect(run(vm2, ["if", true, 1, ["boom"]])).toBe(1);
     });
 });
 
-// test-only continuation step for the "twice" opcode: drops the first
-// result and evaluates the operand a second time
-const OP_twice_step = (vm: JebVM<any, any>, [node]: [any]) => {
-    popData(vm);
-    pushCommand(vm, OP_eval, node, false);
-};
-
-describe("host-defined opcodes", () => {
-    test("an opcode can evaluate an operand more than once", () => {
+describe("lazy parameters and macro results", () => {
+    test("a lazy parameter receives its argument form unevaluated", () => {
         const { vm } = makeVM();
-        let count = 0;
-        vm.defineHostFunction("tick", () => ++count);
-        vm.defineOpcode("twice", (vm: JebVM<any, any>, ctx: OpcodeContext<any>) => {
-            pushCommand(vm, OP_twice_step, ctx.operands[0]);
-            ctx.eval(ctx.operands[0]!);
-        });
-        expect(run(vm, n("twice", call("tick")))).toBe(2);
-        expect(count).toBe(2);
-    });
-    test("an opcode can skip an operand (macro-style)", () => {
-        const OP_unless_after = (
-            vm: JebVM<any, any>,
-            [{ then, els, tail }]: [{ then: any; els: any; tail: boolean }],
-        ) => {
-            const condition = popData(vm);
-            if (!condition) pushCommand(vm, OP_eval, then, tail);
-            else if (els !== undefined) pushCommand(vm, OP_eval, els, tail);
-            else pushData(vm, NO_VALUE);
-        };
-        const defineUnless = (vm: JebVM<any, any>) =>
-            vm.defineOpcode("unless", (vm: JebVM<any, any>, ctx: OpcodeContext<any>) => {
-                pushCommand(vm, OP_unless_after, {
-                    then: ctx.operands[1],
-                    els: ctx.operands[2],
-                    tail: ctx.tail,
-                });
-                ctx.eval(ctx.operands[0]!);
-            });
-        const { vm } = makeVM();
-        defineUnless(vm);
-        expect(run(vm, n("unless", c(false), c(1), c(2)))).toBe(1);
-        const { vm: vm2 } = makeVM();
-        defineUnless(vm2);
-        // the skipped branch would throw if evaluated
-        expect(run(vm2, n("unless", c(true), call("boom"), c(2)))).toBe(2);
-    });
-    test("opcode names cannot be registered twice", () => {
-        const { vm } = makeVM();
-        expect(() => vm.defineOpcode("seq", () => { })).toThrow(Error);
-    });
-    test("an unknown opcode is a syntax error", () => {
-        const { vm } = makeVM();
-        let err: any;
-        try {
-            run(vm, op("frobnicate", undefined, c(1)) as TestIRNode);
-        } catch (e) {
-            err = e;
-        }
-        expect(err).toBeInstanceOf(JEBError);
-        expect(err.message).toBe("unknown opcode: frobnicate");
-    });
-});
-
-describe("eval and macro expansion sources", () => {
-    test("eval evaluates code produced at runtime", () => {
-        const { vm } = makeVM();
-        expect(run(vm, n("eval", c(call("+", c(1), c(2)))))).toBe(3);
-    });
-    test("eval of a non-node is a syntax error", () => {
-        const { vm } = makeVM();
-        expect(() => run(vm, n("eval", c(42)))).toThrow(JEBError);
-    });
-    test("errors in expanded code carry the expansion source", () => {
-        const { vm } = makeVM();
-        let err: any;
-        try {
+        // (define quote (lambda (`x) x)) -- the user's example: with the
+        // parameter backticked, the "macro" is an ordinary definition
+        expect(
             run(
                 vm,
-                ns(
-                    "eval",
-                    "macro-call-site",
-                    c(ns("call", "template", v("boom"))),
-                ),
-            );
-        } catch (e) {
-            err = e;
-        }
-        expect(err).toBeInstanceOf(JEBError);
-        const leaves = (err.traceback as StackTreeNode[]).filter(
-            (node) => node.leaf,
+                [
+                    "begin",
+                    ["define", "my-quote", ["lambda", ["`x"], "x"]],
+                    ["my-quote", ["boom"]],
+                ],
+            ),
+        ).toEqual(["boom"]);
+    });
+    test("a result is just a value unless set_macro_result is called", () => {
+        const { vm } = makeVM();
+        // the returned array is data; evaluated as code it would try to
+        // call 1 as a function
+        expect(
+            run(
+                vm,
+                [
+                    "begin",
+                    [
+                        "define",
+                        "pair",
+                        ["lambda", ["`x"], ["list", 1, 2]],
+                    ],
+                    ["pair", 0],
+                ],
+            ),
+        ).toEqual([1, 2]);
+    });
+    test("set_macro_result re-evaluates the result as code in the caller's environment", () => {
+        const { vm } = makeVM();
+        const defineIncr = [
+            "define",
+            "incr",
+            [
+                "lambda",
+                ["`x"],
+                ["set_macro_result", true],
+                ["list", q("+"), "x", 1],
+            ],
+        ];
+        expect(run(vm, ["begin", defineIncr, ["incr", 5]])).toBe(6);
+        const { vm: vm2 } = makeVM();
+        expect(
+            run(
+                vm2,
+                ["begin", ["define", "y", 10], defineIncr, ["incr", "y"]],
+            ),
+        ).toBe(11);
+    });
+    test("macro-ness is a runtime decision, not a property of the function", () => {
+        const { vm } = makeVM();
+        // = an ordinary function with an
+        // evaluated parameter that flags its result for re-evaluation,
+        // so calling it on quoted code evaluates the code
+        const defineForce = [
+            "define",
+            "force",
+            ["lambda", ["x"], ["set_macro_result", true], "x"],
+        ];
+        expect(
+            run(vm, ["begin", defineForce, ["force", ["quote", ["+", 1, 2]]]]),
+        ).toBe(3);
+        const { vm: vm2 } = makeVM();
+        expect(
+            run(vm2, ["begin", defineForce, ["force", ["quote", 42]]]),
+        ).toBe(42);
+    });
+    test("when runs its body only if the test is truthy", () => {
+        const { vm } = makeVM();
+        expect(run(vm, ["when", true, 1, 2])).toBe(2);
+        const { vm: vm2 } = makeVM();
+        expect(run(vm2, ["when", false, ["boom"]])).toBe(null);
+    });
+    test("unless runs its body only if the test is falsy", () => {
+        const { vm } = makeVM();
+        expect(run(vm, ["unless", false, 7])).toBe(7);
+        const { vm: vm2 } = makeVM();
+        expect(run(vm2, ["unless", true, ["boom"]])).toBe(null);
+    });
+    test("eval evaluates code produced at runtime", () => {
+        const { vm } = makeVM();
+        expect(run(vm, ["eval", ["quote", ["+", 1, 2]]])).toBe(3);
+    });
+    test("eval of a bare object is an error", () => {
+        const { vm } = makeVM();
+        expect(() => run(vm, ["eval", ["quote", { at: "x" }]])).toThrow(
+            JEBError,
         );
-        expect(leaves).toHaveLength(1);
-        const leaf = leaves[0]!;
-        expect(leaf.leaf && leaf.name).toBe("boom");
-        expect(leaf.leaf && leaf.source?.span).toBe("template");
-        expect(leaf.leaf && leaf.source?.expandedFrom?.span).toBe(
-            "macro-call-site",
-        );
-        // the expansion context is cleaned up after the error
-        expect(vm.expansionStack).toHaveLength(0);
     });
 });
 
-describe("continuations and dynamic-wind", () => {
-    test("callcc escapes with the continuation's value", () => {
+describe("signatures", () => {
+    test("a default supplies a missing argument, and is overridden by a given one", () => {
+        const { vm } = makeVM();
+        expect(run(vm, [["lambda", [["a", 10]], "a"]])).toBe(10);
+        const { vm: vm2 } = makeVM();
+        expect(run(vm2, [["lambda", [["a", 10]], "a"], 3])).toBe(3);
+    });
+    test("an evaluated default is a form, evaluated in the call-site environment", () => {
+        const { vm } = makeVM();
+        expect(run(vm, [["lambda", [["a", ["+", 1, 2]]], "a"]])).toBe(3);
+        const { vm: vm2 } = makeVM();
+        // the default names a variable that only exists at the call site
+        expect(
+            run(vm2, ["let", [["x", 7]], [["lambda", [["a", "x"]], "a"]]]),
+        ).toBe(7);
+    });
+    test("a lazy default is the form itself, like a passed lazy argument", () => {
+        const { vm } = makeVM();
+        expect(run(vm, [["lambda", [["`x", q("dflt")]], "x"]])).toEqual(
+            q("dflt"),
+        );
+    });
+    test("host functions get the same checking: arity is enforced", () => {
+        const { vm } = makeVM();
+        expect(() => run(vm, ["+", 1])).toThrow(JEBError);
+        const { vm: vm2 } = makeVM();
+        expect(() => run(vm2, ["+", 1, 2, 3])).toThrow(JEBError);
+    });
+    test("host rest parameters arrive bundled as one array", () => {
+        const { vm } = makeVM();
+        vm.defineHostFunction("collect", ["...xs"], (_vm, xs) => xs);
+        expect(run(vm, ["collect", 1, 2, 3])).toEqual([1, 2, 3]);
+    });
+    test("host lazy parameters receive raw forms", () => {
+        const { vm } = makeVM();
+        vm.defineHostFunction("rawarg", ["`x"], (_vm, x) => x);
+        // the argument would throw if it were ever evaluated
+        expect(run(vm, ["rawarg", ["boom"]])).toEqual(["boom"]);
+    });
+    test("host defaults work like closure defaults", () => {
+        const { vm } = makeVM();
+        vm.defineHostFunction("greet", [["name", q("world")]], (_vm, name) => name);
+        expect(run(vm, ["greet"])).toBe("world");
+        expect(run(vm, ["greet", q("mars")])).toBe("mars");
+    });
+});
+
+describe("named let", () => {
+    const loop = [
+        "let",
+        "loop",
+        [
+            ["n", 5],
+            ["acc", 0],
+        ],
+        ["if", ["=", "n", 0], "acc", ["loop", ["-", "n", 1], ["+", "acc", "n"]]],
+    ];
+    test("the loop name re-enters the body with new values", () => {
+        const { vm } = makeVM();
+        expect(run(vm, loop)).toBe(15);
+    });
+    test("each iteration reports a jeb:loop_check audit event with its counter", () => {
+        const { vm } = makeVM();
+        const seen: number[] = [];
+        vm.on("jeb:loop_check", (n) => seen.push(n));
+        expect(run(vm, loop)).toBe(15);
+        expect(seen).toEqual([0, 1, 2, 3, 4, 5]);
+    });
+});
+
+describe("the standard library", () => {
+    test("uncomment splices its forms back into a begin", () => {
+        const { vm } = makeVM();
+        expect(
+            run(vm, ["uncomment", ["define", "x", 1], "x"]),
+        ).toBe(1);
+    });
+    test("cwcc hands the callee the current continuation", () => {
+        const { vm } = makeVM();
+        expect(run(vm, ["cwcc", ["lambda", ["k"], ["k", 42]]])).toBe(42);
+        const { vm: vm2 } = makeVM();
+        expect(run(vm2, ["cwcc", ["lambda", ["k"], 7]])).toBe(7);
+    });
+    test("while loops until its condition is falsy", () => {
         const { vm } = makeVM();
         expect(
             run(
                 vm,
-                n(
-                    "callcc",
-                    n("lambda", ["k"], n("call", v("k"), c(42)), c(0)),
-                ),
+                [
+                    "begin",
+                    ["define", "i", 0],
+                    ["while", ["<", "i", 3], ["assign", "i", ["+", "i", 1]]],
+                    "i",
+                ],
+            ),
+        ).toBe(3);
+    });
+    test("zero?, reduce, and map", () => {
+        const { vm } = makeVM();
+        expect(run(vm, ["zero?", 0])).toBe(true);
+        const { vm: vm2 } = makeVM();
+        expect(run(vm2, ["zero?", 5])).toBe(false);
+        const { vm: vm3 } = makeVM();
+        expect(
+            run(
+                vm3,
+                [
+                    "reduce",
+                    ["list", 1, 2, 3],
+                    ["lambda", ["a", "b"], ["+", "a", "b"]],
+                    0,
+                ],
+            ),
+        ).toBe(6);
+        const { vm: vm4 } = makeVM();
+        expect(
+            run(
+                vm4,
+                [
+                    "map",
+                    ["list", 1, 2, 3],
+                    ["lambda", ["x"], ["*", "x", 2]],
+                ],
+            ),
+        ).toEqual([2, 4, 6]);
+    });
+    test("|> pipes a value through steps with % bound", () => {
+        const { vm } = makeVM();
+        expect(
+            run(vm, ["|>", 5, ["+", "%", 1], ["*", "%", 2]]),
+        ).toBe(12);
+    });
+});
+
+describe("value hooks", () => {
+    test("number literals pass through the layer's wrapNumber hook", () => {
+        class BoxedVM extends TestVM {
+            override wrapNumber(value: number) {
+                return ["num", value];
+            }
+        }
+        const vm = new BoxedVM();
+        expect(run(vm, 42)).toEqual(["num", 42]);
+        // null is the none value, not a wrapped number
+        expect(run(vm, null)).toBe(null);
+    });
+    test("undefined is not valid code", () => {
+        const { vm } = makeVM();
+        let err: any;
+        try {
+            run(vm, undefined as any);
+        } catch (e) {
+            err = e;
+        }
+        expect(err).toBeInstanceOf(JEBError);
+        expect(err.message).toBe("undefined is not valid code");
+    });
+});
+
+describe("return", () => {
+    test("a function that never calls return returns its body's value", () => {
+        const { vm } = makeVM();
+        expect(run(vm, [["lambda", [], 7]])).toBe(7);
+    });
+    test("return abandons the rest of the body", () => {
+        const { vm } = makeVM();
+        expect(
+            run(vm, [["lambda", [], ["begin", ["return", 1], 2]]]),
+        ).toBe(1);
+    });
+    test("return exits only its own function", () => {
+        const { vm } = makeVM();
+        expect(
+            run(
+                vm,
+                [
+                    ["lambda", [], ["+", 1, [["lambda", [], ["return", 10]]]]],
+                ],
+            ),
+        ).toBe(11);
+    });
+    test("a captured return escapes the enclosing function from an inner one", () => {
+        const { vm } = makeVM();
+        expect(
+            run(
+                vm,
+                [
+                    [
+                        "lambda",
+                        [],
+                        [
+                            "let",
+                            [["r", "return"]],
+                            ["+", 1, [["lambda", [], ["r", 42]]]],
+                        ],
+                    ],
+                ],
             ),
         ).toBe(42);
     });
-    test("callcc without escaping returns the body's value", () => {
-        const { vm } = makeVM();
-        expect(run(vm, n("callcc", n("lambda", ["k"], c(7))))).toBe(7);
-    });
-    test("dynamic-wind runs enter, body, and exit in order", () => {
+});
+
+describe("dynamic-wind", () => {
+    const thunk = (label: string): any[] => [
+        "lambda",
+        [],
+        ["print", q(label)],
+    ];
+    // enter handlers take an isFromContinuation flag; exit handlers take
+    // the error (or null) and the same flag
+    const enter = (): any[] => ["lambda", ["cont"], ["print", q("enter")]];
+    const exit = (): any[] => [
+        "lambda",
+        ["err", "cont"],
+        ["print", q("exit")],
+    ];
+    test("runs enter, body, and exit in order", () => {
         const { vm, out } = makeVM();
-        const thunk = (label: string) =>
-            n("lambda", [], call("print", c(label)));
-        // enter handlers take an isFromContinuation flag; exit handlers
-        // take the error (or null) and the same flag
-        const enter = n("lambda", ["cont"], call("print", c("enter")));
-        const exit = n("lambda", ["err", "cont"], call("print", c("exit")));
-        run(vm, n("dynamic-wind", enter, thunk("body"), exit));
+        run(vm, ["dynamic_wind", enter(), thunk("body"), exit()]);
         expect(out).toEqual(["enter", "body", "exit"]);
     });
-    test("escaping through a dynamic-wind still runs its exit handler", () => {
+    test("escaping through a wind still runs its exit handler", () => {
         const { vm, out } = makeVM();
         const result = run(
             vm,
-            n(
-                "callcc",
-                n(
+            [
+                [
                     "lambda",
-                    ["k"],
-                    n(
-                        "dynamic-wind",
-                        n("lambda", ["cont"], call("print", c("enter"))),
-                        n("lambda", [], n("call", v("k"), c("escaped"))),
-                        n("lambda", ["err", "cont"], call("print", c("exit"))),
-                    ),
-                ),
-            ),
+                    [],
+                    [
+                        "let",
+                        [["r", "return"]],
+                        [
+                            "dynamic_wind",
+                            enter(),
+                            ["lambda", [], ["r", q("escaped")]],
+                            exit(),
+                        ],
+                    ],
+                ],
+            ],
         );
         expect(result).toBe("escaped");
         expect(out).toEqual(["enter", "exit"]);
     });
-    test("throw runs dynamic-wind exit handlers with the error", () => {
+    test("throw runs exit handlers with the error", () => {
         const { vm, out } = makeVM();
         let err: any;
         try {
             run(
                 vm,
-                n(
-                    "dynamic-wind",
-                    n("lambda", ["cont"], c(null)),
-                    n("lambda", [], n("throw", c("bad"))),
-                    n(
-                        "lambda",
-                        ["err", "cont"],
-                        call("print", c("exit")),
-                    ),
-                ),
+                [
+                    "dynamic_wind",
+                    ["lambda", ["cont"], null],
+                    ["lambda", [], ["throw", q("bad")]],
+                    exit(),
+                ],
             );
         } catch (e) {
             err = e;
@@ -716,31 +764,32 @@ describe("continuations and dynamic-wind", () => {
 });
 
 describe("recoverable errors", () => {
+    const noEnter = (): any[] => ["lambda", ["cont"], null];
     test("an exit handler can cancel error propagation by returning true", () => {
         const { vm } = makeVM();
         const result = run(
             vm,
-            n(
-                "seq",
-                n("define", "seen", c(null)),
-                n(
-                    "dynamic-wind",
-                    n("lambda", ["cont"], c(null)),
-                    n("lambda", [], call("boom")),
-                    n(
+            [
+                "begin",
+                ["define", "seen", null],
+                [
+                    "dynamic_wind",
+                    noEnter(),
+                    ["lambda", [], ["boom"]],
+                    [
                         "lambda",
                         ["err", "cont"],
-                        n("seq", n("assign", "seen", v("err")), c(true)),
-                    ),
-                ),
-                c(42),
-            ),
+                        ["begin", ["assign", "seen", "err"], true],
+                    ],
+                ],
+                42,
+            ],
         );
-        // execution continued past the dynamic-wind, and no error is parked
+        // execution continued past the dynamic_wind, and no error is parked
         expect(result).toBe(42);
         expect(vm.error).toBeUndefined();
         // ...and the exit handler was called with the error
-        const seen = run(vm, v("seen"));
+        const seen = run(vm, "seen");
         expect(seen).toBeInstanceOf(JEBError);
         expect((seen as JEBError).message).toBe("boom");
     });
@@ -750,12 +799,12 @@ describe("recoverable errors", () => {
         try {
             run(
                 vm,
-                n(
-                    "dynamic-wind",
-                    n("lambda", ["cont"], c(null)),
-                    n("lambda", [], call("boom")),
-                    n("lambda", ["err", "cont"], c(false)),
-                ),
+                [
+                    "dynamic_wind",
+                    noEnter(),
+                    ["lambda", [], ["boom"]],
+                    ["lambda", ["err", "cont"], false],
+                ],
             );
         } catch (e) {
             err = e;
@@ -767,151 +816,220 @@ describe("recoverable errors", () => {
         const { vm, out } = makeVM();
         run(
             vm,
-            n(
-                "dynamic-wind",
-                n("lambda", ["cont"], c(null)),
-                n(
+            [
+                "dynamic_wind",
+                noEnter(),
+                [
                     "lambda",
                     [],
-                    n(
-                        "dynamic-wind",
-                        n("lambda", ["cont"], c(null)),
-                        n("lambda", [], call("boom")),
-                        n(
+                    [
+                        "dynamic_wind",
+                        noEnter(),
+                        ["lambda", [], ["boom"]],
+                        [
                             "lambda",
                             ["err", "cont"],
-                            n("seq", call("print", c("inner")), c(true)),
-                        ),
-                    ),
-                ),
-                n("lambda", ["err", "cont"], call("print", v("err"))),
-            ),
+                            ["begin", ["print", q("inner")], true],
+                        ],
+                    ],
+                ],
+                ["lambda", ["err", "cont"], ["print", "err"]],
+            ],
         );
         expect(vm.error).toBeUndefined();
         // the inner handler caught the error; the outer wind then exited
         // normally, so its exit handler ran with null, not the error
         expect(out).toEqual(["inner", "null"]);
     });
-    test("a dynamic-wind whose exit handler cancels produces none", () => {
+    test("a dynamic_wind whose exit handler cancels produces none", () => {
         const { vm } = makeVM();
         const result = run(
             vm,
-            n(
-                "seq",
-                c(7),
-                n(
-                    "dynamic-wind",
-                    n("lambda", ["cont"], c(null)),
-                    n("lambda", [], call("boom")),
-                    n("lambda", ["err", "cont"], c(true)),
-                ),
-            ),
+            [
+                "begin",
+                7,
+                [
+                    "dynamic_wind",
+                    noEnter(),
+                    ["lambda", [], ["boom"]],
+                    ["lambda", ["err", "cont"], true],
+                ],
+            ],
         );
         expect(result).toBe(vm.noneValue());
     });
-    test("try/catch is buildable from dynamic-wind plus cancellation", () => {
+    test("try/catch is buildable from dynamic_wind plus cancellation", () => {
         const { vm } = makeVM();
         // (try body) evaluates to the body's value, or to "caught" if the
         // body threw: the exit handler stashes the error in `caught` and
         // returns true to cancel it, and the code after the wind decides.
-        const try_ = (body: TestIRNode) =>
-            n(
-                "seq",
-                n("define", "caught", c(null)),
-                n("define", "result", c(null)),
-                n(
-                    "dynamic-wind",
-                    n("lambda", ["cont"], c(null)),
-                    n("lambda", [], n("assign", "result", body)),
-                    n(
-                        "lambda",
-                        ["err", "cont"],
-                        n(
-                            "if",
-                            v("err"),
-                            n("seq", n("assign", "caught", v("err")), c(true)),
-                            c(false),
-                        ),
-                    ),
-                ),
-                n("if", v("caught"), c("caught"), v("result")),
-            );
-        expect(run(vm, try_(call("+", c(1), c(2))))).toBe(3);
-        expect(run(vm, try_(call("boom")))).toBe("caught");
+        const try_ = (body: any): any[] => [
+            "begin",
+            ["define", "caught", null],
+            ["define", "result", null],
+            [
+                "dynamic_wind",
+                noEnter(),
+                ["lambda", [], ["assign", "result", body]],
+                [
+                    "lambda",
+                    ["err", "cont"],
+                    [
+                        "if",
+                        "err",
+                        ["begin", ["assign", "caught", "err"], true],
+                        false,
+                    ],
+                ],
+            ],
+            ["if", "caught", q("caught"), "result"],
+        ];
+        expect(run(vm, try_(["+", 1, 2]))).toBe(3);
+        expect(run(vm, try_(["boom"]))).toBe("caught");
     });
 });
 
-describe("argument evaluation is the callee's business", () => {
-    test("a block callee never evaluates its rejected arguments", () => {
+describe("span injection", () => {
+    test("hide_call hides the invoking call's traceback entry", () => {
         const { vm } = makeVM();
         let err: any;
         try {
-            // the argument would throw if it were ever evaluated
-            run(vm, n("call", n("block", c(1)), call("boom")));
+            run(
+                vm,
+                [
+                    "begin",
+                    [
+                        "define",
+                        "f",
+                        [
+                            "lambda",
+                            [],
+                            ["begin", ["hide_call", true], ["boom"]],
+                        ],
+                    ],
+                    ["f"],
+                ],
+            );
         } catch (e) {
             err = e;
         }
         expect(err).toBeInstanceOf(JEBError);
-        expect(err.message).toBe(
-            "too many arguments: a block takes none, got 1",
-        );
+        // f's entry is hidden; only boom's remains
+        expect(leafNames(err.traceback)).toEqual(["boom"]);
     });
-    test("a non-callable callee is rejected before its arguments evaluate", () => {
+    test("redirect_call moves the invoking call's entry to an argument's location", () => {
         const { vm } = makeVM();
         let err: any;
         try {
-            run(vm, n("call", c(42), call("boom")));
+            run(
+                vm,
+                [
+                    "begin",
+                    [
+                        "define",
+                        "g",
+                        [
+                            "lambda",
+                            ["x"],
+                            ["redirect_call", 0],
+                            [{ at: "boomcall" }, "boom"],
+                        ],
+                    ],
+                    ["g", [{ at: "argloc" }, "+", 1, 2]],
+                ],
+            );
         } catch (e) {
             err = e;
         }
         expect(err).toBeInstanceOf(JEBError);
-        expect(err.message).toBe("value is not callable: number");
+        expect(leafNames(err.traceback)).toEqual(["boom", "g"]);
+        const ls = leaves(err);
+        expect(ls[1]!.leaf && ls[1]!.source?.span).toEqual({ at: "argloc" });
     });
-    test("arguments evaluate in the call site's environment", () => {
+    test("throw_runtime_error with a parameter blames that argument's location", () => {
         const { vm } = makeVM();
-        // `z` exists only in the let's environment (the call site); the
-        // closure was defined at the top level, where there is no `z`
-        const program = n(
-            "seq",
-            n("define", "add", n("lambda", ["a", "b"], call("+", v("a"), v("b")))),
-            n(
-                "let",
-                n("bind", "z", c(10)),
-                call("add", v("z"), c(5)),
-            ),
-        );
-        expect(run(vm, program)).toBe(15);
+        let err: any;
+        try {
+            run(
+                vm,
+                [
+                    "begin",
+                    [
+                        "define",
+                        "h",
+                        [
+                            "lambda",
+                            ["x"],
+                            ["throw_runtime_error", 0, q("bad arg")],
+                        ],
+                    ],
+                    ["h", [{ at: "blame" }, "+", 1, 2]],
+                ],
+            );
+        } catch (e) {
+            err = e;
+        }
+        expect(err).toBeInstanceOf(JEBError);
+        expect(err.message).toBe("bad arg");
+        // throw_runtime_error's own entry is gone; h's entry moved to the
+        // argument's location
+        expect(leafNames(err.traceback)).toEqual(["h"]);
+        const ls = leaves(err);
+        expect(ls[0]!.leaf && ls[0]!.source?.span).toEqual({ at: "blame" });
+    });
+    test("throw_runtime_error with null blames the invoking call itself", () => {
+        const { vm } = makeVM();
+        let err: any;
+        try {
+            run(
+                vm,
+                [
+                    "begin",
+                    [
+                        "define",
+                        "h",
+                        [
+                            "lambda",
+                            ["x"],
+                            ["throw_runtime_error", null, q("oops")],
+                        ],
+                    ],
+                    [{ at: "callsite" }, "h", 1],
+                ],
+            );
+        } catch (e) {
+            err = e;
+        }
+        expect(err).toBeInstanceOf(JEBError);
+        expect(err.message).toBe("oops");
+        expect(leafNames(err.traceback)).toEqual(["h"]);
+        const ls = leaves(err);
+        expect(ls[0]!.leaf && ls[0]!.source?.span).toEqual({
+            at: "callsite",
+        });
     });
 });
 
 const testWind = makeTestRun(makeVM);
 
 describe("dynamic-wind handler flags", () => {
-    const enter = () =>
-        n(
-            "lambda",
-            ["cont"],
-            n(
-                "if",
-                v("cont"),
-                call("print", c("enter-cont")),
-                call("print", c("enter")),
-            ),
-        );
-    const exit = () =>
-        n("lambda", ["err", "cont"], call("print", v("err"), v("cont")));
+    const enter = (): any[] => [
+        "lambda",
+        ["cont"],
+        ["if", "cont", ["print", q("enter-cont")], ["print", q("enter")]],
+    ];
+    const exit = (): any[] => [
+        "lambda",
+        ["err", "cont"],
+        ["print", "err", "cont"],
+    ];
     testWind(
         test,
         "a normal pass calls enter and exit with isFromContinuation false",
         (vm, out) => {
             run(
                 vm,
-                n(
-                    "dynamic-wind",
-                    enter(),
-                    n("lambda", [], call("print", c("body"))),
-                    exit(),
-                ),
+                ["dynamic_wind", enter(), ["lambda", [], ["print", q("body")]], exit()],
             );
             expect(out).toEqual(["enter", "body", "null false"]);
         },
@@ -922,23 +1040,22 @@ describe("dynamic-wind handler flags", () => {
         (vm, out) => {
             const result = run(
                 vm,
-                n(
-                    "callcc",
-                    n(
+                [
+                    [
                         "lambda",
-                        ["k"],
-                        n(
-                            "dynamic-wind",
-                            enter(),
-                            n(
-                                "lambda",
-                                [],
-                                n("call", v("k"), c("escaped")),
-                            ),
-                            exit(),
-                        ),
-                    ),
-                ),
+                        [],
+                        [
+                            "let",
+                            [["r", "return"]],
+                            [
+                                "dynamic_wind",
+                                enter(),
+                                ["lambda", [], ["r", q("escaped")]],
+                                exit(),
+                            ],
+                        ],
+                    ],
+                ],
             );
             expect(result).toBe("escaped");
             expect(out).toEqual(["enter", "null true"]);
@@ -948,44 +1065,37 @@ describe("dynamic-wind handler flags", () => {
         test,
         "re-entering through a continuation calls enter with isFromContinuation true",
         (vm, out) => {
+            // the body captures a continuation standing for "the rest of
+            // the body, then out of the wind" (an inner function's return)
+            // and stores it; invoking it after the wind has exited
+            // re-enters the wind
             const result = run(
                 vm,
-                n(
-                    "seq",
-                    n("define", "k", c(null)),
-                    n("define", "first", c(true)),
-                    n(
-                        "dynamic-wind",
+                [
+                    "begin",
+                    ["define", "k", null],
+                    ["define", "first", true],
+                    [
+                        "dynamic_wind",
                         enter(),
-                        n(
+                        [
                             "lambda",
                             [],
-                            n(
-                                "seq",
-                                n(
-                                    "callcc",
-                                    n(
-                                        "lambda",
-                                        ["cc"],
-                                        n("assign", "k", v("cc")),
-                                    ),
-                                ),
-                                call("print", c("body")),
-                            ),
-                        ),
+                            [
+                                "begin",
+                                [["lambda", [], ["assign", "k", "return"]]],
+                                ["print", q("body")],
+                            ],
+                        ],
                         exit(),
-                    ),
-                    n(
+                    ],
+                    [
                         "if",
-                        v("first"),
-                        n(
-                            "seq",
-                            n("assign", "first", c(false)),
-                            n("call", v("k"), c(null)),
-                        ),
-                        c("done"),
-                    ),
-                ),
+                        "first",
+                        ["begin", ["assign", "first", false], ["k", null]],
+                        q("done"),
+                    ],
+                ],
             );
             expect(result).toBe("done");
             expect(out).toEqual([
@@ -1006,16 +1116,12 @@ describe("dynamic-wind handler flags", () => {
             try {
                 run(
                     vm,
-                    n(
-                        "dynamic-wind",
+                    [
+                        "dynamic_wind",
                         enter(),
-                        n("lambda", [], call("boom")),
-                        n(
-                            "lambda",
-                            ["err", "cont"],
-                            call("print", v("cont")),
-                        ),
-                    ),
+                        ["lambda", [], ["boom"]],
+                        ["lambda", ["err", "cont"], ["print", "cont"]],
+                    ],
                 );
             } catch (e) {
                 err = e;
@@ -1025,95 +1131,4 @@ describe("dynamic-wind handler flags", () => {
             expect(out).toEqual(["enter", "false"]);
         },
     );
-});
-
-describe("the core is code-representation agnostic", () => {
-    // A minimal layer over plain-object nodes ({ kind, kids }) instead of
-    // the Lisp IR: three node kinds, no calls, no opcode table. It exists
-    // to prove the core really never touches a node shape -- everything
-    // goes through the evalNode hook, and the generic machinery (seq via
-    // seqStart, conditionals via OP_if_after and the boolify hooks) works
-    // over any code type.
-    type ObjNode = { kind: string; span?: string; ch: ObjNode[] };
-    class ObjVM extends JebVM<any, string, ObjNode> {
-        noneValue() {
-            return null;
-        }
-        noValue() {
-            return NO_VALUE;
-        }
-        createError(message: string) {
-            return new JEBError(message, {}, {}, this.tracebackArray());
-        }
-        isError(value: unknown) {
-            return value instanceof JEBError;
-        }
-        getLocation(node: ObjNode) {
-            return node.span;
-        }
-        boolify(value: any) {
-            pushData(this, value);
-        }
-        isTruthy(value: any) {
-            return !!value;
-        }
-        booleanValue(value: boolean) {
-            return value;
-        }
-        getVariable(): any {
-            throw this.createError("no variables in this layer");
-        }
-        defineVariable(): void {
-            throw this.createError("no variables in this layer");
-        }
-        assignVariable(): void {
-            throw this.createError("no variables in this layer");
-        }
-        dispatchCall() {
-            throw this.createError("no calls in this layer");
-        }
-        evalNode(node: ObjNode, tail: boolean) {
-            switch (node.kind) {
-                case "const":
-                    pushData(this, node.ch[0]);
-                    return;
-                case "seq":
-                    seqStart(this, node.ch as ObjNode[], tail);
-                    return;
-                case "if":
-                    pushCommand(
-                        this,
-                        OP_if_after,
-                        node.ch[1] as ObjNode,
-                        node.ch[2] as ObjNode,
-                        node.ch.length > 2,
-                        tail,
-                    );
-                    pushCommand(this, OP_eval, node.ch[0] as ObjNode, false);
-                    return;
-                default:
-                    throw this.createError(`unknown node kind: ${node.kind}`);
-            }
-        }
-    }
-    const K = (value: any): ObjNode => ({ kind: "const", ch: [value] });
-    test("a VM over object nodes runs seq and if with no IR anywhere", () => {
-        const vm = new ObjVM();
-        const program: ObjNode = {
-            kind: "seq",
-            ch: [
-                {
-                    kind: "if",
-                    ch: [K(true), K(1), K(2)],
-                },
-                K(42),
-            ],
-        };
-        expect(run(vm, program)).toBe(42);
-        const vm2 = new ObjVM();
-        // a missing else produces the layer's None (null here)
-        expect(
-            run(vm2, { kind: "if", ch: [K(false), K(1)] }),
-        ).toBe(null);
-    });
 });

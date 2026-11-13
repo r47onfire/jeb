@@ -27,7 +27,7 @@ export class Env<D = any> {
         }
         const p = this.parents,
             len = p.length;
-        for (var i = 0; i < len; i++) {
+        for (let i = 0; i < len; i++) {
             const result = p[i]!.scopeFor(name);
             if (result.ok) return result;
         }
@@ -73,9 +73,10 @@ export class Env<D = any> {
     }
 }
 
-var n = 0;
+let n = 0;
 /**
  * Returns a new unique symbol with a unique number description (to
- * differentiate it in printouts).
+ * differentiate it in printouts). It really returns a symbol, but since symbols
+ * can masquerade as strings in Javascript object properties, it still works.
  */
-export const gensym = (s = "_") => Symbol(s + n++);
+export const gensym = (s = "_") => Symbol(s + n++) as any as string;

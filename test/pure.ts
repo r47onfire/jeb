@@ -20,8 +20,7 @@ export function extRefs(fn: Function) {
 }
 
 function isWriteTarget(path: NodePath) {
-    var current = path;
-    for (var current = path, parent = current.parent; parent; parent = current.parent) {
+    for (let current = path, parent = current.parent; parent; parent = current.parent) {
 
         if (t.isAssignmentExpression(parent) && parent.left === current.node) {
             return true;

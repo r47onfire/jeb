@@ -141,15 +141,15 @@ export const compressStackTree = (nodes: StackTreeNode[]): StackTreeNode[] => {
 
     const result: StackTreeNode[] = [];
 
-    for (var i = 0; i < len;) {
+    for (let i = 0; i < len;) {
         // Find the best repeating pattern starting at position i
-        var bestLen = 1,
+        let bestLen = 1,
             bestCount = 1;
 
         // Try pattern lengths from 1 to half the remaining array
         const maxPatternLen = ((len - i) / 2) | 0;
-        for (var patternLen = 1; patternLen <= maxPatternLen; patternLen++) {
-            var repeatCount = 1;
+        for (let patternLen = 1; patternLen <= maxPatternLen; patternLen++) {
+            let repeatCount = 1;
 
             // Count how many consecutive times this pattern repeats
             while (
@@ -206,7 +206,7 @@ const patternsEqual = (
     offset2: number,
     length: number,
 ): boolean => {
-    for (var i = 0; i < length; i++) {
+    for (let i = 0; i < length; i++) {
         if (!nodesEqual(nodes[offset1 + i]!, nodes[offset2 + i]!)) {
             return false;
         }
